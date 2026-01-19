@@ -1,0 +1,42 @@
+# Binaries
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+neuronip-api
+
+# Test files
+*_test.go
+*_test
+testdata/
+
+# Build artifacts
+*.o
+*.a
+*.test
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Git
+.git/
+.gitignore
+
+# Documentation
+*.md
+docs/
+
+# CI/CD
+.github/
+.circleci/
+
+# Misc
+.env
+.env.local
+*.log
+.DS_Store
