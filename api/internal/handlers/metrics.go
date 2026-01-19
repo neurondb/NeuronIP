@@ -4,8 +4,11 @@ import (
 	"encoding/json"
 	"net/http"
 
+	"strconv"
+
 	"github.com/google/uuid"
 	"github.com/gorilla/mux"
+	"github.com/neurondb/NeuronIP/api/internal/catalog"
 	"github.com/neurondb/NeuronIP/api/internal/errors"
 	"github.com/neurondb/NeuronIP/api/internal/metrics"
 )
@@ -13,16 +16,37 @@ import (
 /* MetricsHandler handles metrics and semantic layer requests */
 type MetricsHandler struct {
 	service *metrics.MetricsService
+	catalogService *catalog.MetricsService
 }
 
 /* NewMetricsHandler creates a new metrics handler */
-func NewMetricsHandler(service *metrics.MetricsService) *MetricsHandler {
-	return &MetricsHandler{service: service}
+func NewMetricsHandler(catalogService *catalog.MetricsService) *MetricsHandler {
+	return &MetricsHandler{
+		catalogService: catalogService,
+		service: nil, // Keep for backward compatibility
+	}
 }
 
 /* ListMetrics handles GET /api/v1/metrics */
 func (h *MetricsHandler) ListMetrics(w http.ResponseWriter, r *http.Request) {
-	metrics, err := h.service.ListMetrics(r.Context())
+	var status *string
+	if s := r.URL.Query().Get("status"); s != "" {
+		status = &s
+	}
+	
+	var category *string
+	if c := r.URL.Query().Get("category"); c != "" {
+		category = &c
+	}
+	
+	limit := 100
+	if limitStr := r.URL.Query().Get("limit"); limitStr != "" {
+		if l, err := strconv.Atoi(limitStr); err == nil {
+			limit = l
+		}
+	}
+	
+	metrics, err := h.catalogService.ListMetrics(r.Context(), status, category, limit)
 	if err != nil {
 		WriteError(w, err)
 		return
@@ -41,7 +65,7 @@ func (h *MetricsHandler) GetMetric(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	metric, err := h.service.GetMetric(r.Context(), id)
+	metric, err := h.catalogService.GetMetric(r.Context(), id)
 	if err != nil {
 		WriteError(w, err)
 		return
@@ -64,7 +88,7 @@ func (h *MetricsHandler) CreateMetric(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	metric, err := h.service.CreateMetric(r.Context(), req)
+	metric, err := h.catalogService.CreateMetric(r.Context(), req)
 	if err != nil {
 		WriteError(w, err)
 		return

@@ -365,6 +365,227 @@ func (s *Service) InferModel(ctx context.Context, modelID uuid.UUID, input map[s
 	}
 }
 
+/* CreateModelVersion creates a new version of a model */
+func (s *Service) CreateModelVersion(ctx context.Context, modelID uuid.UUID, version string, modelPath string, metadata map[string]interface{}, changelog *string) (*ModelVersion, error) {
+	modelVersion := &ModelVersion{
+		ModelID:   modelID,
+		Version:   version,
+		ModelPath: modelPath,
+		Metadata:  metadata,
+		Changelog: changelog,
+		CreatedAt: time.Now(),
+	}
+	
+	metadataJSON, _ := json.Marshal(metadata)
+	
+	query := `
+		INSERT INTO neuronip.model_versions 
+		(id, model_id, version, model_path, metadata, changelog, created_at)
+		VALUES (gen_random_uuid(), $1, $2, $3, $4, $5, $6)
+		RETURNING id, created_at`
+	
+	err := s.pool.QueryRow(ctx, query,
+		modelID, version, modelPath, metadataJSON, changelog, modelVersion.CreatedAt,
+	).Scan(&modelVersion.ID, &modelVersion.CreatedAt)
+	
+	if err != nil {
+		return nil, fmt.Errorf("failed to create model version: %w", err)
+	}
+	
+	// Update model version count
+	s.pool.Exec(ctx, `UPDATE neuronip.model_registry SET version_count = version_count + 1 WHERE id = $1`, modelID)
+	
+	return modelVersion, nil
+}
+
+/* ListModelVersions lists versions for a model */
+func (s *Service) ListModelVersions(ctx context.Context, modelID uuid.UUID) ([]ModelVersion, error) {
+	query := `
+		SELECT id, model_id, version, model_path, metadata, performance, changelog, created_by, created_at
+		FROM neuronip.model_versions
+		WHERE model_id = $1
+		ORDER BY created_at DESC`
+	
+	rows, err := s.pool.Query(ctx, query, modelID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to list model versions: %w", err)
+	}
+	defer rows.Close()
+	
+	versions := make([]ModelVersion, 0)
+	for rows.Next() {
+		var v ModelVersion
+		var metadataJSON, performanceJSON json.RawMessage
+		
+		err := rows.Scan(
+			&v.ID, &v.ModelID, &v.Version, &v.ModelPath, &metadataJSON, &performanceJSON,
+			&v.Changelog, &v.CreatedBy, &v.CreatedAt,
+		)
+		if err != nil {
+			continue
+		}
+		
+		if metadataJSON != nil {
+			json.Unmarshal(metadataJSON, &v.Metadata)
+		}
+		if performanceJSON != nil {
+			json.Unmarshal(performanceJSON, &v.Performance)
+		}
+		
+		versions = append(versions, v)
+	}
+	
+	return versions, nil
+}
+
+/* CreateExperiment creates an A/B testing experiment */
+func (s *Service) CreateExperiment(ctx context.Context, experiment ModelExperiment) (*ModelExperiment, error) {
+	experiment.ID = uuid.New()
+	experiment.CreatedAt = time.Now()
+	experiment.UpdatedAt = time.Now()
+	
+	if experiment.Status == "" {
+		experiment.Status = "draft"
+	}
+	
+	trafficSplitJSON, _ := json.Marshal(experiment.TrafficSplit)
+	resultsJSON, _ := json.Marshal(experiment.Results)
+	
+	query := `
+		INSERT INTO neuronip.model_experiments 
+		(id, name, description, model_a_id, model_b_id, traffic_split, status,
+		 start_date, end_date, results, created_by, created_at, updated_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+		RETURNING id, created_at, updated_at`
+	
+	err := s.pool.QueryRow(ctx, query,
+		experiment.ID, experiment.Name, experiment.Description, experiment.ModelAID, experiment.ModelBID,
+		trafficSplitJSON, experiment.Status, experiment.StartDate, experiment.EndDate, resultsJSON,
+		experiment.CreatedBy, experiment.CreatedAt, experiment.UpdatedAt,
+	).Scan(&experiment.ID, &experiment.CreatedAt, &experiment.UpdatedAt)
+	
+	if err != nil {
+		return nil, fmt.Errorf("failed to create experiment: %w", err)
+	}
+	
+	return &experiment, nil
+}
+
+/* RecordModelMetric records a performance metric for a model */
+func (s *Service) RecordModelMetric(ctx context.Context, modelID uuid.UUID, metricName string, metricValue float64, metadata map[string]interface{}) error {
+	metadataJSON, _ := json.Marshal(metadata)
+	
+	query := `
+		INSERT INTO neuronip.model_metrics 
+		(id, model_id, metric_name, metric_value, metadata, timestamp)
+		VALUES (gen_random_uuid(), $1, $2, $3, $4, NOW())`
+	
+	_, err := s.pool.Exec(ctx, query, modelID, metricName, metricValue, metadataJSON)
+	return err
+}
+
+/* GetModelMetrics retrieves metrics for a model */
+func (s *Service) GetModelMetrics(ctx context.Context, modelID uuid.UUID, metricName *string, startTime *time.Time, endTime *time.Time, limit int) ([]ModelMetric, error) {
+	query := `
+		SELECT id, model_id, metric_name, metric_value, metadata, timestamp
+		FROM neuronip.model_metrics
+		WHERE model_id = $1`
+	
+	args := []interface{}{modelID}
+	argIndex := 2
+	
+	if metricName != nil {
+		query += fmt.Sprintf(" AND metric_name = $%d", argIndex)
+		args = append(args, *metricName)
+		argIndex++
+	}
+	
+	if startTime != nil {
+		query += fmt.Sprintf(" AND timestamp >= $%d", argIndex)
+		args = append(args, *startTime)
+		argIndex++
+	}
+	
+	if endTime != nil {
+		query += fmt.Sprintf(" AND timestamp <= $%d", argIndex)
+		args = append(args, *endTime)
+		argIndex++
+	}
+	
+	query += " ORDER BY timestamp DESC"
+	
+	if limit > 0 {
+		query += fmt.Sprintf(" LIMIT $%d", argIndex)
+		args = append(args, limit)
+	}
+	
+	rows, err := s.pool.Query(ctx, query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get model metrics: %w", err)
+	}
+	defer rows.Close()
+	
+	metrics := make([]ModelMetric, 0)
+	for rows.Next() {
+		var m ModelMetric
+		var metadataJSON json.RawMessage
+		
+		err := rows.Scan(&m.ID, &m.ModelID, &m.MetricName, &m.MetricValue, &metadataJSON, &m.Timestamp)
+		if err != nil {
+			continue
+		}
+		
+		if metadataJSON != nil {
+			json.Unmarshal(metadataJSON, &m.Metadata)
+		}
+		
+		metrics = append(metrics, m)
+	}
+	
+	return metrics, nil
+}
+
+/* ModelVersion represents a model version */
+type ModelVersion struct {
+	ID          uuid.UUID              `json:"id"`
+	ModelID     uuid.UUID              `json:"model_id"`
+	Version     string                 `json:"version"`
+	ModelPath   string                 `json:"model_path"`
+	Metadata    map[string]interface{} `json:"metadata,omitempty"`
+	Performance map[string]interface{} `json:"performance,omitempty"`
+	Changelog   *string                `json:"changelog,omitempty"`
+	CreatedBy   *string                `json:"created_by,omitempty"`
+	CreatedAt   time.Time              `json:"created_at"`
+}
+
+/* ModelExperiment represents an A/B testing experiment */
+type ModelExperiment struct {
+	ID          uuid.UUID              `json:"id"`
+	Name        string                 `json:"name"`
+	Description *string                `json:"description,omitempty"`
+	ModelAID    uuid.UUID              `json:"model_a_id"`
+	ModelBID    uuid.UUID              `json:"model_b_id"`
+	TrafficSplit map[string]int        `json:"traffic_split"`
+	Status      string                 `json:"status"`
+	StartDate   *time.Time             `json:"start_date,omitempty"`
+	EndDate     *time.Time             `json:"end_date,omitempty"`
+	Results     map[string]interface{} `json:"results,omitempty"`
+	CreatedBy   *string                `json:"created_by,omitempty"`
+	CreatedAt   time.Time              `json:"created_at"`
+	UpdatedAt   time.Time              `json:"updated_at"`
+}
+
+/* ModelMetric represents a model performance metric */
+type ModelMetric struct {
+	ID          uuid.UUID              `json:"id"`
+	ModelID     uuid.UUID              `json:"model_id"`
+	MetricName  string                 `json:"metric_name"`
+	MetricValue float64                `json:"metric_value"`
+	Metadata    map[string]interface{} `json:"metadata,omitempty"`
+	Timestamp   time.Time              `json:"timestamp"`
+}
+
+
 /* calculateClassificationMetrics calculates classification metrics from predictions and ground truth */
 func calculateClassificationMetrics(predictionsRaw interface{}, groundTruth []interface{}) map[string]interface{} {
 	if len(groundTruth) == 0 {

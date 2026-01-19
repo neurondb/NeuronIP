@@ -15,6 +15,7 @@ import (
 	"github.com/neurondb/NeuronIP/api/internal/agents"
 	"github.com/neurondb/NeuronIP/api/internal/alerts"
 	"github.com/neurondb/NeuronIP/api/internal/analytics"
+	"github.com/neurondb/NeuronIP/api/internal/audit"
 	"github.com/neurondb/NeuronIP/api/internal/auth"
 	"github.com/neurondb/NeuronIP/api/internal/billing"
 	"github.com/neurondb/NeuronIP/api/internal/catalog"
@@ -23,6 +24,8 @@ import (
 	"github.com/neurondb/NeuronIP/api/internal/datasources"
 	"github.com/neurondb/NeuronIP/api/internal/db"
 	"github.com/neurondb/NeuronIP/api/internal/handlers"
+	"github.com/neurondb/NeuronIP/api/internal/ingestion"
+	"github.com/neurondb/NeuronIP/api/internal/ingestion/connectors"
 	"github.com/neurondb/NeuronIP/api/internal/integrations"
 	"github.com/neurondb/NeuronIP/api/internal/knowledgegraph"
 	"github.com/neurondb/NeuronIP/api/internal/lineage"
@@ -32,6 +35,7 @@ import (
 	"github.com/neurondb/NeuronIP/api/internal/models"
 	"github.com/neurondb/NeuronIP/api/internal/neurondb"
 	"github.com/neurondb/NeuronIP/api/internal/observability"
+	"github.com/neurondb/NeuronIP/api/internal/policy"
 	"github.com/neurondb/NeuronIP/api/internal/semantic"
 	"github.com/neurondb/NeuronIP/api/internal/support"
 	"github.com/neurondb/NeuronIP/api/internal/versioning"
@@ -117,11 +121,11 @@ func main() {
 	router := mux.NewRouter()
 
 	// Apply global middleware (order matters)
-	router.Use(middleware.Recovery)                              // Recover from panics
-	router.Use(middleware.RequestID)                             // Add request ID
-	router.Use(middleware.SecurityHeaders)                       // Security headers
-	router.Use(middleware.HTTPLogging)                           // Request/response logging
-	router.Use(middleware.CORS(middleware.CORSConfig{            // CORS
+	router.Use(middleware.Recovery)                   // Recover from panics
+	router.Use(middleware.RequestID)                  // Add request ID
+	router.Use(middleware.SecurityHeaders)            // Security headers
+	router.Use(middleware.HTTPLogging)                // Request/response logging
+	router.Use(middleware.CORS(middleware.CORSConfig{ // CORS
 		AllowedOrigins: cfg.CORS.AllowedOrigins,
 		AllowedMethods: cfg.CORS.AllowedMethods,
 		AllowedHeaders: cfg.CORS.AllowedHeaders,
@@ -205,9 +209,7 @@ func main() {
 	lineageService := lineage.NewLineageService(pool.Pool)
 	lineageHandler := handlers.NewLineageHandler(lineageService)
 
-	// Initialize audit service
-	auditService := compliance.NewAuditService(pool.Pool)
-	auditHandler := handlers.NewAuditHandler(auditService)
+	// Audit service is initialized above with new audit package
 
 	// Initialize billing service
 	billingService := billing.NewBillingService(pool.Pool)
@@ -220,6 +222,43 @@ func main() {
 	// Initialize catalog service
 	catalogService := catalog.NewCatalogService(pool.Pool)
 	catalogHandler := handlers.NewCatalogHandler(catalogService)
+
+	// Initialize metrics service (metric catalog)
+	metricsCatalogService := catalog.NewMetricsService(pool.Pool)
+	metricsCatalogHandler := handlers.NewMetricsHandler(metricsCatalogService)
+
+	// Initialize semantic definitions service
+	semanticDefinitionsService := catalog.NewSemanticService(pool.Pool)
+	// Note: semantic search handler uses semantic.Service, not catalog.SemanticService
+
+	// Initialize ingestion service
+	ingestionService := ingestion.NewService(pool.Pool)
+	// Register connector factories to avoid import cycles
+	ingestionService.RegisterConnectorFactory("zendesk", func(ct string) ingestion.Connector {
+		return connectors.NewZendeskConnector()
+	})
+	ingestionService.RegisterConnectorFactory("salesforce", func(ct string) ingestion.Connector {
+		return connectors.NewSalesforceConnector()
+	})
+	ingestionService.RegisterConnectorFactory("slack", func(ct string) ingestion.Connector {
+		return connectors.NewSlackConnector()
+	})
+	ingestionService.RegisterConnectorFactory("teams", func(ct string) ingestion.Connector {
+		return connectors.NewTeamsConnector()
+	})
+	ingestionHandler := handlers.NewIngestionHandler(ingestionService)
+
+	// Initialize audit service
+	auditService := audit.NewAuditService(pool.Pool)
+	auditHandler := handlers.NewAuditHandler(auditService)
+
+	// Initialize policy engine
+	policyEngine := policy.NewPolicyEngine(pool.Pool)
+	policyHandler := handlers.NewPolicyHandler(policyEngine)
+
+	// Initialize webhook service
+	webhookService := integrations.NewWebhookService(pool.Pool)
+	webhookHandler := handlers.NewWebhookHandler(webhookService)
 
 	// Semantic search routes
 	apiRouter.HandleFunc("/semantic/search", semanticHandler.Search).Methods("POST")
@@ -350,6 +389,29 @@ func main() {
 	apiRouter.HandleFunc("/catalog/search", catalogHandler.SearchDatasets).Methods("GET")
 	apiRouter.HandleFunc("/catalog/owners", catalogHandler.ListOwners).Methods("GET")
 	apiRouter.HandleFunc("/catalog/discover", catalogHandler.DiscoverDatasets).Methods("POST")
+
+	// Metric catalog routes
+	apiRouter.HandleFunc("/catalog/metrics", metricsCatalogHandler.ListMetrics).Methods("GET")
+	apiRouter.HandleFunc("/catalog/metrics", metricsCatalogHandler.CreateMetric).Methods("POST")
+	apiRouter.HandleFunc("/catalog/metrics/{id}", metricsCatalogHandler.GetMetric).Methods("GET")
+	apiRouter.HandleFunc("/catalog/metrics/{id}/lineage", metricsCatalogHandler.GetMetric).Methods("GET") // TODO: Add lineage endpoint
+
+	// Ingestion routes
+	apiRouter.HandleFunc("/ingestion/jobs", ingestionHandler.CreateJob).Methods("POST")
+	apiRouter.HandleFunc("/ingestion/jobs", ingestionHandler.ListJobs).Methods("GET")
+	apiRouter.HandleFunc("/ingestion/jobs/{id}", ingestionHandler.GetJob).Methods("GET")
+	apiRouter.HandleFunc("/ingestion/jobs/{id}/execute", ingestionHandler.ExecuteJob).Methods("POST")
+
+	// Policy routes
+	apiRouter.HandleFunc("/policies", policyHandler.CreatePolicy).Methods("POST")
+	apiRouter.HandleFunc("/policies/{id}", policyHandler.GetPolicy).Methods("GET")
+	apiRouter.HandleFunc("/policies/{id}/evaluate", policyHandler.EvaluatePolicy).Methods("POST")
+
+	// Webhook routes
+	apiRouter.HandleFunc("/webhooks", webhookHandler.CreateWebhook).Methods("POST")
+	apiRouter.HandleFunc("/webhooks", webhookHandler.ListWebhooks).Methods("GET")
+	apiRouter.HandleFunc("/webhooks/{id}", webhookHandler.GetWebhook).Methods("GET")
+	apiRouter.HandleFunc("/webhooks/{id}/trigger", webhookHandler.TriggerWebhook).Methods("POST")
 
 	// Create HTTP server
 	server := &http.Server{

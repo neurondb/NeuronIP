@@ -1,0 +1,80 @@
+replicaCount: 3
+
+image:
+  api:
+    repository: neuronip-api
+    tag: latest
+    pullPolicy: IfNotPresent
+  frontend:
+    repository: neuronip-frontend
+    tag: latest
+    pullPolicy: IfNotPresent
+
+service:
+  api:
+    type: ClusterIP
+    port: 8082
+  frontend:
+    type: ClusterIP
+    port: 3000
+
+ingress:
+  enabled: true
+  className: nginx
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+  hosts:
+    - host: api.neuronip.example.com
+      paths:
+        - path: /
+          pathType: Prefix
+    - host: app.neuronip.example.com
+      paths:
+        - path: /
+          pathType: Prefix
+  tls:
+    - secretName: neuronip-tls
+      hosts:
+        - api.neuronip.example.com
+        - app.neuronip.example.com
+
+autoscaling:
+  enabled: true
+  minReplicas: 3
+  maxReplicas: 10
+  targetCPUUtilizationPercentage: 70
+  targetMemoryUtilizationPercentage: 80
+
+resources:
+  api:
+    requests:
+      memory: "256Mi"
+      cpu: "250m"
+    limits:
+      memory: "512Mi"
+      cpu: "500m"
+  frontend:
+    requests:
+      memory: "128Mi"
+      cpu: "100m"
+    limits:
+      memory: "256Mi"
+      cpu: "200m"
+
+database:
+  host: postgres-service
+  port: 5432
+  name: neuronip
+  user: neuronip
+
+config:
+  server:
+    host: "0.0.0.0"
+    port: "8082"
+  cors:
+    allowed_origins: "*"
+    allowed_methods: "GET,POST,PUT,DELETE,OPTIONS"
+    allowed_headers: "Content-Type,Authorization"
+  logging:
+    level: "info"
+    format: "json"

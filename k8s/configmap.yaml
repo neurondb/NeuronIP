@@ -1,0 +1,15 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: neuronip-config
+  namespace: neuronip
+data:
+  server.host: "0.0.0.0"
+  server.port: "8082"
+  server.read_timeout: "30s"
+  server.write_timeout: "30s"
+  cors.allowed_origins: "*"
+  cors.allowed_methods: "GET,POST,PUT,DELETE,OPTIONS"
+  cors.allowed_headers: "Content-Type,Authorization"
+  logging.level: "info"
+  logging.format: "json"

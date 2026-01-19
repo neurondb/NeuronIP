@@ -669,3 +669,73 @@ func (s *Service) SearchGlossary(ctx context.Context, query string, category *st
 
 	return terms, nil
 }
+
+/* ExecuteGraphQuery executes a graph query (Cypher-like) */
+func (s *Service) ExecuteGraphQuery(ctx context.Context, query string) (*GraphQueryResult, error) {
+	// Simple graph query implementation
+	// In production, would use a proper graph query parser
+	
+	// Parse query to extract patterns
+	// For now, support simple patterns like: MATCH (a)-[r]->(b) WHERE ...
+	
+	// This is a placeholder - would need proper graph query parser
+	return &GraphQueryResult{
+		Nodes: []Entity{},
+		Edges: []EntityLink{},
+	}, fmt.Errorf("graph query language not yet fully implemented")
+}
+
+/* GraphQueryResult represents the result of a graph query */
+type GraphQueryResult struct {
+	Nodes []Entity     `json:"nodes"`
+	Edges []EntityLink `json:"edges"`
+}
+
+/* CalculateCentrality calculates centrality metrics for entities */
+func (s *Service) CalculateCentrality(ctx context.Context, entityID uuid.UUID, centralityType string) (float64, error) {
+	// Calculate different types of centrality
+	// - degree: number of connections
+	// - betweenness: how often entity appears in shortest paths
+	// - closeness: average distance to all other entities
+	
+	switch centralityType {
+	case "degree":
+		// Count connections
+		query := `
+			SELECT COUNT(*) 
+			FROM neuronip.entity_links
+			WHERE source_entity_id = $1 OR target_entity_id = $1`
+		
+		var count int
+		err := s.pool.QueryRow(ctx, query, entityID).Scan(&count)
+		return float64(count), err
+		
+	case "betweenness":
+		// Simplified betweenness calculation
+		// In production, would use proper graph algorithm
+		return 0.0, fmt.Errorf("betweenness centrality not yet implemented")
+		
+	case "closeness":
+		// Simplified closeness calculation
+		return 0.0, fmt.Errorf("closeness centrality not yet implemented")
+		
+	default:
+		return 0.0, fmt.Errorf("unknown centrality type: %s", centralityType)
+	}
+}
+
+/* DetectCommunities detects communities in the graph */
+func (s *Service) DetectCommunities(ctx context.Context) ([]Community, error) {
+	// Community detection using graph algorithms
+	// In production, would use proper community detection algorithm (e.g., Louvain)
+	
+	// Placeholder implementation
+	return []Community{}, fmt.Errorf("community detection not yet implemented")
+}
+
+/* Community represents a detected community */
+type Community struct {
+	ID       int       `json:"id"`
+	Entities []uuid.UUID `json:"entities"`
+	Size     int       `json:"size"`
+}

@@ -183,3 +183,184 @@ func (s *ObservabilityService) GetAgentLogs(ctx context.Context, limit int) ([]S
 func (s *ObservabilityService) GetWorkflowLogs(ctx context.Context, limit int) ([]SystemLog, error) {
 	return s.GetSystemLogs(ctx, "workflow", "", limit)
 }
+
+/* RecordUsageMetric records a usage metric */
+func (s *ObservabilityService) RecordUsageMetric(ctx context.Context, userID *string, resourceType string, resourceID *string, metricName string, metricValue float64, unit *string, metadata map[string]interface{}) error {
+	metadataJSON, _ := json.Marshal(metadata)
+	
+	query := `
+		INSERT INTO neuronip.usage_metrics 
+		(id, user_id, resource_type, resource_id, metric_name, metric_value, unit, metadata, timestamp)
+		VALUES (gen_random_uuid(), $1, $2, $3, $4, $5, $6, $7, NOW())`
+	
+	_, err := s.pool.Exec(ctx, query, userID, resourceType, resourceID, metricName, metricValue, unit, metadataJSON)
+	return err
+}
+
+/* GetUsageMetrics retrieves usage metrics */
+func (s *ObservabilityService) GetUsageMetrics(ctx context.Context, filters UsageFilters, limit int) ([]UsageMetric, error) {
+	query := `
+		SELECT id, user_id, resource_type, resource_id, metric_name, metric_value, unit, metadata, timestamp
+		FROM neuronip.usage_metrics
+		WHERE 1=1`
+	
+	args := []interface{}{}
+	argIndex := 1
+	
+	if filters.UserID != nil {
+		query += fmt.Sprintf(" AND user_id = $%d", argIndex)
+		args = append(args, *filters.UserID)
+		argIndex++
+	}
+	
+	if filters.ResourceType != nil {
+		query += fmt.Sprintf(" AND resource_type = $%d", argIndex)
+		args = append(args, *filters.ResourceType)
+		argIndex++
+	}
+	
+	if filters.MetricName != nil {
+		query += fmt.Sprintf(" AND metric_name = $%d", argIndex)
+		args = append(args, *filters.MetricName)
+		argIndex++
+	}
+	
+	if filters.StartTime != nil {
+		query += fmt.Sprintf(" AND timestamp >= $%d", argIndex)
+		args = append(args, *filters.StartTime)
+		argIndex++
+	}
+	
+	if filters.EndTime != nil {
+		query += fmt.Sprintf(" AND timestamp <= $%d", argIndex)
+		args = append(args, *filters.EndTime)
+		argIndex++
+	}
+	
+	query += " ORDER BY timestamp DESC"
+	
+	if limit > 0 {
+		query += fmt.Sprintf(" LIMIT $%d", argIndex)
+		args = append(args, limit)
+	}
+	
+	rows, err := s.pool.Query(ctx, query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get usage metrics: %w", err)
+	}
+	defer rows.Close()
+	
+	metrics := make([]UsageMetric, 0)
+	for rows.Next() {
+		var m UsageMetric
+		var metadataJSON json.RawMessage
+		
+		err := rows.Scan(&m.ID, &m.UserID, &m.ResourceType, &m.ResourceID, &m.MetricName, &m.MetricValue, &m.Unit, &metadataJSON, &m.Timestamp)
+		if err != nil {
+			continue
+		}
+		
+		if metadataJSON != nil {
+			json.Unmarshal(metadataJSON, &m.Metadata)
+		}
+		
+		metrics = append(metrics, m)
+	}
+	
+	return metrics, nil
+}
+
+/* RecordCost records a cost */
+func (s *ObservabilityService) RecordCost(ctx context.Context, userID *string, resourceType string, resourceID *string, costAmount float64, currency string, costCategory string, periodStart, periodEnd time.Time, metadata map[string]interface{}) error {
+	metadataJSON, _ := json.Marshal(metadata)
+	
+	query := `
+		INSERT INTO neuronip.cost_tracking 
+		(id, user_id, resource_type, resource_id, cost_amount, currency, cost_category,
+		 billing_period_start, billing_period_end, metadata, created_at)
+		VALUES (gen_random_uuid(), $1, $2, $3, $4, $5, $6, $7, $8, $9, NOW())`
+	
+	_, err := s.pool.Exec(ctx, query, userID, resourceType, resourceID, costAmount, currency, costCategory, periodStart, periodEnd, metadataJSON)
+	return err
+}
+
+/* GetCostSummary retrieves cost summary */
+func (s *ObservabilityService) GetCostSummary(ctx context.Context, userID *string, startTime, endTime time.Time) (*CostSummary, error) {
+	query := `
+		SELECT 
+			SUM(cost_amount) as total_cost,
+			cost_category,
+			COUNT(*) as record_count
+		FROM neuronip.cost_tracking
+		WHERE billing_period_start >= $1 AND billing_period_end <= $2`
+	
+	args := []interface{}{startTime, endTime}
+	argIndex := 3
+	
+	if userID != nil {
+		query += fmt.Sprintf(" AND user_id = $%d", argIndex)
+		args = append(args, *userID)
+		argIndex++
+	}
+	
+	query += " GROUP BY cost_category"
+	
+	rows, err := s.pool.Query(ctx, query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get cost summary: %w", err)
+	}
+	defer rows.Close()
+	
+	summary := &CostSummary{
+		TotalCost: 0,
+		ByCategory: make(map[string]float64),
+		PeriodStart: startTime,
+		PeriodEnd: endTime,
+	}
+	
+	for rows.Next() {
+		var category string
+		var cost float64
+		var count int
+		
+		err := rows.Scan(&cost, &category, &count)
+		if err != nil {
+			continue
+		}
+		
+		summary.TotalCost += cost
+		summary.ByCategory[category] = cost
+	}
+	
+	return summary, nil
+}
+
+/* UsageMetric represents a usage metric */
+type UsageMetric struct {
+	ID           uuid.UUID              `json:"id"`
+	UserID       *string                `json:"user_id,omitempty"`
+	ResourceType string                 `json:"resource_type"`
+	ResourceID   *string                `json:"resource_id,omitempty"`
+	MetricName   string                 `json:"metric_name"`
+	MetricValue  float64                `json:"metric_value"`
+	Unit         *string                `json:"unit,omitempty"`
+	Metadata     map[string]interface{} `json:"metadata,omitempty"`
+	Timestamp    time.Time              `json:"timestamp"`
+}
+
+/* UsageFilters filters for usage metric queries */
+type UsageFilters struct {
+	UserID       *string
+	ResourceType *string
+	MetricName   *string
+	StartTime    *time.Time
+	EndTime      *time.Time
+}
+
+/* CostSummary represents a cost summary */
+type CostSummary struct {
+	TotalCost   float64             `json:"total_cost"`
+	ByCategory  map[string]float64  `json:"by_category"`
+	PeriodStart time.Time           `json:"period_start"`
+	PeriodEnd   time.Time           `json:"period_end"`
+}

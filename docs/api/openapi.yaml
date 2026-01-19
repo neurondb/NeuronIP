@@ -1,0 +1,192 @@
+openapi: 3.0.0
+info:
+  title: NeuronIP API
+  description: Enterprise Intelligence Platform API
+  version: 1.0.0
+  contact:
+    name: NeuronIP Support
+    email: support@neurondb.ai
+
+servers:
+  - url: http://localhost:8082/api/v1
+    description: Local development
+  - url: https://api.neuronip.example.com/api/v1
+    description: Production
+
+paths:
+  /health:
+    get:
+      summary: Health check
+      operationId: healthCheck
+      responses:
+        '200':
+          description: Service is healthy
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: "ok"
+
+  /semantic/search:
+    post:
+      summary: Semantic search
+      operationId: semanticSearch
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                query:
+                  type: string
+                limit:
+                  type: integer
+                  default: 10
+      responses:
+        '200':
+          description: Search results
+          content:
+            application/json:
+              schema:
+                type: object
+
+  /warehouse/query:
+    post:
+      summary: Execute warehouse query
+      operationId: warehouseQuery
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                query:
+                  type: string
+                schema_id:
+                  type: string
+                  format: uuid
+      responses:
+        '200':
+          description: Query results
+          content:
+            application/json:
+              schema:
+                type: object
+
+  /ingestion/jobs:
+    post:
+      summary: Create ingestion job
+      operationId: createIngestionJob
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                data_source_id:
+                  type: string
+                  format: uuid
+                job_type:
+                  type: string
+                  enum: [sync, cdc, etl, file_upload]
+                config:
+                  type: object
+      responses:
+        '201':
+          description: Job created
+    get:
+      summary: List ingestion jobs
+      operationId: listIngestionJobs
+      parameters:
+        - name: data_source_id
+          in: query
+          schema:
+            type: string
+            format: uuid
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 100
+      responses:
+        '200':
+          description: List of jobs
+
+  /metrics:
+    get:
+      summary: List metrics
+      operationId: listMetrics
+      responses:
+        '200':
+          description: List of metrics
+    post:
+      summary: Create metric
+      operationId: createMetric
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        '201':
+          description: Metric created
+
+  /audit/events:
+    get:
+      summary: Get audit events
+      operationId: getAuditEvents
+      parameters:
+        - name: user_id
+          in: query
+          schema:
+            type: string
+        - name: action_type
+          in: query
+          schema:
+            type: string
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 100
+      responses:
+        '200':
+          description: Audit events
+
+  /policies:
+    get:
+      summary: List policies
+      operationId: listPolicies
+      responses:
+        '200':
+          description: List of policies
+    post:
+      summary: Create policy
+      operationId: createPolicy
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        '201':
+          description: Policy created
+
+components:
+  securitySchemes:
+    ApiKeyAuth:
+      type: apiKey
+      in: header
+      name: Authorization
+      description: API key in format "Bearer <key>"
+
+security:
+  - ApiKeyAuth: []

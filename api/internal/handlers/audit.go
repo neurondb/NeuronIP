@@ -5,17 +5,17 @@ import (
 	"net/http"
 	"strconv"
 
-	"github.com/neurondb/NeuronIP/api/internal/compliance"
+	"github.com/neurondb/NeuronIP/api/internal/audit"
 	"github.com/neurondb/NeuronIP/api/internal/errors"
 )
 
 /* AuditHandler handles audit and activity requests */
 type AuditHandler struct {
-	auditService *compliance.AuditService
+	auditService *audit.AuditService
 }
 
 /* NewAuditHandler creates a new audit handler */
-func NewAuditHandler(auditService *compliance.AuditService) *AuditHandler {
+func NewAuditHandler(auditService *audit.AuditService) *AuditHandler {
 	return &AuditHandler{auditService: auditService}
 }
 
