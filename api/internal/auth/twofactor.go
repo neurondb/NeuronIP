@@ -2,11 +2,15 @@ package auth
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/base32"
 	"fmt"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/neurondb/NeuronIP/api/internal/db"
+	"github.com/pquerna/otp"
+	"github.com/pquerna/otp/totp"
 	"golang.org/x/crypto/bcrypt"
 )
 
@@ -30,34 +34,62 @@ type TOTPSecret struct {
 
 /* GenerateTOTPSecret generates a new TOTP secret for a user */
 func (s *TwoFactorService) GenerateTOTPSecret(ctx context.Context, userID uuid.UUID, email string) (*TOTPSecret, error) {
-	// Generate a random base32 secret (compatible with TOTP)
-	secret := generateBase32Secret(32)
-	// QR code URL would be generated in a real implementation
-	// For now, return the secret
-	qrCodeURL := fmt.Sprintf("otpauth://totp/NeuronIP:%s?secret=%s&issuer=NeuronIP", email, secret)
+	// Generate TOTP key using proper library
+	key, err := totp.Generate(totp.GenerateOpts{
+		Issuer:      "NeuronIP",
+		AccountName: email,
+		Period:      30, // 30 second time window
+		Digits:      otp.DigitsSix,
+		Algorithm:   otp.AlgorithmSHA1,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to generate TOTP key: %w", err)
+	}
 
 	return &TOTPSecret{
-		Secret:    secret,
-		QRCodeURL: qrCodeURL,
+		Secret:    key.Secret(),
+		QRCodeURL: key.URL(),
 	}, nil
 }
 
-/* VerifyTOTP verifies a TOTP code - simplified implementation */
+/* VerifyTOTP verifies a TOTP code using proper TOTP validation */
 func (s *TwoFactorService) VerifyTOTP(secret, code string) (bool, error) {
-	// In a real implementation, use github.com/pquerna/otp/totp
-	// For now, this is a placeholder - should use totp.Validate(code, secret)
-	// This will need the otp library to be added to go.mod
-	return len(code) == 6, nil // Placeholder validation
+	// Validate TOTP code with proper library
+	valid := totp.Validate(code, secret)
+	if !valid {
+		return false, fmt.Errorf("invalid TOTP code")
+	}
+	return true, nil
 }
 
-/* generateBase32Secret generates a random base32 secret */
-func generateBase32Secret(length int) string {
-	chars := "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567"
-	bytes := make([]byte, length)
-	for i := range bytes {
-		bytes[i] = chars[time.Now().UnixNano()%int64(len(chars))]
+/* VerifyTOTPWithWindow verifies TOTP code with time window tolerance */
+func (s *TwoFactorService) VerifyTOTPWithWindow(secret, code string, window int) (bool, error) {
+	// Validate with time window tolerance (default is 1, can be increased for clock skew)
+	if window <= 0 {
+		window = 1
 	}
-	return string(bytes)
+	valid, _ := totp.ValidateCustom(code, secret, time.Now(), totp.ValidateOpts{
+		Period:    30,
+		Skew:      uint(window),
+		Digits:    otp.DigitsSix,
+		Algorithm: otp.AlgorithmSHA1,
+	})
+	if !valid {
+		return false, fmt.Errorf("invalid TOTP code")
+	}
+	return true, nil
+}
+
+/* generateBase32Secret generates a random base32 secret (fallback method) */
+func generateBase32Secret(length int) string {
+	bytes := make([]byte, length)
+	if _, err := rand.Read(bytes); err != nil {
+		// Fallback to time-based if rand fails
+		for i := range bytes {
+			bytes[i] = byte(time.Now().UnixNano() % 256)
+		}
+	}
+	return base32.StdEncoding.WithPadding(base32.NoPadding).EncodeToString(bytes)
 }
 
 /* Enable2FA enables 2FA for a user */

@@ -5,19 +5,36 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"os"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/neurondb/NeuronIP/api/internal/mcp"
 )
 
 /* HealthHandler handles health check requests */
 type HealthHandler struct {
-	pool *pgxpool.Pool
+	pool      *pgxpool.Pool
+	mcpClient *mcp.Client
+	startTime time.Time
 }
 
 /* NewHealthHandler creates a new health handler */
 func NewHealthHandler(pool *pgxpool.Pool) *HealthHandler {
-	return &HealthHandler{pool: pool}
+	return &HealthHandler{
+		pool:      pool,
+		mcpClient: nil,
+		startTime: time.Now(),
+	}
+}
+
+/* NewHealthHandlerWithMCP creates a new health handler with MCP client */
+func NewHealthHandlerWithMCP(pool *pgxpool.Pool, mcpClient *mcp.Client) *HealthHandler {
+	return &HealthHandler{
+		pool:      pool,
+		mcpClient: mcpClient,
+		startTime: time.Now(),
+	}
 }
 
 /* HealthResponse represents the health check response */
@@ -67,6 +84,52 @@ func (h *HealthHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			Status:  "error",
 			Message: "Database pool not initialized",
 		}
+	}
+
+	// Check MCP client connectivity
+	if h.mcpClient != nil {
+		// Try to list tools to verify MCP is working
+		mcpCtx, mcpCancel := context.WithTimeout(ctx, 5*time.Second)
+		defer mcpCancel()
+
+		if _, err := h.mcpClient.ListTools(mcpCtx); err != nil {
+			response.Checks["mcp"] = CheckStatus{
+				Status:  "error",
+				Message: fmt.Sprintf("MCP client error: %v", err),
+			}
+			if response.Status == "ok" {
+				response.Status = "warning"
+			}
+		} else {
+			response.Checks["mcp"] = CheckStatus{
+				Status:  "healthy",
+				Message: "MCP client is connected and responding",
+			}
+		}
+	} else {
+		// Check if MCP binary path exists (optional service)
+		mcpPath := os.Getenv("NEURONMCP_BINARY_PATH")
+		if mcpPath == "" {
+			mcpPath = "/usr/local/bin/neurondb-mcp"
+		}
+		if _, err := os.Stat(mcpPath); err == nil {
+			response.Checks["mcp"] = CheckStatus{
+				Status:  "unavailable",
+				Message: "MCP binary found but client not initialized",
+			}
+		} else {
+			response.Checks["mcp"] = CheckStatus{
+				Status:  "unavailable",
+				Message: "MCP binary not found or not configured",
+			}
+		}
+	}
+
+	// Add uptime information
+	uptime := time.Since(h.startTime)
+	response.Checks["uptime"] = CheckStatus{
+		Status:  "healthy",
+		Message: fmt.Sprintf("Server uptime: %s", uptime.Round(time.Second).String()),
 	}
 
 	// Determine HTTP status code

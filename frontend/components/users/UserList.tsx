@@ -20,37 +20,16 @@ interface User {
   created_at: Date
 }
 
-export default function UserList({ onSelectUser }: { onSelectUser?: (userId: string) => void }) {
+interface UserListProps {
+  onSelectUser?: (userId: string) => void
+  onCreateNew?: () => void
+}
+
+export default function UserList({ onSelectUser, onCreateNew }: UserListProps) {
   const [searchQuery, setSearchQuery] = useState('')
   const { data: users, isLoading } = useUsers()
 
-  const userList: User[] = users?.users || [
-    {
-      id: '1',
-      name: 'John Doe',
-      email: 'john@example.com',
-      role: 'admin',
-      status: 'active',
-      created_at: new Date(Date.now() - 1000 * 60 * 60 * 24 * 30),
-    },
-    {
-      id: '2',
-      name: 'Jane Smith',
-      email: 'jane@example.com',
-      role: 'user',
-      status: 'active',
-      created_at: new Date(Date.now() - 1000 * 60 * 60 * 24 * 15),
-    },
-    {
-      id: '3',
-      name: 'Bob Wilson',
-      email: 'bob@example.com',
-      role: 'viewer',
-      status: 'inactive',
-      created_at: new Date(Date.now() - 1000 * 60 * 60 * 24 * 60),
-    },
-  ]
-
+  const userList: User[] = users?.users || []
   const filteredUsers = userList.filter(
     (user) =>
       user.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -92,6 +71,21 @@ export default function UserList({ onSelectUser }: { onSelectUser?: (userId: str
         {isLoading ? (
           <div className="flex items-center justify-center py-8">
             <Loading size="md" />
+          </div>
+        ) : filteredUsers.length === 0 && userList.length === 0 ? (
+          <div className="text-center py-12">
+            <UserCircleIcon className="h-12 w-12 text-muted-foreground mx-auto mb-4 opacity-50" />
+            <p className="text-muted-foreground mb-4">No users found. Create one to get started.</p>
+            {onCreateNew && (
+              <Button onClick={onCreateNew} size="md">
+                Add Your First User
+              </Button>
+            )}
+          </div>
+        ) : filteredUsers.length === 0 ? (
+          <div className="text-center py-12">
+            <MagnifyingGlassIcon className="h-12 w-12 text-muted-foreground mx-auto mb-4 opacity-50" />
+            <p className="text-muted-foreground">No users match your search</p>
           </div>
         ) : (
           <Table>

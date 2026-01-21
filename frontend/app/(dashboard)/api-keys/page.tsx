@@ -37,7 +37,7 @@ export default function APIKeysPage() {
 
         {/* API Keys List */}
         <motion.div variants={slideUp} className="flex-1 min-h-0">
-          <APIKeyList />
+          <APIKeyList onCreateNew={() => setCreateDialogOpen(true)} />
         </motion.div>
       </motion.div>
 

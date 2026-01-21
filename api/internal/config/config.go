@@ -17,6 +17,8 @@ type Config struct {
 	NeuronDB      NeuronDBConfig
 	NeuronAgent   NeuronAgentConfig
 	NeuronMCP     NeuronMCPConfig
+	Observability ObservabilityConfig
+	RateLimit     RateLimitConfig
 }
 
 /* DatabaseConfig holds database configuration */
@@ -29,6 +31,7 @@ type DatabaseConfig struct {
 	MaxOpenConns    int
 	MaxIdleConns    int
 	ConnMaxLifetime time.Duration
+	TenancyMode     string
 }
 
 /* ServerConfig holds server configuration */
@@ -57,6 +60,7 @@ type CORSConfig struct {
 type AuthConfig struct {
 	JWTSecret       string
 	EnableAPIKeys   bool
+	SCIMSecret      string
 }
 
 /* NeuronDBConfig holds NeuronDB connection configuration */
@@ -91,6 +95,18 @@ type NeuronMCPConfig struct {
 	Timeout            time.Duration
 }
 
+/* ObservabilityConfig holds observability configuration */
+type ObservabilityConfig struct {
+	EnableTracing bool
+}
+
+/* RateLimitConfig holds rate limiting configuration */
+type RateLimitConfig struct {
+	Enabled      bool
+	MaxRequests  int
+	Window       time.Duration
+}
+
 /* Load loads configuration from environment variables */
 func Load() *Config {
 	return &Config{
@@ -123,6 +139,15 @@ func Load() *Config {
 		Auth: AuthConfig{
 			JWTSecret:     getEnv("JWT_SECRET", ""),
 			EnableAPIKeys: getEnv("ENABLE_API_KEYS", "true") == "true",
+			SCIMSecret:    getEnv("SCIM_SECRET", ""),
+		},
+		Observability: ObservabilityConfig{
+			EnableTracing: getEnv("ENABLE_TRACING", "false") == "true",
+		},
+		RateLimit: RateLimitConfig{
+			Enabled:     getEnv("RATE_LIMIT_ENABLED", "true") == "true",
+			MaxRequests: getEnvInt("RATE_LIMIT_MAX_REQUESTS", 1000),
+			Window:      getEnvDuration("RATE_LIMIT_WINDOW", 1*time.Hour),
 		},
 		NeuronDB: NeuronDBConfig{
 			Host:     getEnv("NEURONDB_HOST", "localhost"),

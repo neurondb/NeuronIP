@@ -6,7 +6,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/Table'
 import Button from '@/components/ui/Button'
 import Loading from '@/components/ui/Loading'
-import { TrashIcon, EyeIcon, EyeSlashIcon } from '@heroicons/react/24/outline'
+import { TrashIcon, EyeIcon, EyeSlashIcon, KeyIcon } from '@heroicons/react/24/outline'
 import { useAPIKeys, useDeleteAPIKey } from '@/lib/api/queries'
 import { showToast } from '@/components/ui/Toast'
 import { cn } from '@/lib/utils/cn'
@@ -20,7 +20,11 @@ interface APIKey {
   created_at: Date
 }
 
-export default function APIKeyList() {
+interface APIKeyListProps {
+  onCreateNew?: () => void
+}
+
+export default function APIKeyList({ onCreateNew }: APIKeyListProps) {
   const [visibleKeys, setVisibleKeys] = useState<Set<string>>(new Set())
   const { data: apiKeys, isLoading } = useAPIKeys()
   const { mutate: deleteKey } = useDeleteAPIKey()
@@ -55,22 +59,7 @@ export default function APIKeyList() {
     return key.substring(0, 4) + '••••••••' + key.substring(key.length - 4)
   }
 
-  const keyList: APIKey[] = apiKeys?.keys || [
-    {
-      id: '1',
-      name: 'Production API Key',
-      key: 'sk_live_1234567890abcdef',
-      rate_limit: 1000,
-      created_at: new Date(Date.now() - 1000 * 60 * 60 * 24 * 30),
-    },
-    {
-      id: '2',
-      name: 'Development API Key',
-      key: 'sk_test_abcdef1234567890',
-      rate_limit: 100,
-      created_at: new Date(Date.now() - 1000 * 60 * 60 * 24 * 7),
-    },
-  ]
+  const keyList: APIKey[] = apiKeys?.keys || []
 
   return (
     <Card className="h-full flex flex-col">
@@ -82,6 +71,16 @@ export default function APIKeyList() {
         {isLoading ? (
           <div className="flex items-center justify-center py-8">
             <Loading size="md" />
+          </div>
+        ) : keyList.length === 0 ? (
+          <div className="text-center py-12">
+            <KeyIcon className="h-12 w-12 text-muted-foreground mx-auto mb-4 opacity-50" />
+            <p className="text-muted-foreground mb-4">No API keys found. Create one to get started.</p>
+            {onCreateNew && (
+              <Button onClick={onCreateNew} size="md" icon={<KeyIcon className="h-4 w-4" />}>
+                Create Your First API Key
+              </Button>
+            )}
           </div>
         ) : (
           <Table>

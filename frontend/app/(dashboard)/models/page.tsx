@@ -41,7 +41,10 @@ export default function ModelsPage() {
         <div className="grid gap-3 sm:gap-4 lg:grid-cols-2 flex-1 min-h-0">
           {/* Model List */}
           <motion.div variants={slideUp} className="flex flex-col min-h-0">
-            <ModelList onSelectModel={setSelectedModelId} />
+            <ModelList
+              onSelectModel={setSelectedModelId}
+              onCreateNew={() => setRegisterDialogOpen(true)}
+            />
           </motion.div>
 
           {/* Inference Interface */}

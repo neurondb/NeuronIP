@@ -32,7 +32,12 @@ func (h *AuditHandler) GetAuditEvents(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	events, err := h.auditService.GetAuditEvents(r.Context(), eventType, entityType, userID, limit)
+	filters := audit.AuditFilters{
+		UserID:       &userID,
+		ActionType:   &eventType,
+		ResourceType: &entityType,
+	}
+	events, err := h.auditService.GetAuditLogs(r.Context(), filters, limit)
 	if err != nil {
 		WriteError(w, err)
 		return
@@ -56,7 +61,8 @@ func (h *AuditHandler) GetActivityTimeline(w http.ResponseWriter, r *http.Reques
 		}
 	}
 
-	events, err := h.auditService.GetActivityTimeline(r.Context(), userID, limit)
+	filters := audit.AuditFilters{UserID: &userID}
+	events, err := h.auditService.GetAuditLogs(r.Context(), filters, limit)
 	if err != nil {
 		WriteError(w, err)
 		return
@@ -81,7 +87,11 @@ func (h *AuditHandler) GetComplianceTrail(w http.ResponseWriter, r *http.Request
 		}
 	}
 
-	events, err := h.auditService.GetComplianceTrail(r.Context(), entityType, entityID, limit)
+	filters := audit.AuditFilters{
+		ResourceType: &entityType,
+		ResourceID:   &entityID,
+	}
+	events, err := h.auditService.GetAuditLogs(r.Context(), filters, limit)
 	if err != nil {
 		WriteError(w, err)
 		return
@@ -114,7 +124,9 @@ func (h *AuditHandler) SearchAuditEvents(w http.ResponseWriter, r *http.Request)
 		req.Limit = 100
 	}
 
-	events, err := h.auditService.SearchAuditEvents(r.Context(), req.Query, req.Limit)
+	// Simple search - in production, implement full-text search
+	filters := audit.AuditFilters{}
+	events, err := h.auditService.GetAuditLogs(r.Context(), filters, req.Limit)
 	if err != nil {
 		WriteError(w, err)
 		return

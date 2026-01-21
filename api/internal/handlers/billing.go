@@ -6,7 +6,6 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/gorilla/mux"
 	"github.com/neurondb/NeuronIP/api/internal/billing"
 	"github.com/neurondb/NeuronIP/api/internal/errors"
 )

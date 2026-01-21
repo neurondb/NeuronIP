@@ -221,3 +221,22 @@ type MetricLineage struct {
 	RelationshipType string     `json:"relationship_type"`
 	CreatedAt        time.Time  `json:"created_at"`
 }
+
+/* ApproveMetric approves a metric */
+func (s *MetricsService) ApproveMetric(ctx context.Context, metricID uuid.UUID, approvedBy string) error {
+	query := `
+		UPDATE neuronip.metric_catalog
+		SET status = 'approved', approved_at = NOW(), approved_by = $1, updated_at = NOW()
+		WHERE id = $2`
+	
+	result, err := s.pool.Exec(ctx, query, approvedBy, metricID)
+	if err != nil {
+		return fmt.Errorf("failed to approve metric: %w", err)
+	}
+	
+	if result.RowsAffected() == 0 {
+		return fmt.Errorf("metric not found")
+	}
+	
+	return nil
+}

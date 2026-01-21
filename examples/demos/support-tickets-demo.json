@@ -1,0 +1,204 @@
+{
+  "description": "Sample support tickets with conversations for Support Memory Hub demo",
+  "version": "1.0",
+  "tickets": [
+    {
+      "id": "ticket-001",
+      "customer_id": "customer-123",
+      "customer_email": "john.doe@example.com",
+      "customer_name": "John Doe",
+      "subject": "Password reset not working",
+      "description": "I tried to reset my password but didn't receive the email. This is the second time this has happened.",
+      "priority": "high",
+      "status": "open",
+      "created_at": "2024-01-15T10:30:00Z",
+      "conversations": [
+        {
+          "id": "conv-001",
+          "sender": "customer",
+          "message": "I clicked the password reset link but didn't get an email. Can you help?",
+          "timestamp": "2024-01-15T10:30:00Z"
+        },
+        {
+          "id": "conv-002",
+          "sender": "agent",
+          "message": "I've checked your account and see that password reset emails were sent. Please check your spam folder. If you still don't see it, I can manually reset it for you.",
+          "timestamp": "2024-01-15T10:35:00Z"
+        },
+        {
+          "id": "conv-003",
+          "sender": "customer",
+          "message": "Found it in spam! Thanks. But this happened last month too. Is there a way to prevent this?",
+          "timestamp": "2024-01-15T10:40:00Z"
+        },
+        {
+          "id": "conv-004",
+          "sender": "agent",
+          "message": "I can whitelist our domain in your email settings. I'll send you instructions. Also, we're working on improving email deliverability.",
+          "timestamp": "2024-01-15T10:42:00Z"
+        }
+      ],
+      "resolution": "Email found in spam folder. Customer whitelisted domain.",
+      "resolved_at": "2024-01-15T10:45:00Z"
+    },
+    {
+      "id": "ticket-002",
+      "customer_id": "customer-456",
+      "customer_email": "jane.smith@example.com",
+      "customer_name": "Jane Smith",
+      "subject": "API rate limit exceeded",
+      "description": "I'm getting 429 errors when making API calls. I thought my plan included 10,000 requests per day.",
+      "priority": "medium",
+      "status": "resolved",
+      "created_at": "2024-01-16T14:20:00Z",
+      "conversations": [
+        {
+          "id": "conv-005",
+          "sender": "customer",
+          "message": "My API calls are being rate limited. I'm on the Pro plan which should have 10k requests/day.",
+          "timestamp": "2024-01-16T14:20:00Z"
+        },
+        {
+          "id": "conv-006",
+          "sender": "agent",
+          "message": "Let me check your usage. I see you've made 12,000 requests today. The limit is per calendar day, and you hit it at 2 PM. The limit resets at midnight UTC.",
+          "timestamp": "2024-01-16T14:25:00Z"
+        },
+        {
+          "id": "conv-007",
+          "sender": "customer",
+          "message": "Oh, I see. Is there a way to get higher limits?",
+          "timestamp": "2024-01-16T14:30:00Z"
+        },
+        {
+          "id": "conv-008",
+          "sender": "agent",
+          "message": "Yes! We have an Enterprise plan with 100k requests/day and custom limits. I can have our sales team reach out if you're interested.",
+          "timestamp": "2024-01-16T14:32:00Z"
+        }
+      ],
+      "resolution": "Customer exceeded daily limit. Explained reset time and offered Enterprise plan.",
+      "resolved_at": "2024-01-16T14:35:00Z"
+    },
+    {
+      "id": "ticket-003",
+      "customer_id": "customer-789",
+      "customer_email": "bob.wilson@example.com",
+      "customer_name": "Bob Wilson",
+      "subject": "Data export feature not working",
+      "description": "I'm trying to export my data to CSV but the download button doesn't work. I need this for my monthly report.",
+      "priority": "high",
+      "status": "in-progress",
+      "created_at": "2024-01-17T09:15:00Z",
+      "conversations": [
+        {
+          "id": "conv-009",
+          "sender": "customer",
+          "message": "The CSV export button isn't working. I've tried Chrome and Firefox. This is urgent - I need the data for a report due today.",
+          "timestamp": "2024-01-17T09:15:00Z"
+        },
+        {
+          "id": "conv-010",
+          "sender": "agent",
+          "message": "I'm sorry for the inconvenience. Let me check if there's a known issue. Can you tell me what happens when you click the button?",
+          "timestamp": "2024-01-17T09:20:00Z"
+        },
+        {
+          "id": "conv-011",
+          "sender": "customer",
+          "message": "Nothing happens. No error, no download, nothing.",
+          "timestamp": "2024-01-17T09:22:00Z"
+        },
+        {
+          "id": "conv-012",
+          "sender": "agent",
+          "message": "I see the issue - there's a bug with exports over 10k rows. I can generate the export manually for you right now. What date range do you need?",
+          "timestamp": "2024-01-17T09:25:00Z"
+        }
+      ],
+      "resolution": null,
+      "resolved_at": null
+    },
+    {
+      "id": "ticket-004",
+      "customer_id": "customer-123",
+      "customer_email": "john.doe@example.com",
+      "customer_name": "John Doe",
+      "subject": "Follow-up: Email deliverability improvement",
+      "description": "Following up on ticket-001. I whitelisted the domain but still having issues with emails going to spam.",
+      "priority": "medium",
+      "status": "open",
+      "created_at": "2024-02-10T11:00:00Z",
+      "conversations": [
+        {
+          "id": "conv-013",
+          "sender": "customer",
+          "message": "Hi, I'm following up on my previous ticket about password reset emails. I whitelisted your domain but emails are still going to spam. Can you check if there's something else I need to do?",
+          "timestamp": "2024-02-10T11:00:00Z"
+        },
+        {
+          "id": "conv-014",
+          "sender": "agent",
+          "message": "I see your previous ticket. Let me check our email authentication records. I notice we've updated our SPF and DKIM records since your last ticket. I'll send you updated instructions.",
+          "timestamp": "2024-02-10T11:05:00Z"
+        }
+      ],
+      "resolution": null,
+      "resolved_at": null,
+      "related_ticket_id": "ticket-001"
+    },
+    {
+      "id": "ticket-005",
+      "customer_id": "customer-999",
+      "customer_email": "alice.brown@example.com",
+      "customer_name": "Alice Brown",
+      "subject": "Integration with Salesforce not syncing",
+      "description": "I set up the Salesforce integration last week but data isn't syncing. The connection test passed.",
+      "priority": "high",
+      "status": "resolved",
+      "created_at": "2024-01-18T16:45:00Z",
+      "conversations": [
+        {
+          "id": "conv-015",
+          "sender": "customer",
+          "message": "My Salesforce integration isn't syncing data. The connection test shows it's connected, but no data has come through in 3 days.",
+          "timestamp": "2024-01-18T16:45:00Z"
+        },
+        {
+          "id": "conv-016",
+          "sender": "agent",
+          "message": "Let me check the sync logs. I see the connection is active but the sync schedule is set to 'manual only'. You need to enable automatic syncing in the integration settings.",
+          "timestamp": "2024-01-18T16:50:00Z"
+        },
+        {
+          "id": "conv-017",
+          "sender": "customer",
+          "message": "Ah, I see it now. I've enabled it. How long until the first sync runs?",
+          "timestamp": "2024-01-18T16:52:00Z"
+        },
+        {
+          "id": "conv-018",
+          "sender": "agent",
+          "message": "The first sync will start within 5 minutes. You can also trigger a manual sync now if you want immediate results.",
+          "timestamp": "2024-01-18T16:53:00Z"
+        }
+      ],
+      "resolution": "Customer enabled automatic syncing. First sync scheduled.",
+      "resolved_at": "2024-01-18T16:55:00Z"
+    }
+  ],
+  "metadata": {
+    "total_tickets": 5,
+    "total_conversations": 18,
+    "date_range": {
+      "start": "2024-01-15",
+      "end": "2024-02-10"
+    },
+    "use_cases": [
+      "Long-term memory demonstration",
+      "Similar case retrieval",
+      "Context retention across sessions",
+      "Customer history tracking"
+    ]
+  }
+}

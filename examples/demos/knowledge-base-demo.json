@@ -1,0 +1,147 @@
+{
+  "description": "Sample knowledge base documents and FAQs for semantic search demo",
+  "version": "1.0",
+  "collections": [
+    {
+      "id": "kb-general",
+      "name": "General Documentation",
+      "documents": [
+        {
+          "id": "doc-001",
+          "title": "Getting Started with NeuronIP",
+          "content": "NeuronIP is an AI-native intelligence platform built on PostgreSQL. To get started, you'll need PostgreSQL 16+ with the NeuronDB extension installed. Once installed, you can start the API server and frontend. The platform provides five core capabilities: Semantic Knowledge Search, Data Warehouse Q&A, Customer Support Memory, Compliance & Audit Analytics, and Agent Workflows. Each capability is designed to work independently or together as a unified platform.",
+          "content_type": "documentation",
+          "tags": ["getting-started", "installation", "overview"],
+          "created_at": "2024-01-01T00:00:00Z"
+        },
+        {
+          "id": "doc-002",
+          "title": "Authentication and API Keys",
+          "content": "NeuronIP supports multiple authentication methods. API keys are the primary method for service-to-service communication. To create an API key, navigate to Settings > API Keys and click Create. API keys support scopes for fine-grained permissions. You can set rate limits, expiration dates, and rotation policies. For user authentication, NeuronIP supports OIDC SSO, SCIM provisioning, and MFA with TOTP. Session management includes refresh tokens and concurrent session limits.",
+          "content_type": "documentation",
+          "tags": ["authentication", "api-keys", "security", "sso"],
+          "created_at": "2024-01-02T00:00:00Z"
+        },
+        {
+          "id": "doc-003",
+          "title": "Semantic Search Best Practices",
+          "content": "Semantic search in NeuronIP uses vector embeddings to find documents by meaning, not just keywords. For best results, ensure your documents are well-chunked with appropriate overlap. The default chunk size is 512 tokens with 50 token overlap. Use collection IDs to organize related documents. Embeddings are generated using sentence-transformers models. You can version your embedding pipelines and replay documents through new pipelines. Hybrid search combines semantic similarity with SQL filters for precise results.",
+          "content_type": "documentation",
+          "tags": ["semantic-search", "embeddings", "best-practices", "chunking"],
+          "created_at": "2024-01-03T00:00:00Z"
+        },
+        {
+          "id": "doc-004",
+          "title": "Warehouse Q&A: Natural Language to SQL",
+          "content": "The Warehouse Q&A feature translates natural language questions into SQL queries. You define schemas that describe your data structure, and the AI generates deterministic SQL. All queries are explainable and auditable. The system supports hybrid search combining SQL filters with vector similarity. You can save searches for reuse and share them with your team. Query governance includes function allow-lists, read-only mode enforcement, and sandbox roles for restricted execution.",
+          "content_type": "documentation",
+          "tags": ["warehouse", "sql", "nlp", "analytics"],
+          "created_at": "2024-01-04T00:00:00Z"
+        },
+        {
+          "id": "doc-005",
+          "title": "Support Memory Hub: Long-Term Memory",
+          "content": "Support Memory Hub provides persistent long-term memory for customer support. Every customer interaction is stored with semantic embeddings, enabling intelligent context retrieval. When a new ticket arrives, the system automatically retrieves relevant past context. Support agents have persistent memory across sessions. The system learns from human edits and approvals, improving responses over time. Similar case retrieval uses semantic search to find the most relevant past solutions instantly.",
+          "content_type": "documentation",
+          "tags": ["support", "memory", "ai-agents", "customer-service"],
+          "created_at": "2024-01-05T00:00:00Z"
+        }
+      ]
+    },
+    {
+      "id": "kb-faq",
+      "name": "Frequently Asked Questions",
+      "documents": [
+        {
+          "id": "faq-001",
+          "title": "How do I reset my password?",
+          "content": "To reset your password, click the 'Forgot Password' link on the login page. Enter your email address and you'll receive a password reset link. If you don't see the email, check your spam folder. You can also whitelist our domain to prevent emails from going to spam. If you continue to have issues, contact support and we can manually reset your password.",
+          "content_type": "faq",
+          "tags": ["password", "authentication", "troubleshooting"],
+          "created_at": "2024-01-10T00:00:00Z"
+        },
+        {
+          "id": "faq-002",
+          "title": "What are the API rate limits?",
+          "content": "API rate limits depend on your plan. The Pro plan includes 10,000 requests per day. The Enterprise plan includes 100,000 requests per day with custom limits available. Rate limits reset at midnight UTC. If you exceed your limit, you'll receive a 429 error. You can check your current usage in the dashboard. Per-key rate limits can also be configured for individual API keys.",
+          "content_type": "faq",
+          "tags": ["api", "rate-limits", "billing"],
+          "created_at": "2024-01-11T00:00:00Z"
+        },
+        {
+          "id": "faq-003",
+          "title": "How does semantic search work?",
+          "content": "Semantic search uses vector embeddings to find documents by meaning. When you search, your query is converted to an embedding vector. The system then finds documents with similar embeddings using cosine similarity. This allows you to find relevant documents even if they don't contain the exact keywords. Hybrid search combines semantic similarity with SQL filters for more precise results.",
+          "content_type": "faq",
+          "tags": ["semantic-search", "embeddings", "how-it-works"],
+          "created_at": "2024-01-12T00:00:00Z"
+        },
+        {
+          "id": "faq-004",
+          "title": "Can I export my data?",
+          "content": "Yes, you can export your data in CSV format. Click the Export button in any data view. For large datasets (over 10,000 rows), the export may take a few minutes. You'll receive an email when the export is ready. If you encounter issues with exports, contact support and we can generate the export manually.",
+          "content_type": "faq",
+          "tags": ["data-export", "csv", "troubleshooting"],
+          "created_at": "2024-01-13T00:00:00Z"
+        },
+        {
+          "id": "faq-005",
+          "title": "How do I set up integrations?",
+          "content": "To set up an integration, go to Settings > Integrations and click Add Integration. Select your integration type (Salesforce, Zendesk, Slack, etc.) and follow the connection wizard. You'll need to provide credentials which are stored securely in our credentials vault. Once connected, configure your sync schedule. You can test the connection before saving. Automatic syncing must be enabled for scheduled syncs to run.",
+          "content_type": "faq",
+          "tags": ["integrations", "setup", "salesforce", "zendesk"],
+          "created_at": "2024-01-14T00:00:00Z"
+        },
+        {
+          "id": "faq-006",
+          "title": "What is Support Memory Hub?",
+          "content": "Support Memory Hub is NeuronIP's AI-powered customer support system with persistent long-term memory. It remembers every customer interaction, learns from past resolutions, and provides context-aware responses. Unlike stateless chatbots, it maintains comprehensive memory of customer history, context, and solutions. This enables faster resolution times and improved customer satisfaction.",
+          "content_type": "faq",
+          "tags": ["support", "memory", "ai", "features"],
+          "created_at": "2024-01-15T00:00:00Z"
+        }
+      ]
+    },
+    {
+      "id": "kb-troubleshooting",
+      "name": "Troubleshooting Guides",
+      "documents": [
+        {
+          "id": "trouble-001",
+          "title": "API Connection Issues",
+          "content": "If you're experiencing API connection issues, first check your API key is valid and not expired. Verify your rate limits haven't been exceeded. Check your network connectivity and firewall settings. Ensure you're using the correct API endpoint. Review the API logs for detailed error messages. Common issues include expired keys, rate limit exceeded, network timeouts, and authentication failures.",
+          "content_type": "troubleshooting",
+          "tags": ["api", "troubleshooting", "connection", "errors"],
+          "created_at": "2024-01-20T00:00:00Z"
+        },
+        {
+          "id": "trouble-002",
+          "title": "Email Deliverability Problems",
+          "content": "If emails from NeuronIP are going to spam, first check your spam folder. Whitelist our domain in your email client. Verify our SPF and DKIM records are correct (we'll provide these). Check if your email provider has any filters blocking our domain. You can also add our 'from' address to your contacts. If issues persist, contact support for updated authentication records.",
+          "content_type": "troubleshooting",
+          "tags": ["email", "spam", "deliverability", "troubleshooting"],
+          "created_at": "2024-01-21T00:00:00Z"
+        },
+        {
+          "id": "trouble-003",
+          "title": "Integration Sync Failures",
+          "content": "If your integration isn't syncing, first verify the connection is active using the connection test. Check that automatic syncing is enabled (not set to manual only). Review the sync logs for error messages. Verify your credentials are still valid. Check if the source system has any rate limits or restrictions. Ensure the sync schedule is configured correctly. If the issue persists, try triggering a manual sync to see if automatic syncs will resume.",
+          "content_type": "troubleshooting",
+          "tags": ["integrations", "sync", "troubleshooting", "errors"],
+          "created_at": "2024-01-22T00:00:00Z"
+        }
+      ]
+    }
+  ],
+  "metadata": {
+    "total_collections": 3,
+    "total_documents": 14,
+    "document_types": ["documentation", "faq", "troubleshooting"],
+    "use_cases": [
+      "Semantic search demonstration",
+      "Knowledge base Q&A",
+      "Document retrieval",
+      "FAQ matching"
+    ]
+  }
+}

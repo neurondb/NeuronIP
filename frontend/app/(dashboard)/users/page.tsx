@@ -4,11 +4,17 @@ import { useState } from 'react'
 import { motion } from 'framer-motion'
 import UserList from '@/components/users/UserList'
 import Button from '@/components/ui/Button'
+import AddUserDialog from '@/components/users/AddUserDialog'
 import { PlusIcon } from '@heroicons/react/24/outline'
 import { staggerContainer, slideUp } from '@/lib/animations/variants'
 
 export default function UsersPage() {
   const [selectedUserId, setSelectedUserId] = useState<string | null>(null)
+  const [isAddUserOpen, setIsAddUserOpen] = useState(false)
+
+  const handleAddUser = () => {
+    setIsAddUserOpen(true)
+  }
 
   return (
     <motion.div
@@ -26,7 +32,7 @@ export default function UsersPage() {
               Manage user accounts and permissions
             </p>
           </div>
-          <Button>
+          <Button onClick={handleAddUser}>
             <PlusIcon className="h-4 w-4 mr-2" />
             Add User
           </Button>
@@ -35,8 +41,18 @@ export default function UsersPage() {
 
       {/* Users List */}
       <motion.div variants={slideUp} className="flex-1 min-h-0">
-        <UserList onSelectUser={setSelectedUserId} />
+        <UserList onSelectUser={setSelectedUserId} onCreateNew={handleAddUser} />
       </motion.div>
+
+      {/* Add User Dialog */}
+      <AddUserDialog
+        open={isAddUserOpen}
+        onOpenChange={setIsAddUserOpen}
+        onCreated={() => {
+          // Refresh user list
+          window.location.reload()
+        }}
+      />
     </motion.div>
   )
 }

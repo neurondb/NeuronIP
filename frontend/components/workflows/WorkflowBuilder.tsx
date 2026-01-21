@@ -17,6 +17,9 @@ import 'reactflow/dist/style.css'
 import { motion } from 'framer-motion'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card'
 import Button from '@/components/ui/Button'
+import Tooltip from '@/components/ui/Tooltip'
+import HelpText from '@/components/ui/HelpText'
+import { InformationCircleIcon, BookmarkIcon } from '@heroicons/react/24/outline'
 import WorkflowNodePalette from './WorkflowNodePalette'
 
 interface WorkflowNode extends Node {
@@ -29,28 +32,76 @@ interface WorkflowNode extends Node {
 
 const nodeTypes: NodeTypes = {
   agent: ({ data }) => (
-    <div className="px-4 py-2 bg-blue-100 border-2 border-blue-500 rounded-lg">
-      <div className="font-semibold">{data.label}</div>
-      <div className="text-xs text-gray-600">{data.type}</div>
-    </div>
+    <Tooltip
+      content={
+        <div>
+          <p className="font-medium mb-1">Agent Node</p>
+          <p className="text-xs">
+            Executes AI agent tasks with long-term memory. Configure the agent, prompt, and tools to use.
+          </p>
+        </div>
+      }
+      variant="info"
+    >
+      <div className="px-4 py-2 bg-blue-100 border-2 border-blue-500 rounded-lg cursor-pointer">
+        <div className="font-semibold">{data.label}</div>
+        <div className="text-xs text-gray-600">{data.type}</div>
+      </div>
+    </Tooltip>
   ),
   script: ({ data }) => (
-    <div className="px-4 py-2 bg-green-100 border-2 border-green-500 rounded-lg">
-      <div className="font-semibold">{data.label}</div>
-      <div className="text-xs text-gray-600">{data.type}</div>
-    </div>
+    <Tooltip
+      content={
+        <div>
+          <p className="font-medium mb-1">Script Node</p>
+          <p className="text-xs">
+            Runs custom scripts or transformations. Use for data processing, API calls, or custom logic.
+          </p>
+        </div>
+      }
+      variant="info"
+    >
+      <div className="px-4 py-2 bg-green-100 border-2 border-green-500 rounded-lg cursor-pointer">
+        <div className="font-semibold">{data.label}</div>
+        <div className="text-xs text-gray-600">{data.type}</div>
+      </div>
+    </Tooltip>
   ),
   condition: ({ data }) => (
-    <div className="px-4 py-2 bg-yellow-100 border-2 border-yellow-500 rounded-lg">
-      <div className="font-semibold">{data.label}</div>
-      <div className="text-xs text-gray-600">{data.type}</div>
-    </div>
+    <Tooltip
+      content={
+        <div>
+          <p className="font-medium mb-1">Condition Node</p>
+          <p className="text-xs">
+            Branches workflow based on conditions. Configure the condition logic and next steps.
+          </p>
+        </div>
+      }
+      variant="info"
+    >
+      <div className="px-4 py-2 bg-yellow-100 border-2 border-yellow-500 rounded-lg cursor-pointer">
+        <div className="font-semibold">{data.label}</div>
+        <div className="text-xs text-gray-600">{data.type}</div>
+      </div>
+    </Tooltip>
   ),
   parallel: ({ data }) => (
-    <div className="px-4 py-2 bg-purple-100 border-2 border-purple-500 rounded-lg">
-      <div className="font-semibold">{data.label}</div>
-      <div className="text-xs text-gray-600">{data.type}</div>
-    </div>
+    <Tooltip
+      content={
+        <div>
+          <p className="font-medium mb-1">Parallel Node</p>
+          <p className="text-xs">
+            Runs multiple steps in parallel. Use for independent operations that can run simultaneously.
+          </p>
+        </div>
+      }
+      variant="info"
+    >
+      <div className="px-4 py-2 bg-purple-100 border-2 border-purple-500 rounded-lg cursor-pointer">
+        <div className="font-semibold">{data.label}</div>
+        <div className="text-xs text-gray-600">{data.type}</div>
+      </div>
+    </Tooltip>
   ),
 }
 
@@ -78,7 +129,7 @@ export default function WorkflowBuilder() {
   }, [setNodes])
 
   const saveWorkflow = useCallback(async () => {
-    const workflow = {
+    const workflowDefinition = {
       steps: nodes.map(node => ({
         id: node.id,
         name: node.data.label,
@@ -91,15 +142,80 @@ export default function WorkflowBuilder() {
       start_step: nodes[0]?.id || '',
     }
     
-    // Save workflow via API
-    console.log('Saving workflow:', workflow)
+    const workflow = {
+      name: `Workflow ${Date.now()}`,
+      workflow_definition: workflowDefinition,
+      enabled: true,
+    }
+    
+    try {
+      const response = await fetch('/api/v1/workflows', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(workflow),
+      })
+      
+      if (response.ok) {
+        const data = await response.json()
+        alert(`Workflow saved successfully! ID: ${data.id}`)
+      } else {
+        alert('Failed to save workflow')
+      }
+    } catch (error) {
+      console.error('Error saving workflow:', error)
+      alert('Error saving workflow')
+    }
   }, [nodes, edges])
 
   return (
     <div className="h-full flex flex-col">
       <Card className="flex-1 flex flex-col min-h-0">
         <CardHeader>
-          <CardTitle>Workflow Builder</CardTitle>
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <CardTitle>Workflow Builder</CardTitle>
+              <Tooltip
+                content={
+                  <div>
+                    <p className="font-medium mb-1">Workflow Builder Help</p>
+                    <p className="text-xs mb-2">
+                      Build multi-step workflows with AI agents. Drag and drop nodes to create your workflow DAG.
+                    </p>
+                    <ul className="text-xs space-y-1">
+                      <li>• Agent nodes: Execute AI agent tasks</li>
+                      <li>• Script nodes: Run custom scripts</li>
+                      <li>• Condition nodes: Branch based on conditions</li>
+                      <li>• Parallel nodes: Run steps in parallel</li>
+                    </ul>
+                  </div>
+                }
+                variant="info"
+              >
+                <InformationCircleIcon className="h-4 w-4 text-muted-foreground cursor-help" />
+              </Tooltip>
+            </div>
+            <HelpText
+              variant="tooltip"
+              content={
+                <div>
+                  <p className="font-medium mb-1">Workflow Creation</p>
+                  <p className="text-xs mb-2">
+                    Workflows allow you to automate complex multi-step processes with AI agents.
+                  </p>
+                  <p className="text-xs">
+                    <a
+                      href="/docs/features/agent-workflows"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="underline"
+                    >
+                      Learn more →
+                    </a>
+                  </p>
+                </div>
+              }
+            />
+          </div>
         </CardHeader>
         <CardContent className="flex-1 flex gap-4 min-h-0">
           <div className="w-64 flex-shrink-0">
@@ -148,7 +264,9 @@ export default function WorkflowBuilder() {
           )}
         </CardContent>
         <div className="p-4 border-t border-border flex justify-end gap-2">
-          <Button onClick={saveWorkflow}>Save Workflow</Button>
+          <Button onClick={saveWorkflow} icon={<BookmarkIcon className="h-4 w-4" />}>
+            Save Workflow
+          </Button>
         </div>
       </Card>
     </div>

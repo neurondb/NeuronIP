@@ -37,17 +37,17 @@ type SearchRequest struct {
 func (h *SemanticHandler) Search(w http.ResponseWriter, r *http.Request) {
 	var req SearchRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		WriteErrorResponse(w, errors.BadRequest("Invalid request body"))
+		WriteErrorResponseWithContext(w, r, errors.BadRequest("Invalid request body"))
 		return
 	}
 
 	if req.Query == "" {
-		WriteErrorResponse(w, errors.ValidationFailed("Query is required", nil))
+		WriteErrorResponseWithContext(w, r, errors.ValidationFailed("Query is required", nil))
 		return
 	}
 
 	results, err := h.service.Search(r.Context(), semantic.SearchRequest{
-		Query:        req.Query,
+		Query: req.Query,
 		CollectionID: req.CollectionID,
 		Limit:        req.Limit,
 		Threshold:    req.Threshold,

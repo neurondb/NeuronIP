@@ -364,3 +364,332 @@ type CostSummary struct {
 	PeriodStart time.Time           `json:"period_start"`
 	PeriodEnd   time.Time           `json:"period_end"`
 }
+
+/* GetRealTimeMetrics retrieves real-time aggregated metrics */
+func (s *ObservabilityService) GetRealTimeMetrics(ctx context.Context, timeWindow string) (*RealTimeMetrics, error) {
+	var interval string
+	switch timeWindow {
+	case "1m", "1min":
+		interval = "1 minute"
+	case "5m", "5min":
+		interval = "5 minutes"
+	case "15m", "15min":
+		interval = "15 minutes"
+	case "1h", "1hour":
+		interval = "1 hour"
+	default:
+		interval = "5 minutes"
+	}
+
+	// Note: time_bucket requires TimescaleDB extension
+	// For standard PostgreSQL, use date_trunc instead
+	fallbackQuery := fmt.Sprintf(`
+		SELECT 
+			date_trunc('minute', executed_at) as time_bucket,
+			COUNT(*) as query_count,
+			AVG(execution_time_ms / 1000.0) as avg_latency,
+			MAX(execution_time_ms / 1000.0) as max_latency,
+			MIN(execution_time_ms / 1000.0) as min_latency,
+			SUM(CASE WHEN status = 'completed' THEN 1 ELSE 0 END) as success_count,
+			SUM(CASE WHEN status = 'failed' THEN 1 ELSE 0 END) as error_count
+		FROM neuronip.warehouse_queries
+		WHERE executed_at > NOW() - INTERVAL '%s'
+		GROUP BY time_bucket
+		ORDER BY time_bucket DESC
+		LIMIT 100`, interval)
+
+	rows, err := s.pool.Query(ctx, fallbackQuery)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get real-time metrics: %w", err)
+	}
+	defer rows.Close()
+
+	metrics := &RealTimeMetrics{
+		TimeWindow: timeWindow,
+		DataPoints: []RealTimeDataPoint{},
+	}
+
+	for rows.Next() {
+		var dp RealTimeDataPoint
+		var avgLatency, maxLatency, minLatency *float64
+
+		err := rows.Scan(&dp.Timestamp, &dp.QueryCount, &avgLatency, &maxLatency, &minLatency, &dp.SuccessCount, &dp.ErrorCount)
+		if err != nil {
+			continue
+		}
+
+		if avgLatency != nil {
+			dp.AvgLatency = *avgLatency
+		}
+		if maxLatency != nil {
+			dp.MaxLatency = *maxLatency
+		}
+		if minLatency != nil {
+			dp.MinLatency = *minLatency
+		}
+
+		metrics.DataPoints = append(metrics.DataPoints, dp)
+	}
+
+	return metrics, nil
+}
+
+/* RealTimeMetrics represents real-time aggregated metrics */
+type RealTimeMetrics struct {
+	TimeWindow string              `json:"time_window"`
+	DataPoints []RealTimeDataPoint `json:"data_points"`
+}
+
+/* RealTimeDataPoint represents a single data point in real-time metrics */
+type RealTimeDataPoint struct {
+	Timestamp    time.Time `json:"timestamp"`
+	QueryCount   int       `json:"query_count"`
+	AvgLatency   float64   `json:"avg_latency"`
+	MaxLatency   float64   `json:"max_latency"`
+	MinLatency   float64   `json:"min_latency"`
+	SuccessCount int       `json:"success_count"`
+	ErrorCount   int       `json:"error_count"`
+}
+
+/* GetLogStream retrieves a stream of logs (returns recent logs for streaming simulation) */
+func (s *ObservabilityService) GetLogStream(ctx context.Context, logType, level string, since time.Time, limit int) ([]SystemLog, error) {
+	if limit <= 0 {
+		limit = 1000
+	}
+
+	query := `
+		SELECT id, log_type, level, message, context, timestamp
+		FROM neuronip.system_logs
+		WHERE ($1 = '' OR log_type = $1) 
+			AND ($2 = '' OR level = $2)
+			AND timestamp >= $3
+		ORDER BY timestamp DESC
+		LIMIT $4`
+
+	rows, err := s.pool.Query(ctx, query, logType, level, since, limit)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get log stream: %w", err)
+	}
+	defer rows.Close()
+
+	var logs []SystemLog
+	for rows.Next() {
+		var log SystemLog
+		var contextJSON json.RawMessage
+
+		err := rows.Scan(&log.ID, &log.LogType, &log.Level, &log.Message, &contextJSON, &log.Timestamp)
+		if err != nil {
+			continue
+		}
+
+		if contextJSON != nil {
+			json.Unmarshal(contextJSON, &log.Context)
+		}
+
+		logs = append(logs, log)
+	}
+
+	return logs, nil
+}
+
+/* GetPerformanceBenchmark retrieves performance benchmarks */
+func (s *ObservabilityService) GetPerformanceBenchmark(ctx context.Context, metricType string, timeRange string) (*PerformanceBenchmark, error) {
+	var interval string
+	switch timeRange {
+	case "1h", "1hour":
+		interval = "1 hour"
+	case "24h", "1day":
+		interval = "24 hours"
+	case "7d", "1week":
+		interval = "7 days"
+	case "30d", "1month":
+		interval = "30 days"
+	default:
+		interval = "24 hours"
+	}
+
+	var query string
+	switch metricType {
+	case "query":
+		query = fmt.Sprintf(`
+			SELECT 
+				AVG(execution_time_ms / 1000.0) as avg_latency,
+				PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY execution_time_ms / 1000.0) as p50_latency,
+				PERCENTILE_CONT(0.95) WITHIN GROUP (ORDER BY execution_time_ms / 1000.0) as p95_latency,
+				PERCENTILE_CONT(0.99) WITHIN GROUP (ORDER BY execution_time_ms / 1000.0) as p99_latency,
+				MAX(execution_time_ms / 1000.0) as max_latency,
+				COUNT(*) as total_queries,
+				SUM(CASE WHEN status = 'completed' THEN 1 ELSE 0 END) as success_count,
+				SUM(CASE WHEN status = 'failed' THEN 1 ELSE 0 END) as error_count
+			FROM neuronip.warehouse_queries
+			WHERE executed_at > NOW() - INTERVAL '%s'`, interval)
+	case "agent":
+		query = fmt.Sprintf(`
+			SELECT 
+				COUNT(*) as total_executions,
+				SUM(CASE WHEN level = 'error' THEN 1 ELSE 0 END) as error_count
+			FROM neuronip.system_logs
+			WHERE log_type = 'agent' AND timestamp > NOW() - INTERVAL '%s'`, interval)
+	case "workflow":
+		query = fmt.Sprintf(`
+			SELECT 
+				COUNT(*) as total_executions,
+				SUM(CASE WHEN level = 'error' THEN 1 ELSE 0 END) as error_count
+			FROM neuronip.system_logs
+			WHERE log_type = 'workflow' AND timestamp > NOW() - INTERVAL '%s'`, interval)
+	default:
+		return nil, fmt.Errorf("unknown metric type: %s", metricType)
+	}
+
+	rows, err := s.pool.Query(ctx, query)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get performance benchmark: %w", err)
+	}
+	defer rows.Close()
+
+	benchmark := &PerformanceBenchmark{
+		MetricType: metricType,
+		TimeRange:  timeRange,
+	}
+
+	if rows.Next() {
+		if metricType == "query" {
+			var avgLatency, p50Latency, p95Latency, p99Latency, maxLatency *float64
+			var totalQueries, successCount, errorCount *int
+
+			err := rows.Scan(&avgLatency, &p50Latency, &p95Latency, &p99Latency, &maxLatency, &totalQueries, &successCount, &errorCount)
+			if err == nil {
+				if avgLatency != nil {
+					benchmark.AvgLatency = *avgLatency
+				}
+				if p50Latency != nil {
+					benchmark.P50Latency = *p50Latency
+				}
+				if p95Latency != nil {
+					benchmark.P95Latency = *p95Latency
+				}
+				if p99Latency != nil {
+					benchmark.P99Latency = *p99Latency
+				}
+				if maxLatency != nil {
+					benchmark.MaxLatency = *maxLatency
+				}
+				if totalQueries != nil {
+					benchmark.TotalExecutions = *totalQueries
+				}
+				if successCount != nil {
+					benchmark.SuccessCount = *successCount
+				}
+				if errorCount != nil {
+					benchmark.ErrorCount = *errorCount
+				}
+			}
+		} else {
+			var totalExecutions, errorCount *int
+			err := rows.Scan(&totalExecutions, &errorCount)
+			if err == nil {
+				if totalExecutions != nil {
+					benchmark.TotalExecutions = *totalExecutions
+				}
+				if errorCount != nil {
+					benchmark.ErrorCount = *errorCount
+				}
+			}
+		}
+	}
+
+	return benchmark, nil
+}
+
+/* PerformanceBenchmark represents performance benchmark data */
+type PerformanceBenchmark struct {
+	MetricType      string  `json:"metric_type"`
+	TimeRange       string  `json:"time_range"`
+	AvgLatency      float64 `json:"avg_latency,omitempty"`
+	P50Latency      float64 `json:"p50_latency,omitempty"`
+	P95Latency      float64 `json:"p95_latency,omitempty"`
+	P99Latency      float64 `json:"p99_latency,omitempty"`
+	MaxLatency      float64 `json:"max_latency,omitempty"`
+	TotalExecutions int     `json:"total_executions"`
+	SuccessCount    int     `json:"success_count"`
+	ErrorCount      int     `json:"error_count"`
+}
+
+/* GetCostBreakdown retrieves detailed cost breakdown */
+func (s *ObservabilityService) GetCostBreakdown(ctx context.Context, userID *string, startTime, endTime time.Time, groupBy string) ([]CostBreakdown, error) {
+	var groupByClause string
+	switch groupBy {
+	case "category":
+		groupByClause = "cost_category"
+	case "resource_type":
+		groupByClause = "resource_type"
+	case "user":
+		groupByClause = "user_id"
+	default:
+		groupByClause = "cost_category"
+	}
+
+	query := fmt.Sprintf(`
+		SELECT 
+			%s as group_key,
+			SUM(cost_amount) as total_cost,
+			AVG(cost_amount) as avg_cost,
+			COUNT(*) as record_count
+		FROM neuronip.cost_tracking
+		WHERE billing_period_start >= $1 AND billing_period_end <= $2`, groupByClause)
+
+	args := []interface{}{startTime, endTime}
+	argIndex := 3
+
+	if userID != nil {
+		query += fmt.Sprintf(" AND user_id = $%d", argIndex)
+		args = append(args, *userID)
+		argIndex++
+	}
+
+	query += fmt.Sprintf(" GROUP BY %s ORDER BY total_cost DESC", groupByClause)
+
+	rows, err := s.pool.Query(ctx, query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get cost breakdown: %w", err)
+	}
+	defer rows.Close()
+
+	var breakdown []CostBreakdown
+	for rows.Next() {
+		var cb CostBreakdown
+		var groupKey *string
+		var totalCost, avgCost *float64
+		var recordCount *int
+
+		err := rows.Scan(&groupKey, &totalCost, &avgCost, &recordCount)
+		if err != nil {
+			continue
+		}
+
+		if groupKey != nil {
+			cb.GroupKey = *groupKey
+		}
+		if totalCost != nil {
+			cb.TotalCost = *totalCost
+		}
+		if avgCost != nil {
+			cb.AvgCost = *avgCost
+		}
+		if recordCount != nil {
+			cb.RecordCount = *recordCount
+		}
+
+		breakdown = append(breakdown, cb)
+	}
+
+	return breakdown, nil
+}
+
+/* CostBreakdown represents cost breakdown data */
+type CostBreakdown struct {
+	GroupKey    string  `json:"group_key"`
+	TotalCost   float64 `json:"total_cost"`
+	AvgCost     float64 `json:"avg_cost"`
+	RecordCount int     `json:"record_count"`
+}

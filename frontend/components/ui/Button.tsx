@@ -1,6 +1,6 @@
 'use client'
 
-import { ButtonHTMLAttributes, forwardRef } from 'react'
+import { ButtonHTMLAttributes, forwardRef, ReactNode } from 'react'
 import { motion, HTMLMotionProps } from 'framer-motion'
 import { cn } from '@/lib/utils/cn'
 
@@ -8,6 +8,8 @@ interface ButtonProps extends Omit<HTMLMotionProps<'button'>, 'size'> {
   variant?: 'primary' | 'secondary' | 'outline' | 'ghost' | 'destructive'
   size?: 'sm' | 'md' | 'lg'
   isLoading?: boolean
+  icon?: ReactNode
+  iconPosition?: 'left' | 'right'
   children: React.ReactNode
 }
 
@@ -20,6 +22,8 @@ const Button = forwardRef<HTMLButtonElement, ButtonProps>(
       className,
       children,
       disabled,
+      icon,
+      iconPosition = 'left',
       ...props
     },
     ref
@@ -61,7 +65,11 @@ const Button = forwardRef<HTMLButtonElement, ButtonProps>(
             <span>Loading...</span>
           </div>
         ) : (
-          children
+          <div className="flex items-center gap-2">
+            {icon && iconPosition === 'left' && <span className="flex-shrink-0">{icon}</span>}
+            {children}
+            {icon && iconPosition === 'right' && <span className="flex-shrink-0">{icon}</span>}
+          </div>
         )}
       </motion.button>
     )

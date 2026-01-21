@@ -2,7 +2,6 @@ package users
 
 import (
 	"context"
-	"fmt"
 
 	"github.com/google/uuid"
 	"github.com/neurondb/NeuronIP/api/internal/db"

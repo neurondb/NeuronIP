@@ -20,7 +20,7 @@ func ValidateJSON(v interface{}) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			if err := json.NewDecoder(r.Body).Decode(v); err != nil {
-				handlers.WriteErrorResponse(w, errors.BadRequest("Invalid JSON request body"))
+				handlers.WriteErrorResponseWithContext(w, r, errors.BadRequest("Invalid JSON request body"))
 				return
 			}
 
@@ -31,7 +31,7 @@ func ValidateJSON(v interface{}) func(http.Handler) http.Handler {
 					tag := err.Tag()
 					validationErrors[field] = getValidationErrorMessage(field, tag, err.Param())
 				}
-				handlers.WriteErrorResponse(w, errors.ValidationFailed("Validation failed", validationErrors))
+				handlers.WriteErrorResponseWithContext(w, r, errors.ValidationFailed("Validation failed", validationErrors))
 				return
 			}
 
@@ -44,18 +44,46 @@ func ValidateJSON(v interface{}) func(http.Handler) http.Handler {
 func getValidationErrorMessage(field, tag, param string) string {
 	switch tag {
 	case "required":
-		return field + " is required"
+		return "This field is required"
 	case "min":
-		return field + " must be at least " + param + " characters"
+		if param == "" {
+			return field + " is too short"
+		}
+		return field + " must be at least " + param + " characters long"
 	case "max":
-		return field + " must be at most " + param + " characters"
+		if param == "" {
+			return field + " is too long"
+		}
+		return field + " must be at most " + param + " characters long"
+	case "len":
+		return field + " must be exactly " + param + " characters long"
 	case "email":
-		return field + " must be a valid email address"
+		return "Please enter a valid email address"
 	case "url":
-		return field + " must be a valid URL"
+		return "Please enter a valid URL"
 	case "uuid":
-		return field + " must be a valid UUID"
+		return "Please enter a valid UUID"
+	case "numeric":
+		return field + " must be a number"
+	case "alpha":
+		return field + " must contain only letters"
+	case "alphanum":
+		return field + " must contain only letters and numbers"
+	case "gte":
+		return field + " must be greater than or equal to " + param
+	case "lte":
+		return field + " must be less than or equal to " + param
+	case "gt":
+		return field + " must be greater than " + param
+	case "lt":
+		return field + " must be less than " + param
+	case "oneof":
+		return field + " must be one of: " + param
+	case "eqfield":
+		return field + " must match " + param
+	case "nefield":
+		return field + " must not match " + param
 	default:
-		return field + " is invalid"
+		return field + " is invalid (" + tag + ")"
 	}
 }

@@ -6,7 +6,6 @@ import (
 	"encoding/base64"
 	"fmt"
 	"net/smtp"
-	"strings"
 	"time"
 
 	"github.com/google/uuid"

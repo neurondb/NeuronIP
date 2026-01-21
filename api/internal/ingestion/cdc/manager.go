@@ -18,7 +18,7 @@ type CDCManager struct {
 func NewCDCManager(pool *pgxpool.Pool) *CDCManager {
 	return &CDCManager{
 		postgresCDC: NewPostgresCDC(pool),
-		mysqlCDC:    NewMySQLCDC(),
+		mysqlCDC:    NewMySQLCDC(pool),
 		pool:        pool,
 	}
 }

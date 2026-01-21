@@ -20,9 +20,10 @@ interface Ticket {
 
 interface TicketListProps {
   tickets: Ticket[]
+  onCreateNew?: () => void
 }
 
-export default function TicketList({ tickets }: TicketListProps) {
+export default function TicketList({ tickets, onCreateNew }: TicketListProps) {
   const [searchQuery, setSearchQuery] = useState('')
   const [statusFilter, setStatusFilter] = useState<string | null>(null)
 
@@ -108,8 +109,21 @@ export default function TicketList({ tickets }: TicketListProps) {
       <CardContent className="flex-1 overflow-y-auto min-h-0">
         {filteredTickets.length === 0 ? (
           <div className="text-center text-muted-foreground py-12">
-            <p className="text-sm">No tickets found</p>
-            {searchQuery && <p className="text-xs mt-1">Try adjusting your search or filters</p>}
+            {tickets.length === 0 ? (
+              <>
+                <p className="text-sm mb-4">No tickets found. Create one to get started.</p>
+                {onCreateNew && (
+                  <Button onClick={onCreateNew} size="md">
+                    Create Your First Ticket
+                  </Button>
+                )}
+              </>
+            ) : (
+              <>
+                <p className="text-sm">No tickets found</p>
+                {searchQuery && <p className="text-xs mt-1">Try adjusting your search or filters</p>}
+              </>
+            )}
           </div>
         ) : (
           <Table>

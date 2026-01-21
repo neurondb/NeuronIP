@@ -76,23 +76,50 @@ func (s *DataSourceService) CreateDataSource(ctx context.Context, ds DataSource)
 
 /* GetDataSource retrieves a data source by ID */
 func (s *DataSourceService) GetDataSource(ctx context.Context, id uuid.UUID) (*DataSource, error) {
+	// Map existing table columns to service fields
 	query := `
-		SELECT id, name, source_type, connection_string, config, enabled, sync_schedule, sync_status,
-		       last_accessed_at, last_sync_at, sync_error, created_at, updated_at
+		SELECT id, name, type as source_type, NULL as connection_string, config, 
+		       (status = 'active') as enabled, NULL as sync_schedule, NULL as sync_status,
+		       NULL as last_accessed_at, NULL as last_sync_at, NULL as sync_error, 
+		       created_at, updated_at
 		FROM neuronip.data_sources
 		WHERE id = $1`
 
 	var result DataSource
 	var configJSONRaw json.RawMessage
+	var enabled sql.NullBool
+	var syncSchedule, syncStatus, syncError sql.NullString
+	var lastAccessedAt, lastSyncAt sql.NullTime
 
 	err := s.pool.QueryRow(ctx, query, id).Scan(
 		&result.ID, &result.Name, &result.SourceType, &result.ConnectionString,
-		&configJSONRaw, &result.Enabled, &result.SyncSchedule, &result.SyncStatus,
-		&result.LastAccessedAt, &result.LastSyncAt, &result.SyncError,
+		&configJSONRaw, &enabled, &syncSchedule, &syncStatus,
+		&lastAccessedAt, &lastSyncAt, &syncError,
 		&result.CreatedAt, &result.UpdatedAt,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get data source: %w", err)
+	}
+
+	if enabled.Valid {
+		result.Enabled = enabled.Bool
+	} else {
+		result.Enabled = true
+	}
+	if syncSchedule.Valid {
+		result.SyncSchedule = &syncSchedule.String
+	}
+	if syncStatus.Valid {
+		result.SyncStatus = &syncStatus.String
+	}
+	if lastAccessedAt.Valid {
+		result.LastAccessedAt = &lastAccessedAt.Time
+	}
+	if lastSyncAt.Valid {
+		result.LastSyncAt = &lastSyncAt.Time
+	}
+	if syncError.Valid {
+		result.SyncError = &syncError.String
 	}
 
 	json.Unmarshal(configJSONRaw, &result.Config)
@@ -101,9 +128,12 @@ func (s *DataSourceService) GetDataSource(ctx context.Context, id uuid.UUID) (*D
 
 /* ListDataSources lists all data sources */
 func (s *DataSourceService) ListDataSources(ctx context.Context) ([]DataSource, error) {
+	// Map existing table columns (type, status) to service fields (source_type, enabled)
 	query := `
-		SELECT id, name, source_type, connection_string, config, enabled, sync_schedule, sync_status,
-		       last_accessed_at, last_sync_at, sync_error, created_at, updated_at
+		SELECT id, name, type as source_type, NULL as connection_string, config, 
+		       (status = 'active') as enabled, NULL as sync_schedule, NULL as sync_status,
+		       NULL as last_accessed_at, NULL as last_sync_at, NULL as sync_error, 
+		       created_at, updated_at
 		FROM neuronip.data_sources
 		ORDER BY created_at DESC`
 
@@ -117,15 +147,39 @@ func (s *DataSourceService) ListDataSources(ctx context.Context) ([]DataSource, 
 	for rows.Next() {
 		var ds DataSource
 		var configJSONRaw json.RawMessage
+		var enabled sql.NullBool
+		var syncSchedule, syncStatus, syncError sql.NullString
+		var lastAccessedAt, lastSyncAt sql.NullTime
 
 		err := rows.Scan(
 			&ds.ID, &ds.Name, &ds.SourceType, &ds.ConnectionString,
-			&configJSONRaw, &ds.Enabled, &ds.SyncSchedule, &ds.SyncStatus,
-			&ds.LastAccessedAt, &ds.LastSyncAt, &ds.SyncError,
+			&configJSONRaw, &enabled, &syncSchedule, &syncStatus,
+			&lastAccessedAt, &lastSyncAt, &syncError,
 			&ds.CreatedAt, &ds.UpdatedAt,
 		)
 		if err != nil {
 			continue
+		}
+
+		if enabled.Valid {
+			ds.Enabled = enabled.Bool
+		} else {
+			ds.Enabled = true // Default to enabled
+		}
+		if syncSchedule.Valid {
+			ds.SyncSchedule = &syncSchedule.String
+		}
+		if syncStatus.Valid {
+			ds.SyncStatus = &syncStatus.String
+		}
+		if lastAccessedAt.Valid {
+			ds.LastAccessedAt = &lastAccessedAt.Time
+		}
+		if lastSyncAt.Valid {
+			ds.LastSyncAt = &lastSyncAt.Time
+		}
+		if syncError.Valid {
+			ds.SyncError = &syncError.String
 		}
 
 		json.Unmarshal(configJSONRaw, &ds.Config)

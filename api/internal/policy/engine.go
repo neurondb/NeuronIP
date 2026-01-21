@@ -78,7 +78,7 @@ func (e *PolicyEngine) EvaluatePolicy(ctx context.Context, policyID uuid.UUID, r
 	}
 	
 	// Apply policy based on type
-	result := e.applyPolicy(policy, request)
+	result := e.applyPolicy(*policy, request)
 	
 	// Log enforcement
 	e.logEnforcement(ctx, policyID, request, result)
@@ -250,7 +250,7 @@ func (e *PolicyEngine) evaluateConditions(conditions map[string]interface{}, req
 				return false
 			}
 		}
-		if roles, ok := userCond["roles"].([]interface{}); ok {
+		if _, ok := userCond["roles"].([]interface{}); ok {
 			// Check if user has one of the required roles
 			// This would need RBAC integration
 		}

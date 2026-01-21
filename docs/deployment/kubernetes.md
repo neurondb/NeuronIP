@@ -2,12 +2,18 @@
 
 This guide covers deploying NeuronIP on Kubernetes.
 
+> **Important**: External services (PostgreSQL, NeuronDB, NeuronMCP, NeuronAgent) are **not** deployed as part of NeuronIP and must be deployed separately. The NeuronIP services connect to these external services via configured endpoints.
+
 ## Prerequisites
 
 - Kubernetes cluster (1.24+)
 - kubectl configured
 - Helm 3.x (optional, for Helm chart deployment)
-- PostgreSQL 16+ with NeuronDB extension
+- **External Services** (deployed separately):
+  - PostgreSQL 16+ with NeuronDB extension
+  - NeuronDB service
+  - NeuronMCP service
+  - NeuronAgent service
 - Ingress controller (nginx recommended)
 
 ## Quick Start with Helm
@@ -73,14 +79,24 @@ kubectl apply -f k8s/hpa.yaml
 
 Key environment variables for the API deployment:
 
-- `DB_HOST`: PostgreSQL host
+**Database Connection (External PostgreSQL):**
+- `DB_HOST`: External PostgreSQL host (e.g., `postgres.example.com`)
 - `DB_PORT`: PostgreSQL port (default: 5432)
 - `DB_USER`: Database user
-- `DB_PASSWORD`: Database password
+- `DB_PASSWORD`: Database password (from Kubernetes secrets)
 - `DB_NAME`: Database name (default: neuronip)
+
+**Server Configuration:**
 - `SERVER_PORT`: API server port (default: 8082)
-- `NEURONAGENT_ENDPOINT`: NeuronAgent API endpoint
-- `NEURONAGENT_API_KEY`: NeuronAgent API key
+
+**External Service Connections:**
+- `NEURONDB_HOST`: External NeuronDB host
+- `NEURONDB_PORT`: NeuronDB port
+- `NEURONDB_DATABASE`: NeuronDB database name
+- `NEURONAGENT_ENDPOINT`: External NeuronAgent API endpoint (e.g., `https://neuronagent.example.com:8080`)
+- `NEURONAGENT_API_KEY`: NeuronAgent API key (from Kubernetes secrets)
+
+> **Note**: All external service endpoints must be accessible from the Kubernetes cluster. Configure network policies and DNS as needed.
 
 ### Resource Limits
 
@@ -102,10 +118,12 @@ HPA is configured to:
 
 ### Database High Availability
 
-For production, use:
+For production, configure external PostgreSQL with:
 - PostgreSQL with streaming replication
 - Connection pooling (PgBouncer)
 - Read replicas for read-heavy workloads
+
+> **Note**: Database high availability is managed separately from NeuronIP deployment. Ensure your external PostgreSQL service is configured for high availability.
 
 ## Monitoring
 
@@ -118,6 +136,68 @@ For production, use:
 ### Metrics
 
 Prometheus metrics available at `/metrics` endpoint.
+
+## External Service Configuration
+
+### Connecting to External Services
+
+NeuronIP requires external services to be accessible from the Kubernetes cluster:
+
+1. **PostgreSQL**: Configure `DB_HOST` in secrets to point to external PostgreSQL
+2. **NeuronDB**: Configure `NEURONDB_HOST` environment variable
+3. **NeuronMCP**: Configure MCP service endpoint
+4. **NeuronAgent**: Configure `NEURONAGENT_ENDPOINT` environment variable
+
+### Network Configuration
+
+**Option 1: External IP Addresses**
+- Configure external services with static IPs
+- Update `DB_HOST` and other endpoints to use IP addresses or FQDNs
+- Ensure network policies allow outbound connections
+
+**Option 2: ExternalName Services**
+```yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: external-postgres
+  namespace: neuronip
+spec:
+  type: ExternalName
+  externalName: postgres.example.com
+```
+
+**Option 3: Service Endpoints**
+- Create Kubernetes Service with Endpoints pointing to external IPs
+- Use service name in `DB_HOST` instead of external address
+
+### Testing Connectivity
+
+```bash
+# Test from API pod
+kubectl exec -n neuronip deployment/neuronip-api -- nc -zv postgres.example.com 5432
+kubectl exec -n neuronip deployment/neuronip-api -- nc -zv neurondb.example.com 5432
+
+# Test DNS resolution
+kubectl exec -n neuronip deployment/neuronip-api -- nslookup postgres.example.com
+```
+
+### Secrets Configuration
+
+Store external service credentials in Kubernetes secrets:
+
+```bash
+# Create secret for database
+kubectl create secret generic neuronip-secrets \
+  --from-literal=db-host=postgres.example.com \
+  --from-literal=db-user=neuronip \
+  --from-literal=db-password=secure_password \
+  -n neuronip
+```
+
+See [Production Deployment Guide](production.md) for detailed external service configuration.
+
+---
 
 ## Troubleshooting
 
@@ -143,3 +223,12 @@ kubectl get events -n neuronip --sort-by='.lastTimestamp'
 ## Multi-Region Deployment
 
 For multi-region deployments, see `docs/deployment/multi-region.md`.
+
+---
+
+## 📚 Related Documentation
+
+- [Production Deployment](production.md) - Production deployment guide
+- [Production Packaging](packaging.md) - How images are built and packaged
+- [Docker Deployment](docker.md) - Docker setup
+- [Monitoring](monitoring.md) - Observability and monitoring setup

@@ -71,7 +71,9 @@ NeuronIP is a comprehensive enterprise intelligence platform that combines five 
 
 ### For Operators
 - [🐳 Docker Deployment](deployment/docker.md) - Deploy with Docker
+- [📦 Production Packaging](deployment/packaging.md) - How images are built and packaged
 - [☸️ Production Deployment](deployment/production.md) - Production checklist
+- [☸️ Kubernetes Deployment](deployment/kubernetes.md) - Kubernetes deployment guide
 - [📊 Monitoring](deployment/monitoring.md) - Observability and monitoring
 - [🔒 Security Guide](security/overview.md) - Security best practices
 
@@ -110,7 +112,9 @@ docs/
 │   └── debugging.md
 ├── deployment/                # Deployment guides
 │   ├── docker.md
+│   ├── packaging.md
 │   ├── production.md
+│   ├── kubernetes.md
 │   └── monitoring.md
 ├── integrations/              # Integration guides
 │   ├── neurondb.md
@@ -278,7 +282,9 @@ npm run dev
 Deployment guides and best practices:
 
 - **[Docker Deployment](deployment/docker.md)** - Deploy with Docker Compose
+- **[Production Packaging](deployment/packaging.md)** - How images are built and packaged
 - **[Production Deployment](deployment/production.md)** - Production checklist
+- **[Kubernetes Deployment](deployment/kubernetes.md)** - Kubernetes deployment guide
 - **[Monitoring](deployment/monitoring.md)** - Observability setup
 
 ### Quick Docker Deployment

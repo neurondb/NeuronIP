@@ -8,7 +8,10 @@ import (
 	"net/http"
 	"strings"
 
+	"encoding/json"
+
 	"github.com/neurondb/NeuronIP/api/internal/db"
+	"github.com/neurondb/NeuronIP/api/internal/errors"
 	"golang.org/x/crypto/bcrypt"
 )
 
@@ -29,19 +32,19 @@ func Middleware(queries *db.Queries) func(http.Handler) http.Handler {
 
 			authHeader := r.Header.Get("Authorization")
 			if authHeader == "" {
-				http.Error(w, "Missing authorization header", http.StatusUnauthorized)
+				writeErrorResponse(w, errors.Unauthorized("Missing authorization header"))
 				return
 			}
 
 			key, err := ExtractAPIKey(authHeader)
 			if err != nil {
-				http.Error(w, err.Error(), http.StatusUnauthorized)
+				writeErrorResponse(w, errors.Unauthorized(err.Error()))
 				return
 			}
 
 			apiKey, err := ValidateAPIKey(r.Context(), queries, key)
 			if err != nil {
-				http.Error(w, "Invalid API key", http.StatusUnauthorized)
+				writeErrorResponse(w, errors.Unauthorized("Invalid API key"))
 				return
 			}
 
@@ -111,4 +114,15 @@ func SetUserID(ctx context.Context, userID string) context.Context {
 func GetUserIDFromContext(ctx context.Context) (string, bool) {
 	userID, ok := ctx.Value(userIDContextKey).(string)
 	return userID, ok
+}
+
+/* writeErrorResponse writes an error response without importing handlers to avoid cycle */
+func writeErrorResponse(w http.ResponseWriter, apiErr *errors.APIError) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(apiErr.HTTPStatus())
+	
+	response := map[string]interface{}{
+		"error": apiErr,
+	}
+	json.NewEncoder(w).Encode(response)
 }

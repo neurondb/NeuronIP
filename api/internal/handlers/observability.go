@@ -4,8 +4,8 @@ import (
 	"encoding/json"
 	"net/http"
 	"strconv"
+	"time"
 
-	"github.com/gorilla/mux"
 	"github.com/neurondb/NeuronIP/api/internal/errors"
 	"github.com/neurondb/NeuronIP/api/internal/observability"
 )
@@ -108,4 +108,119 @@ func (h *ObservabilityHandler) GetWorkflowLogs(w http.ResponseWriter, r *http.Re
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(logs)
+}
+
+/* GetRealTimeMetrics handles GET /api/v1/observability/realtime */
+func (h *ObservabilityHandler) GetRealTimeMetrics(w http.ResponseWriter, r *http.Request) {
+	timeWindow := r.URL.Query().Get("window")
+	if timeWindow == "" {
+		timeWindow = "5m"
+	}
+
+	metrics, err := h.service.GetRealTimeMetrics(r.Context(), timeWindow)
+	if err != nil {
+		WriteError(w, err)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(metrics)
+}
+
+/* GetLogStream handles GET /api/v1/observability/logs/stream */
+func (h *ObservabilityHandler) GetLogStream(w http.ResponseWriter, r *http.Request) {
+	logType := r.URL.Query().Get("log_type")
+	level := r.URL.Query().Get("level")
+	limit := 1000
+	if limitStr := r.URL.Query().Get("limit"); limitStr != "" {
+		if parsed, err := strconv.Atoi(limitStr); err == nil {
+			limit = parsed
+		}
+	}
+
+	sinceStr := r.URL.Query().Get("since")
+	since := time.Now().Add(-1 * time.Hour) // Default to 1 hour ago
+	if sinceStr != "" {
+		if parsed, err := time.Parse(time.RFC3339, sinceStr); err == nil {
+			since = parsed
+		}
+	}
+
+	logs, err := h.service.GetLogStream(r.Context(), logType, level, since, limit)
+	if err != nil {
+		WriteError(w, err)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(logs)
+}
+
+/* GetPerformanceBenchmark handles GET /api/v1/observability/benchmark */
+func (h *ObservabilityHandler) GetPerformanceBenchmark(w http.ResponseWriter, r *http.Request) {
+	metricType := r.URL.Query().Get("metric_type")
+	if metricType == "" {
+		metricType = "query"
+	}
+
+	timeRange := r.URL.Query().Get("time_range")
+	if timeRange == "" {
+		timeRange = "24h"
+	}
+
+	benchmark, err := h.service.GetPerformanceBenchmark(r.Context(), metricType, timeRange)
+	if err != nil {
+		WriteError(w, err)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(benchmark)
+}
+
+/* GetCostBreakdown handles GET /api/v1/observability/cost/breakdown */
+func (h *ObservabilityHandler) GetCostBreakdown(w http.ResponseWriter, r *http.Request) {
+	startTimeStr := r.URL.Query().Get("start_time")
+	endTimeStr := r.URL.Query().Get("end_time")
+	groupBy := r.URL.Query().Get("group_by")
+	if groupBy == "" {
+		groupBy = "category"
+	}
+
+	var startTime, endTime time.Time
+	var err error
+
+	if startTimeStr != "" {
+		startTime, err = time.Parse(time.RFC3339, startTimeStr)
+		if err != nil {
+			WriteErrorResponse(w, errors.BadRequest("Invalid start_time format"))
+			return
+		}
+	} else {
+		startTime = time.Now().Add(-30 * 24 * time.Hour) // Default to 30 days ago
+	}
+
+	if endTimeStr != "" {
+		endTime, err = time.Parse(time.RFC3339, endTimeStr)
+		if err != nil {
+			WriteErrorResponse(w, errors.BadRequest("Invalid end_time format"))
+			return
+		}
+	} else {
+		endTime = time.Now()
+	}
+
+	var userID *string
+	if userIDStr := r.URL.Query().Get("user_id"); userIDStr != "" {
+		userID = &userIDStr
+	}
+
+	breakdown, err := h.service.GetCostBreakdown(r.Context(), userID, startTime, endTime, groupBy)
+	if err != nil {
+		WriteError(w, err)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(breakdown)
 }

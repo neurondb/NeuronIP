@@ -2,8 +2,16 @@
 
 import { useEffect, useState } from 'react'
 import { motion } from 'framer-motion'
+import {
+  MagnifyingGlassIcon,
+  ChartBarIcon,
+  CommandLineIcon,
+  ShieldCheckIcon,
+  DocumentTextIcon,
+} from '@heroicons/react/24/outline'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/Card'
 import { slideUp, transition } from '@/lib/animations/variants'
+import { cn } from '@/lib/utils/cn'
 
 interface Activity {
   id: string
@@ -48,17 +56,18 @@ export default function ActivityFeed() {
   }, [])
 
   const getActivityIcon = (type: Activity['type']) => {
+    const iconClass = 'h-5 w-5 flex-shrink-0'
     switch (type) {
       case 'search':
-        return '🔍'
+        return <MagnifyingGlassIcon className={cn(iconClass, 'text-blue-500')} />
       case 'query':
-        return '📊'
+        return <ChartBarIcon className={cn(iconClass, 'text-green-500')} />
       case 'workflow':
-        return '⚙️'
+        return <CommandLineIcon className={cn(iconClass, 'text-purple-500')} />
       case 'compliance':
-        return '✅'
+        return <ShieldCheckIcon className={cn(iconClass, 'text-orange-500')} />
       default:
-        return '📝'
+        return <DocumentTextIcon className={cn(iconClass, 'text-muted-foreground')} />
     }
   }
 
@@ -92,7 +101,7 @@ export default function ActivityFeed() {
               transition={{ ...transition, delay: index * 0.05 }}
               className="flex items-start gap-2.5 pb-2.5 border-b border-border last:border-0 last:pb-0"
             >
-              <span className="text-base sm:text-lg flex-shrink-0">{getActivityIcon(activity.type)}</span>
+              <div className="flex-shrink-0 mt-0.5">{getActivityIcon(activity.type)}</div>
               <div className="flex-1 min-w-0">
                 <p className="text-xs sm:text-sm text-foreground leading-tight">{activity.message}</p>
                 <p className="text-xs text-muted-foreground mt-0.5">{formatTime(activity.timestamp)}</p>

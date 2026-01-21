@@ -203,7 +203,6 @@ func (s *CatalogService) ListOwners(ctx context.Context) ([]string, error) {
 /* DiscoverDatasets performs semantic discovery */
 func (s *CatalogService) DiscoverDatasets(ctx context.Context, tags []string) ([]Dataset, error) {
 	var datasets []Dataset
-	var rows interface{ Close() error }
 
 	if len(tags) > 0 {
 		query := `
@@ -212,17 +211,15 @@ func (s *CatalogService) DiscoverDatasets(ctx context.Context, tags []string) ([
 			WHERE tags && $1
 			ORDER BY created_at DESC`
 
-		var err error
-		rows, err = s.pool.Query(ctx, query, tags)
+		rows, err := s.pool.Query(ctx, query, tags)
 		if err != nil {
 			return nil, fmt.Errorf("failed to discover datasets: %w", err)
 		}
+		defer rows.Close()
 	} else {
 		// Return all datasets
 		return s.ListDatasets(ctx)
 	}
-
-	defer rows.Close()
 
 	// Process rows (simplified - actual implementation would need type assertion)
 	// For now, just return empty list

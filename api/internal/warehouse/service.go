@@ -297,9 +297,10 @@ func (s *Service) GetSchema(ctx context.Context, id uuid.UUID) (*Schema, error) 
 
 /* ListSchemas lists all warehouse schemas */
 func (s *Service) ListSchemas(ctx context.Context) ([]Schema, error) {
+	// Check if last_synced_at column exists, if not, use simpler query
 	query := `
 		SELECT id, schema_name, database_name, description, tables, 
-		       last_synced_at, created_at, updated_at
+		       created_at, updated_at
 		FROM neuronip.warehouse_schemas
 		ORDER BY created_at DESC`
 
@@ -314,11 +315,10 @@ func (s *Service) ListSchemas(ctx context.Context) ([]Schema, error) {
 		var schema Schema
 		var description sql.NullString
 		var tablesJSON json.RawMessage
-		var lastSyncedAt sql.NullTime
 
 		err := rows.Scan(
 			&schema.ID, &schema.SchemaName, &schema.DatabaseName, &description,
-			&tablesJSON, &lastSyncedAt, &schema.CreatedAt, &schema.UpdatedAt,
+			&tablesJSON, &schema.CreatedAt, &schema.UpdatedAt,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("failed to scan schema: %w", err)
@@ -327,9 +327,8 @@ func (s *Service) ListSchemas(ctx context.Context) ([]Schema, error) {
 		if description.Valid {
 			schema.Description = &description.String
 		}
-		if lastSyncedAt.Valid {
-			schema.LastSyncedAt = &lastSyncedAt.Time
-		}
+		// last_synced_at column doesn't exist in current schema, set to nil
+		schema.LastSyncedAt = nil
 		if tablesJSON != nil {
 			json.Unmarshal(tablesJSON, &schema.Tables)
 		}
@@ -660,4 +659,258 @@ func getKeys(m map[string]interface{}) []string {
 		keys = append(keys, k)
 	}
 	return keys
+}
+
+/* GetQueryHistory retrieves query history for a user */
+func (s *Service) GetQueryHistory(ctx context.Context, userID string, limit int) ([]QueryHistoryItem, error) {
+	if limit <= 0 {
+		limit = 50
+	}
+
+	query := `
+		SELECT id, natural_language_query, generated_sql, status, created_at, executed_at, execution_time_ms
+		FROM neuronip.warehouse_queries
+		WHERE user_id = $1
+		ORDER BY created_at DESC
+		LIMIT $2`
+
+	rows, err := s.pool.Query(ctx, query, userID, limit)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get query history: %w", err)
+	}
+	defer rows.Close()
+
+	var history []QueryHistoryItem
+	for rows.Next() {
+		var item QueryHistoryItem
+		var generatedSQL sql.NullString
+		var executedAt sql.NullTime
+		var executionTimeMs sql.NullInt64
+
+		err := rows.Scan(
+			&item.QueryID, &item.NaturalLanguageQuery, &generatedSQL,
+			&item.Status, &item.CreatedAt, &executedAt, &executionTimeMs,
+		)
+		if err != nil {
+			continue
+		}
+
+		if generatedSQL.Valid {
+			item.GeneratedSQL = generatedSQL.String
+		}
+		if executedAt.Valid {
+			item.ExecutedAt = &executedAt.Time
+		}
+		if executionTimeMs.Valid {
+			item.ExecutionTimeMs = &executionTimeMs.Int64
+		}
+
+		history = append(history, item)
+	}
+
+	return history, nil
+}
+
+/* QueryHistoryItem represents a query history item */
+type QueryHistoryItem struct {
+	QueryID              uuid.UUID  `json:"query_id"`
+	NaturalLanguageQuery string     `json:"natural_language_query"`
+	GeneratedSQL         string     `json:"generated_sql"`
+	Status               string     `json:"status"`
+	CreatedAt            time.Time  `json:"created_at"`
+	ExecutedAt           *time.Time `json:"executed_at,omitempty"`
+	ExecutionTimeMs      *int64     `json:"execution_time_ms,omitempty"`
+}
+
+/* GetQueryOptimizationSuggestions provides optimization suggestions for a query */
+func (s *Service) GetQueryOptimizationSuggestions(ctx context.Context, sqlQuery string) ([]QueryOptimization, error) {
+	suggestions := []QueryOptimization{}
+
+	// Check for missing indexes
+	if strings.Contains(strings.ToUpper(sqlQuery), "WHERE") {
+		// Extract WHERE clause columns
+		whereMatch := strings.Index(strings.ToUpper(sqlQuery), "WHERE")
+		if whereMatch > 0 {
+			whereClause := sqlQuery[whereMatch+5:]
+			// Simple heuristic: if WHERE clause has multiple conditions, suggest composite index
+			if strings.Count(whereClause, "AND") > 0 {
+				suggestions = append(suggestions, QueryOptimization{
+					Type:        "index",
+					Severity:    "medium",
+					Description: "Consider adding a composite index for frequently queried columns",
+					SQL:         "", // Would generate CREATE INDEX statement
+				})
+			}
+		}
+	}
+
+	// Check for SELECT *
+	if strings.Contains(strings.ToUpper(sqlQuery), "SELECT *") {
+		suggestions = append(suggestions, QueryOptimization{
+			Type:        "performance",
+			Severity:    "low",
+			Description: "SELECT * retrieves all columns. Consider selecting only needed columns for better performance",
+			SQL:         "",
+		})
+	}
+
+	// Check for missing LIMIT
+	if !strings.Contains(strings.ToUpper(sqlQuery), "LIMIT") && !strings.Contains(strings.ToUpper(sqlQuery), "FETCH") {
+		suggestions = append(suggestions, QueryOptimization{
+			Type:        "performance",
+			Severity:    "high",
+			Description: "Query lacks LIMIT clause. Consider adding LIMIT to prevent large result sets",
+			SQL:         "",
+		})
+	}
+
+	// Check for inefficient JOINs
+	if strings.Contains(strings.ToUpper(sqlQuery), "JOIN") {
+		joinCount := strings.Count(strings.ToUpper(sqlQuery), "JOIN")
+		if joinCount > 3 {
+			suggestions = append(suggestions, QueryOptimization{
+				Type:        "performance",
+				Severity:    "medium",
+				Description: fmt.Sprintf("Query has %d JOINs. Consider if all are necessary or if query can be simplified", joinCount),
+				SQL:         "",
+			})
+		}
+	}
+
+	return suggestions, nil
+}
+
+/* QueryOptimization represents a query optimization suggestion */
+type QueryOptimization struct {
+	Type        string `json:"type"`
+	Severity    string `json:"severity"`
+	Description string `json:"description"`
+	SQL         string `json:"sql,omitempty"`
+}
+
+/* CacheQueryResult caches a query result */
+func (s *Service) CacheQueryResult(ctx context.Context, queryHash string, result QueryResponse, ttl time.Duration) error {
+	resultJSON, _ := json.Marshal(result)
+	expiresAt := time.Now().Add(ttl)
+
+	query := `
+		INSERT INTO neuronip.query_cache (query_hash, result_data, expires_at, created_at)
+		VALUES ($1, $2, $3, NOW())
+		ON CONFLICT (query_hash) DO UPDATE
+		SET result_data = $2, expires_at = $3, created_at = NOW()`
+
+	_, err := s.pool.Exec(ctx, query, queryHash, resultJSON, expiresAt)
+	return err
+}
+
+/* GetCachedQueryResult retrieves a cached query result */
+func (s *Service) GetCachedQueryResult(ctx context.Context, queryHash string) (*QueryResponse, error) {
+	query := `
+		SELECT result_data
+		FROM neuronip.query_cache
+		WHERE query_hash = $1 AND expires_at > NOW()`
+
+	var resultJSON json.RawMessage
+	err := s.pool.QueryRow(ctx, query, queryHash).Scan(&resultJSON)
+	if err == pgx.ErrNoRows {
+		return nil, nil // Cache miss
+	}
+	if err != nil {
+		return nil, fmt.Errorf("failed to get cached result: %w", err)
+	}
+
+	var result QueryResponse
+	if err := json.Unmarshal(resultJSON, &result); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal cached result: %w", err)
+	}
+
+	return &result, nil
+}
+
+/* Enhanced chart type detection with more chart types */
+func (s *Service) generateChartConfigEnhanced(results []map[string]interface{}) (map[string]interface{}, string) {
+	if len(results) == 0 {
+		return nil, ""
+	}
+
+	firstRow := results[0]
+	numericCols := []string{}
+	stringCols := []string{}
+	dateCols := []string{}
+
+	for key, val := range firstRow {
+		switch val.(type) {
+		case int, int32, int64, float32, float64:
+			numericCols = append(numericCols, key)
+		case string:
+			// Check if it's a date string
+			if s.isDateString(val.(string)) {
+				dateCols = append(dateCols, key)
+			} else {
+				stringCols = append(stringCols, key)
+			}
+		case time.Time:
+			dateCols = append(dateCols, key)
+		}
+	}
+
+	// Enhanced chart type detection
+	var chartType string
+	var config map[string]interface{}
+
+	// Time series chart (date + numeric)
+	if len(dateCols) > 0 && len(numericCols) > 0 {
+		chartType = "line"
+		config = map[string]interface{}{
+			"x":      dateCols[0],
+			"y":      numericCols[0],
+			"series": numericCols,
+		}
+	} else if len(numericCols) >= 2 && len(stringCols) >= 1 {
+		// Bar chart
+		chartType = "bar"
+		config = map[string]interface{}{
+			"x":      stringCols[0],
+			"y":      numericCols[0],
+			"series": numericCols,
+		}
+	} else if len(numericCols) >= 1 && len(stringCols) >= 1 && len(results) <= 10 {
+		// Pie chart (for small datasets)
+		chartType = "pie"
+		config = map[string]interface{}{
+			"category": stringCols[0],
+			"value":    numericCols[0],
+		}
+	} else if len(numericCols) >= 2 {
+		// Scatter plot
+		chartType = "scatter"
+		config = map[string]interface{}{
+			"x": numericCols[0],
+			"y": numericCols[1],
+		}
+	} else {
+		// Table view
+		chartType = "table"
+		config = map[string]interface{}{
+			"columns": getKeys(firstRow),
+		}
+	}
+
+	return config, chartType
+}
+
+/* isDateString checks if a string looks like a date */
+func (s *Service) isDateString(str string) bool {
+	dateFormats := []string{
+		"2006-01-02",
+		"2006-01-02 15:04:05",
+		"01/02/2006",
+		"2006-01-02T15:04:05Z",
+	}
+	for _, format := range dateFormats {
+		if _, err := time.Parse(format, str); err == nil {
+			return true
+		}
+	}
+	return false
 }

@@ -9,6 +9,9 @@ import Loading from '@/components/ui/Loading'
 import { useSemanticRAG } from '@/lib/api/queries'
 import { cn } from '@/lib/utils/cn'
 import ReactMarkdown from 'react-markdown'
+import Tooltip from '@/components/ui/Tooltip'
+import HelpText from '@/components/ui/HelpText'
+import { InformationCircleIcon, SparklesIcon, ChatBubbleLeftRightIcon } from '@heroicons/react/24/outline'
 
 interface Message {
   id: string
@@ -91,11 +94,69 @@ export default function ChatInterface() {
 
   return (
     <Card className="h-full flex flex-col">
+      <div className="p-4 border-b border-border flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          <SparklesIcon className="h-5 w-5 text-primary" />
+          <h3 className="font-semibold">Semantic Search & RAG</h3>
+          <Tooltip
+            content={
+              <div>
+                <p className="font-medium mb-1">RAG (Retrieval-Augmented Generation)</p>
+                <p className="text-xs">
+                  This chat interface uses RAG to search your knowledge base semantically and generate
+                  responses based on relevant documents. It understands meaning, not just keywords.
+                </p>
+              </div>
+            }
+            variant="info"
+          >
+            <InformationCircleIcon className="h-4 w-4 text-muted-foreground cursor-help" />
+          </Tooltip>
+        </div>
+        <HelpText
+          variant="tooltip"
+          content={
+            <div>
+              <p className="font-medium mb-1">Semantic Search Features</p>
+              <ul className="text-xs space-y-1 mb-2">
+                <li>• Ask questions in natural language</li>
+                <li>• Search by meaning, not keywords</li>
+                <li>• Get answers from your documents</li>
+                <li>• Context-aware responses</li>
+              </ul>
+              <p className="text-xs">
+                <a
+                  href="/docs/features/semantic-search"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="underline"
+                >
+                  Learn more →
+                </a>
+              </p>
+            </div>
+          }
+        />
+      </div>
       <div className="flex-1 overflow-y-auto p-4 sm:p-5 space-y-3">
         {messages.length === 0 ? (
           <div className="flex flex-col items-center justify-center h-full text-center text-muted-foreground">
+            <ChatBubbleLeftRightIcon className="h-16 w-16 mx-auto mb-4 opacity-30" />
             <h3 className="text-lg font-semibold mb-2">Start a conversation</h3>
-            <p className="text-sm">Ask questions about your documents or data</p>
+            <p className="text-sm mb-4">Ask questions about your documents or data</p>
+            <HelpText
+              variant="inline"
+              content={
+                <div className="text-sm">
+                  <p className="mb-2">Try asking:</p>
+                  <ul className="text-left space-y-1 list-disc list-inside">
+                    <li>"What documents discuss customer support?"</li>
+                    <li>"Explain the refund policy"</li>
+                    <li>"Find information about API authentication"</li>
+                  </ul>
+                </div>
+              }
+            />
           </div>
         ) : (
           <AnimatePresence>

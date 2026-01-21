@@ -8,21 +8,18 @@ import {
   ClockIcon,
   ServerIcon,
   CpuChipIcon,
+  PuzzlePieceIcon,
 } from '@heroicons/react/24/outline'
 import { cn } from '@/lib/utils/cn'
 import SimpleFooter from './SimpleFooter'
+import StatusBadge from '@/components/ui/StatusBadge'
+import { HealthResponse, SystemStats } from '@/lib/api/types'
+import Tooltip from '@/components/ui/Tooltip'
 
 interface DashboardFooterProps {
   className?: string
   showStats?: boolean
   version?: string
-}
-
-interface SystemStats {
-  status: 'healthy' | 'warning' | 'error'
-  database: 'connected' | 'disconnected'
-  api: 'online' | 'offline'
-  uptime?: string
 }
 
 export default function DashboardFooter({
@@ -33,28 +30,62 @@ export default function DashboardFooter({
   const [stats, setStats] = useState<SystemStats>({
     status: 'healthy',
     database: 'connected',
+    mcp: 'unavailable',
     api: 'online',
-    uptime: '99.9%',
+    uptime: undefined,
   })
+  const [healthData, setHealthData] = useState<HealthResponse | null>(null)
 
-  // Fetch system stats (mock for now - can be connected to health endpoint)
+  // Fetch system stats from health endpoint
   useEffect(() => {
-    // In a real implementation, fetch from /api/v1/health or similar endpoint
     const fetchStats = async () => {
       try {
         const response = await fetch('/api/v1/health')
         if (response.ok) {
-          const data = await response.json()
-          setStats({
-            status: data.status === 'ok' ? 'healthy' : 'warning',
-            database: data.checks?.database?.status === 'healthy' ? 'connected' : 'disconnected',
+          const data: HealthResponse = await response.json()
+          setHealthData(data)
+
+          // Parse health response to system stats
+          const dbCheck = data.checks?.database
+          const mcpCheck = data.checks?.mcp
+          const uptimeCheck = data.checks?.uptime
+
+          const newStats: SystemStats = {
+            status:
+              data.status === 'ok'
+                ? 'healthy'
+                : data.status === 'warning'
+                ? 'warning'
+                : 'error',
+            database:
+              dbCheck?.status === 'healthy' ? 'connected' : 'disconnected',
+            mcp:
+              mcpCheck?.status === 'healthy'
+                ? 'connected'
+                : mcpCheck?.status === 'error'
+                ? 'disconnected'
+                : 'unavailable',
             api: 'online',
-            uptime: '99.9%',
-          })
+            uptime: uptimeCheck?.message?.replace('Server uptime: ', '') || undefined,
+          }
+
+          setStats(newStats)
+        } else {
+          // API is offline
+          setStats((prev) => ({
+            ...prev,
+            api: 'offline',
+            status: 'error',
+          }))
         }
       } catch (error) {
-        // Silently fail - use default stats
+        // Silently fail - use default stats or mark as offline
         console.debug('Failed to fetch health stats:', error)
+        setStats((prev) => ({
+          ...prev,
+          api: 'offline',
+          status: 'error',
+        }))
       }
     }
 
@@ -92,55 +123,137 @@ export default function DashboardFooter({
             >
               {/* System Status */}
               <div className="flex flex-wrap items-center gap-4 sm:gap-6">
-                <div className="flex items-center gap-2">
-                  <StatusIcon className={cn('h-4 w-4', statusColors[stats.status])} />
-                  <span className="text-sm text-muted-foreground">
-                    System Status: <span className={cn('font-medium', statusColors[stats.status])}>
-                      {stats.status.charAt(0).toUpperCase() + stats.status.slice(1)}
+                {/* System Status Badge */}
+                <Tooltip
+                  content={
+                    <div>
+                      <p className="font-medium mb-1">System Status</p>
+                      <p className="text-xs">
+                        {stats.status === 'healthy'
+                          ? 'All systems operational'
+                          : stats.status === 'warning'
+                          ? 'Some services may be degraded'
+                          : 'System errors detected'}
+                      </p>
+                      {healthData && (
+                        <div className="mt-2 space-y-1 text-xs">
+                          {Object.entries(healthData.checks || {}).map(([key, check]) => (
+                            check && (
+                              <div key={key}>
+                                <span className="capitalize">{key}:</span>{' '}
+                                <span
+                                  className={
+                                    check.status === 'healthy'
+                                      ? 'text-green-300'
+                                      : check.status === 'error'
+                                      ? 'text-red-300'
+                                      : 'text-yellow-300'
+                                  }
+                                >
+                                  {check.status}
+                                </span>
+                              </div>
+                            )
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  }
+                  variant="info"
+                >
+                  <div className="flex items-center gap-2 cursor-pointer">
+                    <StatusIcon className={cn('h-4 w-4', statusColors[stats.status])} />
+                    <span className="text-sm text-muted-foreground">
+                      System: <span className={cn('font-medium', statusColors[stats.status])}>
+                        {stats.status.charAt(0).toUpperCase() + stats.status.slice(1)}
+                      </span>
                     </span>
-                  </span>
-                </div>
+                  </div>
+                </Tooltip>
 
-                {/* Database Status */}
-                <div className="flex items-center gap-2">
-                  <ServerIcon className={cn(
-                    'h-4 w-4',
-                    stats.database === 'connected' ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'
-                  )} />
-                  <span className="text-sm text-muted-foreground">
-                    DB: <span className={cn(
-                      'font-medium',
-                      stats.database === 'connected' ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'
-                    )}>
-                      {stats.database === 'connected' ? 'Connected' : 'Disconnected'}
-                    </span>
-                  </span>
-                </div>
+                {/* PostgreSQL Status */}
+                <StatusBadge
+                  status={
+                    stats.database === 'connected'
+                      ? 'connected'
+                      : stats.database === 'disconnected'
+                      ? 'disconnected'
+                      : 'error'
+                  }
+                  label="PostgreSQL"
+                  details={
+                    <div>
+                      <p className="font-medium mb-1">PostgreSQL Connection</p>
+                      <p className="text-xs">
+                        {healthData?.checks?.database?.message || 'Connection status unknown'}
+                      </p>
+                    </div>
+                  }
+                  size="sm"
+                  showIcon={true}
+                />
+
+                {/* MCP Status */}
+                <StatusBadge
+                  status={
+                    stats.mcp === 'connected'
+                      ? 'connected'
+                      : stats.mcp === 'disconnected'
+                      ? 'disconnected'
+                      : stats.mcp === 'unavailable'
+                      ? 'error'
+                      : 'error'
+                  }
+                  label="MCP"
+                  details={
+                    <div>
+                      <p className="font-medium mb-1">MCP (Model Context Protocol)</p>
+                      <p className="text-xs">
+                        {healthData?.checks?.mcp?.message ||
+                          'MCP client not configured or unavailable'}
+                      </p>
+                    </div>
+                  }
+                  size="sm"
+                  showIcon={true}
+                />
 
                 {/* API Status */}
-                <div className="flex items-center gap-2">
-                  <CpuChipIcon className={cn(
-                    'h-4 w-4',
-                    stats.api === 'online' ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'
-                  )} />
-                  <span className="text-sm text-muted-foreground">
-                    API: <span className={cn(
-                      'font-medium',
-                      stats.api === 'online' ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'
-                    )}>
-                      {stats.api === 'online' ? 'Online' : 'Offline'}
-                    </span>
-                  </span>
-                </div>
+                <StatusBadge
+                  status={stats.api === 'online' ? 'connected' : 'disconnected'}
+                  label="API"
+                  details={
+                    <div>
+                      <p className="font-medium mb-1">API Service</p>
+                      <p className="text-xs">
+                        {stats.api === 'online'
+                          ? 'API service is responding'
+                          : 'API service is not responding'}
+                      </p>
+                    </div>
+                  }
+                  size="sm"
+                  showIcon={true}
+                />
 
                 {/* Uptime */}
                 {stats.uptime && (
-                  <div className="flex items-center gap-2">
-                    <ClockIcon className="h-4 w-4 text-muted-foreground" />
-                    <span className="text-sm text-muted-foreground">
-                      Uptime: <span className="font-medium text-foreground">{stats.uptime}</span>
-                    </span>
-                  </div>
+                  <Tooltip
+                    content={
+                      <div>
+                        <p className="font-medium mb-1">Server Uptime</p>
+                        <p className="text-xs">Time since last server restart</p>
+                      </div>
+                    }
+                    variant="info"
+                  >
+                    <div className="flex items-center gap-2 cursor-pointer">
+                      <ClockIcon className="h-4 w-4 text-muted-foreground" />
+                      <span className="text-sm text-muted-foreground">
+                        Uptime: <span className="font-medium text-foreground">{stats.uptime}</span>
+                      </span>
+                    </div>
+                  </Tooltip>
                 )}
               </div>
 

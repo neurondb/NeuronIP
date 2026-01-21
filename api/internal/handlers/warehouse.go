@@ -3,6 +3,7 @@ package handlers
 import (
 	"encoding/json"
 	"net/http"
+	"strconv"
 
 	"github.com/google/uuid"
 	"github.com/gorilla/mux"
@@ -162,4 +163,59 @@ func (h *WarehouseHandler) GetSchema(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(schema)
+}
+
+/* GetQueryHistory handles query history retrieval requests */
+func (h *WarehouseHandler) GetQueryHistory(w http.ResponseWriter, r *http.Request) {
+	var userID string
+	if uid, ok := auth.GetUserIDFromContext(r.Context()); ok {
+		userID = uid
+	} else {
+		WriteErrorResponse(w, errors.Unauthorized("User ID required"))
+		return
+	}
+
+	limit := 50
+	if limitStr := r.URL.Query().Get("limit"); limitStr != "" {
+		if parsed, err := strconv.Atoi(limitStr); err == nil {
+			limit = parsed
+		}
+	}
+
+	history, err := h.service.GetQueryHistory(r.Context(), userID, limit)
+	if err != nil {
+		WriteError(w, err)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(history)
+}
+
+/* GetQueryOptimization handles query optimization suggestion requests */
+func (h *WarehouseHandler) GetQueryOptimization(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		SQL string `json:"sql"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		WriteErrorResponse(w, errors.BadRequest("Invalid request body"))
+		return
+	}
+
+	if req.SQL == "" {
+		WriteErrorResponse(w, errors.ValidationFailed("sql is required", nil))
+		return
+	}
+
+	suggestions, err := h.service.GetQueryOptimizationSuggestions(r.Context(), req.SQL)
+	if err != nil {
+		WriteError(w, err)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"suggestions": suggestions,
+		"count":       len(suggestions),
+	})
 }

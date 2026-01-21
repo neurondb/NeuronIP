@@ -1,0 +1,278 @@
+{
+  "description": "Sample sales data for Warehouse Q&A demo - natural language to SQL queries",
+  "version": "1.0",
+  "schema": {
+    "id": "sales-schema",
+    "name": "Sales Data Warehouse",
+    "description": "E-commerce sales data with products, customers, orders, and revenue",
+    "tables": [
+      {
+        "name": "products",
+        "description": "Product catalog with pricing and categories",
+        "columns": [
+          {"name": "product_id", "type": "uuid", "description": "Unique product identifier"},
+          {"name": "name", "type": "text", "description": "Product name"},
+          {"name": "category", "type": "text", "description": "Product category"},
+          {"name": "price", "type": "decimal", "description": "Product price in USD"},
+          {"name": "cost", "type": "decimal", "description": "Product cost in USD"},
+          {"name": "stock_quantity", "type": "integer", "description": "Available stock"},
+          {"name": "created_at", "type": "timestamp", "description": "Product creation date"}
+        ]
+      },
+      {
+        "name": "customers",
+        "description": "Customer information and demographics",
+        "columns": [
+          {"name": "customer_id", "type": "uuid", "description": "Unique customer identifier"},
+          {"name": "email", "type": "text", "description": "Customer email address"},
+          {"name": "name", "type": "text", "description": "Customer full name"},
+          {"name": "country", "type": "text", "description": "Customer country"},
+          {"name": "registration_date", "type": "timestamp", "description": "Customer registration date"},
+          {"name": "customer_segment", "type": "text", "description": "Customer segment (premium, standard, basic)"}
+        ]
+      },
+      {
+        "name": "orders",
+        "description": "Order transactions with line items",
+        "columns": [
+          {"name": "order_id", "type": "uuid", "description": "Unique order identifier"},
+          {"name": "customer_id", "type": "uuid", "description": "Customer who placed the order"},
+          {"name": "order_date", "type": "timestamp", "description": "Order date and time"},
+          {"name": "status", "type": "text", "description": "Order status (pending, completed, cancelled)"},
+          {"name": "total_amount", "type": "decimal", "description": "Total order amount in USD"},
+          {"name": "shipping_country", "type": "text", "description": "Shipping destination country"}
+        ]
+      },
+      {
+        "name": "order_items",
+        "description": "Individual items within orders",
+        "columns": [
+          {"name": "order_item_id", "type": "uuid", "description": "Unique order item identifier"},
+          {"name": "order_id", "type": "uuid", "description": "Parent order identifier"},
+          {"name": "product_id", "type": "uuid", "description": "Product identifier"},
+          {"name": "quantity", "type": "integer", "description": "Quantity ordered"},
+          {"name": "unit_price", "type": "decimal", "description": "Price per unit at time of order"},
+          {"name": "subtotal", "type": "decimal", "description": "Line item total (quantity * unit_price)"}
+        ]
+      }
+    ]
+  },
+  "sample_data": {
+    "products": [
+      {
+        "product_id": "prod-001",
+        "name": "Wireless Headphones",
+        "category": "Electronics",
+        "price": 99.99,
+        "cost": 45.00,
+        "stock_quantity": 150,
+        "created_at": "2023-06-01T00:00:00Z"
+      },
+      {
+        "product_id": "prod-002",
+        "name": "Laptop Stand",
+        "category": "Accessories",
+        "price": 49.99,
+        "cost": 20.00,
+        "stock_quantity": 200,
+        "created_at": "2023-07-15T00:00:00Z"
+      },
+      {
+        "product_id": "prod-003",
+        "name": "Mechanical Keyboard",
+        "category": "Electronics",
+        "price": 129.99,
+        "cost": 60.00,
+        "stock_quantity": 75,
+        "created_at": "2023-08-01T00:00:00Z"
+      },
+      {
+        "product_id": "prod-004",
+        "name": "USB-C Cable",
+        "category": "Accessories",
+        "price": 19.99,
+        "cost": 5.00,
+        "stock_quantity": 500,
+        "created_at": "2023-05-10T00:00:00Z"
+      },
+      {
+        "product_id": "prod-005",
+        "name": "Monitor 27 inch",
+        "category": "Electronics",
+        "price": 299.99,
+        "cost": 150.00,
+        "stock_quantity": 50,
+        "created_at": "2023-09-01T00:00:00Z"
+      }
+    ],
+    "customers": [
+      {
+        "customer_id": "cust-001",
+        "email": "alice@example.com",
+        "name": "Alice Johnson",
+        "country": "USA",
+        "registration_date": "2023-01-15T00:00:00Z",
+        "customer_segment": "premium"
+      },
+      {
+        "customer_id": "cust-002",
+        "email": "bob@example.com",
+        "name": "Bob Smith",
+        "country": "UK",
+        "registration_date": "2023-02-20T00:00:00Z",
+        "customer_segment": "standard"
+      },
+      {
+        "customer_id": "cust-003",
+        "email": "carol@example.com",
+        "name": "Carol Williams",
+        "country": "Canada",
+        "registration_date": "2023-03-10T00:00:00Z",
+        "customer_segment": "premium"
+      },
+      {
+        "customer_id": "cust-004",
+        "email": "david@example.com",
+        "name": "David Brown",
+        "country": "USA",
+        "registration_date": "2023-04-05T00:00:00Z",
+        "customer_segment": "basic"
+      }
+    ],
+    "orders": [
+      {
+        "order_id": "order-001",
+        "customer_id": "cust-001",
+        "order_date": "2024-01-15T10:30:00Z",
+        "status": "completed",
+        "total_amount": 229.98,
+        "shipping_country": "USA"
+      },
+      {
+        "order_id": "order-002",
+        "customer_id": "cust-002",
+        "order_date": "2024-01-16T14:20:00Z",
+        "status": "completed",
+        "total_amount": 49.99,
+        "shipping_country": "UK"
+      },
+      {
+        "order_id": "order-003",
+        "customer_id": "cust-001",
+        "order_date": "2024-01-17T09:15:00Z",
+        "status": "completed",
+        "total_amount": 129.99,
+        "shipping_country": "USA"
+      },
+      {
+        "order_id": "order-004",
+        "customer_id": "cust-003",
+        "order_date": "2024-01-18T16:45:00Z",
+        "status": "pending",
+        "total_amount": 299.99,
+        "shipping_country": "Canada"
+      },
+      {
+        "order_id": "order-005",
+        "customer_id": "cust-004",
+        "order_date": "2024-01-19T11:00:00Z",
+        "status": "completed",
+        "total_amount": 19.99,
+        "shipping_country": "USA"
+      }
+    ],
+    "order_items": [
+      {
+        "order_item_id": "item-001",
+        "order_id": "order-001",
+        "product_id": "prod-001",
+        "quantity": 1,
+        "unit_price": 99.99,
+        "subtotal": 99.99
+      },
+      {
+        "order_item_id": "item-002",
+        "order_id": "order-001",
+        "product_id": "prod-002",
+        "quantity": 2,
+        "unit_price": 49.99,
+        "subtotal": 99.99
+      },
+      {
+        "order_item_id": "item-003",
+        "order_id": "order-001",
+        "product_id": "prod-004",
+        "quantity": 1,
+        "unit_price": 19.99,
+        "subtotal": 19.99
+      },
+      {
+        "order_item_id": "item-004",
+        "order_id": "order-002",
+        "product_id": "prod-002",
+        "quantity": 1,
+        "unit_price": 49.99,
+        "subtotal": 49.99
+      },
+      {
+        "order_item_id": "item-005",
+        "order_id": "order-003",
+        "product_id": "prod-003",
+        "quantity": 1,
+        "unit_price": 129.99,
+        "subtotal": 129.99
+      },
+      {
+        "order_item_id": "item-006",
+        "order_id": "order-004",
+        "product_id": "prod-005",
+        "quantity": 1,
+        "unit_price": 299.99,
+        "subtotal": 299.99
+      },
+      {
+        "order_item_id": "item-007",
+        "order_id": "order-005",
+        "product_id": "prod-004",
+        "quantity": 1,
+        "unit_price": 19.99,
+        "subtotal": 19.99
+      }
+    ]
+  },
+  "example_queries": [
+    {
+      "question": "What are the top 5 products by revenue this month?",
+      "expected_sql": "SELECT p.name, SUM(oi.subtotal) as revenue FROM products p JOIN order_items oi ON p.product_id = oi.product_id JOIN orders o ON oi.order_id = o.order_id WHERE o.order_date >= DATE_TRUNC('month', CURRENT_DATE) AND o.status = 'completed' GROUP BY p.product_id, p.name ORDER BY revenue DESC LIMIT 5",
+      "description": "Revenue calculation with date filtering"
+    },
+    {
+      "question": "How many orders did premium customers place last month?",
+      "expected_sql": "SELECT COUNT(*) as order_count FROM orders o JOIN customers c ON o.customer_id = c.customer_id WHERE c.customer_segment = 'premium' AND o.order_date >= DATE_TRUNC('month', CURRENT_DATE - INTERVAL '1 month') AND o.order_date < DATE_TRUNC('month', CURRENT_DATE)",
+      "description": "Customer segment filtering with date range"
+    },
+    {
+      "question": "What is the average order value by country?",
+      "expected_sql": "SELECT shipping_country, AVG(total_amount) as avg_order_value FROM orders WHERE status = 'completed' GROUP BY shipping_country ORDER BY avg_order_value DESC",
+      "description": "Aggregation with grouping"
+    },
+    {
+      "question": "Which products are low on stock?",
+      "expected_sql": "SELECT name, stock_quantity FROM products WHERE stock_quantity < 100 ORDER BY stock_quantity ASC",
+      "description": "Simple filtering query"
+    }
+  ],
+  "metadata": {
+    "total_tables": 4,
+    "total_products": 5,
+    "total_customers": 4,
+    "total_orders": 5,
+    "total_order_items": 7,
+    "use_cases": [
+      "Natural language to SQL",
+      "Warehouse Q&A",
+      "Business intelligence queries",
+      "Data exploration"
+    ]
+  }
+}

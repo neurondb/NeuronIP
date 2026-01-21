@@ -163,7 +163,7 @@ func (a *AggregateTransformation) Transform(ctx context.Context, data []map[stri
 		groups[key] = append(groups[key], row)
 	}
 	result := make([]map[string]interface{}, 0, len(groups))
-	for key, groupRows := range groups {
+	for _, groupRows := range groups {
 		aggRow := make(map[string]interface{})
 		for _, col := range groupBy {
 			if colStr, ok := col.(string); ok {
@@ -269,5 +269,194 @@ func (a *AggregateTransformation) toFloat64(val interface{}) (float64, bool) {
 type JoinTransformation struct{}
 
 func (j *JoinTransformation) Transform(ctx context.Context, data []map[string]interface{}, config map[string]interface{}) ([]map[string]interface{}, error) {
-	return nil, fmt.Errorf("join transformation requires second dataset - not yet fully implemented")
+	// Get join configuration
+	joinType, ok := config["join_type"].(string)
+	if !ok {
+		joinType = "inner" // Default to inner join
+	}
+
+	joinKey, ok := config["join_key"].(string)
+	if !ok {
+		return nil, fmt.Errorf("join_key is required for join transformation")
+	}
+
+	// Get second dataset from config
+	secondDatasetRaw, ok := config["second_dataset"]
+	if !ok {
+		return nil, fmt.Errorf("second_dataset is required for join transformation")
+	}
+
+	// Convert second dataset to proper format
+	secondDataset, ok := secondDatasetRaw.([]map[string]interface{})
+	if !ok {
+		// Try to convert from []interface{}
+		if secondDatasetSlice, ok := secondDatasetRaw.([]interface{}); ok {
+			secondDataset = make([]map[string]interface{}, 0, len(secondDatasetSlice))
+			for _, item := range secondDatasetSlice {
+				if itemMap, ok := item.(map[string]interface{}); ok {
+					secondDataset = append(secondDataset, itemMap)
+				}
+			}
+		} else {
+			return nil, fmt.Errorf("second_dataset must be an array of objects")
+		}
+	}
+
+	// Create lookup map for second dataset
+	lookupMap := make(map[interface{}][]map[string]interface{})
+	for _, row := range secondDataset {
+		keyValue := row[joinKey]
+		if keyValue != nil {
+			lookupMap[keyValue] = append(lookupMap[keyValue], row)
+		}
+	}
+
+	// Perform join
+	var result []map[string]interface{}
+
+	switch strings.ToLower(joinType) {
+	case "inner":
+		// Inner join: only rows that match in both datasets
+		for _, row := range data {
+			keyValue := row[joinKey]
+			if keyValue != nil {
+				if matchingRows, found := lookupMap[keyValue]; found {
+					for _, match := range matchingRows {
+						joinedRow := make(map[string]interface{})
+						// Copy all fields from first dataset
+						for k, v := range row {
+							joinedRow[k] = v
+						}
+						// Add fields from second dataset with prefix to avoid collisions
+						prefix, _ := config["prefix"].(string)
+						if prefix == "" {
+							prefix = "right_"
+						}
+						for k, v := range match {
+							if k == joinKey {
+								continue // Skip join key as it's already in the row
+							}
+							joinedRow[prefix+k] = v
+						}
+						result = append(result, joinedRow)
+					}
+				}
+			}
+		}
+
+	case "left":
+		// Left join: all rows from first dataset, matched rows from second
+		for _, row := range data {
+			keyValue := row[joinKey]
+			joinedRow := make(map[string]interface{})
+			// Copy all fields from first dataset
+			for k, v := range row {
+				joinedRow[k] = v
+			}
+
+			if keyValue != nil {
+				if matchingRows, found := lookupMap[keyValue]; found && len(matchingRows) > 0 {
+					// Use first matching row
+					match := matchingRows[0]
+					prefix, _ := config["prefix"].(string)
+					if prefix == "" {
+						prefix = "right_"
+					}
+					for k, v := range match {
+						if k == joinKey {
+							continue
+						}
+						joinedRow[prefix+k] = v
+					}
+				}
+			}
+			result = append(result, joinedRow)
+		}
+
+	case "right":
+		// Right join: all rows from second dataset, matched rows from first
+		firstLookupMap := make(map[interface{}][]map[string]interface{})
+		for _, row := range data {
+			keyValue := row[joinKey]
+			if keyValue != nil {
+				firstLookupMap[keyValue] = append(firstLookupMap[keyValue], row)
+			}
+		}
+
+		for _, row := range secondDataset {
+			keyValue := row[joinKey]
+			joinedRow := make(map[string]interface{})
+			// Copy all fields from second dataset
+			for k, v := range row {
+				joinedRow[k] = v
+			}
+
+			if keyValue != nil {
+				if matchingRows, found := firstLookupMap[keyValue]; found && len(matchingRows) > 0 {
+					match := matchingRows[0]
+					prefix, _ := config["prefix"].(string)
+					if prefix == "" {
+						prefix = "left_"
+					}
+					for k, v := range match {
+						if k == joinKey {
+							continue
+						}
+						joinedRow[prefix+k] = v
+					}
+				}
+			}
+			result = append(result, joinedRow)
+		}
+
+	case "outer", "full":
+		// Full outer join: all rows from both datasets
+		// First add all left rows with matches
+		matchedKeys := make(map[interface{}]bool)
+		for _, row := range data {
+			keyValue := row[joinKey]
+			joinedRow := make(map[string]interface{})
+			for k, v := range row {
+				joinedRow[k] = v
+			}
+
+			if keyValue != nil {
+				matchedKeys[keyValue] = true
+				if matchingRows, found := lookupMap[keyValue]; found && len(matchingRows) > 0 {
+					match := matchingRows[0]
+					prefix, _ := config["prefix"].(string)
+					if prefix == "" {
+						prefix = "right_"
+					}
+					for k, v := range match {
+						if k != joinKey {
+							joinedRow[prefix+k] = v
+						}
+					}
+				}
+			}
+			result = append(result, joinedRow)
+		}
+
+		// Add unmatched rows from right
+		prefix, _ := config["prefix"].(string)
+		if prefix == "" {
+			prefix = "left_"
+		}
+		for _, row := range secondDataset {
+			keyValue := row[joinKey]
+			if keyValue != nil && !matchedKeys[keyValue] {
+				joinedRow := make(map[string]interface{})
+				for k, v := range row {
+					joinedRow[k] = v
+				}
+				result = append(result, joinedRow)
+			}
+		}
+
+	default:
+		return nil, fmt.Errorf("unsupported join type: %s (supported: inner, left, right, outer)", joinType)
+	}
+
+	return result, nil
 }

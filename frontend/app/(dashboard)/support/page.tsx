@@ -132,12 +132,17 @@ export default function SupportPage() {
       <motion.div variants={slideUp} className="flex-shrink-0 pb-2">
         <div className="flex items-center justify-between">
           <div>
-            <h1 className="text-2xl sm:text-3xl font-bold text-foreground">Support</h1>
+            <h1 className="text-2xl sm:text-3xl font-bold text-foreground">Support Memory Hub</h1>
             <p className="text-sm text-muted-foreground mt-1">
-              Manage helpdesk tickets and customer support
+              AI-powered customer support with persistent long-term memory. Every interaction is remembered, every solution is learned.
             </p>
           </div>
-          <Button>
+          <Button
+            onClick={() => {
+              // TODO: Open create ticket dialog
+              console.log('Create new ticket')
+            }}
+          >
             <PlusIcon className="h-4 w-4 mr-2" />
             New Ticket
           </Button>
@@ -165,7 +170,13 @@ export default function SupportPage() {
 
       {/* Tickets List */}
       <motion.div variants={slideUp} className="flex-1 min-h-0">
-        <TicketList tickets={filteredTickets} />
+        <TicketList
+          tickets={filteredTickets}
+          onCreateNew={() => {
+            // TODO: Open create ticket dialog
+            console.log('Create new ticket')
+          }}
+        />
       </motion.div>
     </motion.div>
   )

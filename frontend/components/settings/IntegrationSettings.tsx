@@ -4,6 +4,9 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import Button from '@/components/ui/Button'
 import { CheckCircleIcon, XCircleIcon } from '@heroicons/react/24/outline'
 import { cn } from '@/lib/utils/cn'
+import Tooltip from '@/components/ui/Tooltip'
+import HelpText from '@/components/ui/HelpText'
+import { InformationCircleIcon } from '@heroicons/react/24/outline'
 
 interface Integration {
   id: string
@@ -41,8 +44,34 @@ export default function IntegrationSettings() {
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Integrations</CardTitle>
-        <CardDescription>Manage external service integrations</CardDescription>
+        <div className="flex items-center justify-between">
+          <div>
+            <CardTitle>Integrations</CardTitle>
+            <CardDescription>Manage external service integrations</CardDescription>
+          </div>
+          <HelpText
+            variant="tooltip"
+            content={
+              <div>
+                <p className="font-medium mb-1">Integrations</p>
+                <p className="text-xs mb-2">
+                  Connect external services to extend NeuronIP's capabilities. Integrations enable
+                  notifications, data syncing, and workflow automation.
+                </p>
+                <p className="text-xs">
+                  <a
+                    href="/docs/integrations/custom-integrations"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="underline"
+                  >
+                    Learn more →
+                  </a>
+                </p>
+              </div>
+            }
+          />
+        </div>
       </CardHeader>
       <CardContent className="space-y-4">
         {integrations.map((integration) => (
@@ -56,7 +85,15 @@ export default function IntegrationSettings() {
                 integration.status === 'connected' ? 'bg-green-500' : 'bg-gray-400'
               )} />
               <div className="flex-1">
-                <div className="font-medium">{integration.name}</div>
+                <div className="flex items-center gap-2">
+                  <div className="font-medium">{integration.name}</div>
+                  <Tooltip
+                    content={`${integration.name} integration: ${integration.description}`}
+                    variant="info"
+                  >
+                    <InformationCircleIcon className="h-4 w-4 text-muted-foreground cursor-help" />
+                  </Tooltip>
+                </div>
                 <div className="text-sm text-muted-foreground">{integration.description}</div>
               </div>
             </div>

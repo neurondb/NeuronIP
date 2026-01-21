@@ -20,6 +20,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - PostgreSQL with NeuronDB extension support
 - Integration with NeuronAgent and NeuronMCP
 
+### Enterprise-Grade Features
+- **Product Positioning**: Support Memory Hub as killer wedge, demo datasets and scripts, "Why NeuronIP" page with 6 hard claims
+- **Authentication**: OIDC SSO, SCIM 2.0 provisioning, enhanced MFA with TOTP, session management with concurrent limits
+- **RBAC**: Organization, workspace, and resource-level permissions, custom roles, permission inheritance
+- **Multi-Tenancy**: Per-tenant schema/database isolation with strict isolation tests
+- **API Keys**: Scopes, rotation, expiry, per-key rate limits, usage analytics
+- **Data Plane**: Connectors UI with schedule editor and credentials vault, ingestion jobs with retries, backpressure, dead-letter queue
+- **Pipelines**: Versioned, replayable chunking and embedding pipelines
+- **Hybrid Search**: Saved searches with SQL filters + vector queries
+- **Semantic Layer**: Metrics, dimensions, definitions, owners, lineage
+- **Query Governance**: Function allow-list, read-only mode, sandbox role
+- **Result Caching**: TTL-based caching with invalidation rules
+- **Agent Hub**: Templates library, tools registry, memory policies
+- **Agent Evaluation**: Golden sets, regression tests, scoring, drift tracking
+- **Human-in-the-Loop**: Approve/edit/send workflow with learning from edits
+- **Agent Audit Trail**: Complete logging of every agent action and tool call
+- **Observability**: Request ID propagation across UI→API→DB, p50/p95/p99 latency metrics, error rates, token usage, embedding cost tracking, distributed tracing
+- **Security**: Secrets scanning, dependency scanning, signed builds, SBOM generation
+- **CI/CD**: Integration tests with docker-compose, migration runner with rollback, deterministic seed data loader, automated release workflow
+
 ### Changed
 - N/A (initial release)
 

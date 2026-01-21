@@ -3,8 +3,12 @@ package integrations
 import (
 	"bytes"
 	"context"
+	"crypto/hmac"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"time"
 
@@ -124,9 +128,21 @@ func (s *WebhookService) sendWebhookWithRetry(ctx context.Context, webhook *Webh
 		}
 		
 		// Add signature if secret is set
-		if webhook.Secret != nil {
-			// In production, would compute HMAC signature
-			req.Header.Set("X-Webhook-Signature", "signature_placeholder")
+		if webhook.Secret != nil && *webhook.Secret != "" {
+			// Compute HMAC-SHA256 signature
+			mac := hmac.New(sha256.New, []byte(*webhook.Secret))
+			
+			// Create payload for signing (body + timestamp if available)
+			var payload []byte
+			if req.Body != nil {
+				bodyBytes, _ := io.ReadAll(req.Body)
+				payload = bodyBytes
+				req.Body = io.NopCloser(bytes.NewReader(bodyBytes)) // Reset body for request
+			}
+			
+			mac.Write(payload)
+			signature := hex.EncodeToString(mac.Sum(nil))
+			req.Header.Set("X-Webhook-Signature", fmt.Sprintf("sha256=%s", signature))
 		}
 		
 		resp, err := s.client.Do(req)

@@ -22,7 +22,7 @@ type IngestionService struct {
 
 /* RegisterConnectorFactory registers a connector factory */
 func (s *IngestionService) RegisterConnectorFactory(connectorType string, factory ConnectorFactory) {
-	s.connectorPool.RegisterFactory(connectorType, factory)
+	s.connectorPool.factories[connectorType] = factory
 }
 
 /* NewService creates a new ingestion service */

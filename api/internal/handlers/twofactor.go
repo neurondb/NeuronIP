@@ -62,12 +62,6 @@ func (h *TwoFactorHandler) Verify2FA(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	userID, err := uuid.Parse(userIDStr)
-	if err != nil {
-		WriteErrorResponse(w, errors.BadRequest("Invalid user ID"))
-		return
-	}
-
 	var req struct {
 		Secret string `json:"secret"`
 		Code   string `json:"code"`

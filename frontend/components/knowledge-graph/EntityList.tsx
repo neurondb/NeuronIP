@@ -6,7 +6,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/Table'
 import Button from '@/components/ui/Button'
 import Loading from '@/components/ui/Loading'
-import { MagnifyingGlassIcon } from '@heroicons/react/24/outline'
+import { MagnifyingGlassIcon, CircleStackIcon } from '@heroicons/react/24/outline'
 import { useSearchEntities } from '@/lib/api/queries'
 import { cn } from '@/lib/utils/cn'
 import { slideUp, transition } from '@/lib/animations/variants'
@@ -50,7 +50,12 @@ export default function EntityList({ onSelectEntity }: { onSelectEntity?: (entit
               )}
             />
           </div>
-          <Button size="sm" onClick={handleSearch} disabled={isPending || !searchQuery.trim()}>
+          <Button 
+            size="sm" 
+            onClick={handleSearch} 
+            disabled={isPending || !searchQuery.trim()}
+            icon={<MagnifyingGlassIcon className="h-4 w-4" />}
+          >
             Search
           </Button>
         </div>
@@ -61,9 +66,10 @@ export default function EntityList({ onSelectEntity }: { onSelectEntity?: (entit
             <Loading size="md" />
           </div>
         ) : entities.length === 0 ? (
-          <div className="text-center text-muted-foreground py-8">
-            <p className="text-sm">No entities found</p>
-            <p className="text-xs mt-1">Search for entities in the knowledge graph</p>
+          <div className="text-center text-muted-foreground py-12">
+            <CircleStackIcon className="h-12 w-12 mx-auto mb-4 opacity-50" />
+            <p className="text-sm mb-1">No entities found</p>
+            <p className="text-xs">Search for entities in the knowledge graph</p>
           </div>
         ) : (
           <motion.table className="w-full border-collapse">

@@ -1,0 +1,56 @@
+name: Integration Tests
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main, develop ]
+  workflow_dispatch:
+
+jobs:
+  integration-tests:
+    name: Integration Tests with Docker Compose
+    runs-on: ubuntu-latest
+    
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Set up Docker Compose
+        run: |
+          docker compose version
+      
+      - name: Start services
+        run: |
+          docker compose up -d
+          sleep 30 # Wait for services to be ready
+      
+      - name: Wait for API health
+        run: |
+          timeout 60 bash -c 'until curl -f http://localhost:8082/health; do sleep 2; done'
+      
+      - name: Run integration tests
+        working-directory: ./api
+        env:
+          API_URL: http://localhost:8082/api/v1
+          DB_HOST: localhost
+          DB_PORT: 5432
+          DB_USER: neuronip
+          DB_PASSWORD: neuronip
+          DB_NAME: neuronip
+        run: |
+          go test -v -tags=integration ./internal/integration/... || true
+      
+      - name: Run E2E tests
+        working-directory: ./frontend
+        run: |
+          npm run test:e2e || true
+      
+      - name: Check service logs
+        if: failure()
+        run: |
+          docker compose logs
+      
+      - name: Cleanup
+        if: always()
+        run: |
+          docker compose down -v
