@@ -6,18 +6,27 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/google/uuid"
+	"github.com/gorilla/mux"
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/neurondb/NeuronIP/api/internal/errors"
 	"github.com/neurondb/NeuronIP/api/internal/observability"
 )
 
 /* ObservabilityHandler handles observability requests */
 type ObservabilityHandler struct {
-	service *observability.ObservabilityService
+	service              *observability.ObservabilityService
+	retrievalService     *observability.RetrievalMetricsService
+	hallucinationService *observability.HallucinationDetectionService
 }
 
 /* NewObservabilityHandler creates a new observability handler */
-func NewObservabilityHandler(service *observability.ObservabilityService) *ObservabilityHandler {
-	return &ObservabilityHandler{service: service}
+func NewObservabilityHandler(pool *pgxpool.Pool) *ObservabilityHandler {
+	return &ObservabilityHandler{
+		service:              observability.NewObservabilityService(pool),
+		retrievalService:     observability.NewRetrievalMetricsService(pool),
+		hallucinationService: observability.NewHallucinationDetectionService(pool),
+	}
 }
 
 /* GetQueryPerformance handles GET /api/v1/observability/queries/performance */
@@ -223,4 +232,177 @@ func (h *ObservabilityHandler) GetCostBreakdown(w http.ResponseWriter, r *http.R
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(breakdown)
+}
+
+/* GetAgentExecutionLogs handles GET /api/v1/observability/agents/{agent_id}/logs */
+func (h *ObservabilityHandler) GetAgentExecutionLogs(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	agentID := vars["agent_id"]
+
+	var agentRunID *uuid.UUID
+	if runIDStr := r.URL.Query().Get("agent_run_id"); runIDStr != "" {
+		if id, err := uuid.Parse(runIDStr); err == nil {
+			agentRunID = &id
+		}
+	}
+
+	limit := 100
+	if limitStr := r.URL.Query().Get("limit"); limitStr != "" {
+		if parsed, err := strconv.Atoi(limitStr); err == nil && parsed > 0 {
+			limit = parsed
+		}
+	}
+
+	logs, err := h.service.GetAgentExecutionLogs(r.Context(), &agentID, agentRunID, limit)
+	if err != nil {
+		WriteError(w, err)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(logs)
+}
+
+/* GetRetrievalMetrics handles GET /api/v1/observability/retrieval/metrics */
+func (h *ObservabilityHandler) GetRetrievalMetrics(w http.ResponseWriter, r *http.Request) {
+	var queryID *uuid.UUID
+	if queryIDStr := r.URL.Query().Get("query_id"); queryIDStr != "" {
+		if id, err := uuid.Parse(queryIDStr); err == nil {
+			queryID = &id
+		}
+	}
+
+	var agentRunID *uuid.UUID
+	if runIDStr := r.URL.Query().Get("agent_run_id"); runIDStr != "" {
+		if id, err := uuid.Parse(runIDStr); err == nil {
+			agentRunID = &id
+		}
+	}
+
+	limit := 100
+	if limitStr := r.URL.Query().Get("limit"); limitStr != "" {
+		if parsed, err := strconv.Atoi(limitStr); err == nil && parsed > 0 {
+			limit = parsed
+		}
+	}
+
+	metrics, err := h.retrievalService.GetRetrievalMetrics(r.Context(), queryID, agentRunID, limit)
+	if err != nil {
+		WriteError(w, err)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(metrics)
+}
+
+/* GetRetrievalStats handles GET /api/v1/observability/retrieval/stats */
+func (h *ObservabilityHandler) GetRetrievalStats(w http.ResponseWriter, r *http.Request) {
+	timeRange := r.URL.Query().Get("time_range")
+	if timeRange == "" {
+		timeRange = "24h"
+	}
+
+	stats, err := h.retrievalService.GetRetrievalStats(r.Context(), timeRange)
+	if err != nil {
+		WriteError(w, err)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(stats)
+}
+
+/* GetHallucinationSignals handles GET /api/v1/observability/hallucination/signals */
+func (h *ObservabilityHandler) GetHallucinationSignals(w http.ResponseWriter, r *http.Request) {
+	var queryID *uuid.UUID
+	if queryIDStr := r.URL.Query().Get("query_id"); queryIDStr != "" {
+		if id, err := uuid.Parse(queryIDStr); err == nil {
+			queryID = &id
+		}
+	}
+
+	var agentRunID *uuid.UUID
+	if runIDStr := r.URL.Query().Get("agent_run_id"); runIDStr != "" {
+		if id, err := uuid.Parse(runIDStr); err == nil {
+			agentRunID = &id
+		}
+	}
+
+	riskLevel := r.URL.Query().Get("risk_level")
+	var riskLevelPtr *string
+	if riskLevel != "" {
+		riskLevelPtr = &riskLevel
+	}
+
+	limit := 100
+	if limitStr := r.URL.Query().Get("limit"); limitStr != "" {
+		if parsed, err := strconv.Atoi(limitStr); err == nil && parsed > 0 {
+			limit = parsed
+		}
+	}
+
+	signals, err := h.hallucinationService.GetHallucinationSignals(r.Context(), queryID, agentRunID, riskLevelPtr, limit)
+	if err != nil {
+		WriteError(w, err)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(signals)
+}
+
+/* GetHallucinationStats handles GET /api/v1/observability/hallucination/stats */
+func (h *ObservabilityHandler) GetHallucinationStats(w http.ResponseWriter, r *http.Request) {
+	timeRange := r.URL.Query().Get("time_range")
+	if timeRange == "" {
+		timeRange = "24h"
+	}
+
+	stats, err := h.hallucinationService.GetHallucinationStats(r.Context(), timeRange)
+	if err != nil {
+		WriteError(w, err)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(stats)
+}
+
+/* GetQueryCost handles GET /api/v1/observability/queries/{id}/cost */
+func (h *ObservabilityHandler) GetQueryCost(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	queryID, err := uuid.Parse(vars["id"])
+	if err != nil {
+		WriteErrorResponse(w, errors.BadRequest("Invalid query ID"))
+		return
+	}
+
+	cost, err := h.service.GetQueryCost(r.Context(), queryID)
+	if err != nil {
+		WriteError(w, err)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(cost)
+}
+
+/* GetAgentRunCost handles GET /api/v1/observability/agents/runs/{id}/cost */
+func (h *ObservabilityHandler) GetAgentRunCost(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	agentRunID, err := uuid.Parse(vars["id"])
+	if err != nil {
+		WriteErrorResponse(w, errors.BadRequest("Invalid agent run ID"))
+		return
+	}
+
+	cost, err := h.service.GetAgentRunCost(r.Context(), agentRunID)
+	if err != nil {
+		WriteError(w, err)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(cost)
 }

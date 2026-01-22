@@ -8,16 +8,26 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/neurondb/NeuronIP/api/internal/neurondb"
 )
 
 /* CatalogService provides data catalog functionality */
 type CatalogService struct {
-	pool *pgxpool.Pool
+	pool           *pgxpool.Pool
+	neurondbClient *neurondb.Client
 }
 
 /* NewCatalogService creates a new catalog service */
 func NewCatalogService(pool *pgxpool.Pool) *CatalogService {
 	return &CatalogService{pool: pool}
+}
+
+/* NewCatalogServiceWithNeuronDB creates a new catalog service with NeuronDB client */
+func NewCatalogServiceWithNeuronDB(pool *pgxpool.Pool, neurondbClient *neurondb.Client) *CatalogService {
+	return &CatalogService{
+		pool:           pool,
+		neurondbClient: neurondbClient,
+	}
 }
 
 /* Dataset represents a dataset in the catalog */
@@ -224,4 +234,51 @@ func (s *CatalogService) DiscoverDatasets(ctx context.Context, tags []string) ([
 	// Process rows (simplified - actual implementation would need type assertion)
 	// For now, just return empty list
 	return datasets, nil
+}
+
+/* GenerateDatasetEmbedding generates embedding for dataset metadata with optional image */
+func (s *CatalogService) GenerateDatasetEmbedding(ctx context.Context, datasetID uuid.UUID, imageData []byte) (string, error) {
+	if s.neurondbClient == nil {
+		return "", fmt.Errorf("NeuronDB client not configured")
+	}
+
+	// Get dataset
+	dataset, err := s.GetDataset(ctx, datasetID)
+	if err != nil {
+		return "", fmt.Errorf("failed to get dataset: %w", err)
+	}
+
+	// Build text for embedding
+	text := dataset.Name
+	if dataset.Description != nil {
+		text += " " + *dataset.Description
+	}
+	if len(dataset.Tags) > 0 {
+		text += " " + fmt.Sprintf("%v", dataset.Tags)
+	}
+
+	// Generate embedding based on whether image is provided
+	modelName := "sentence-transformers/all-MiniLM-L6-v2"
+	if imageData != nil && len(imageData) > 0 {
+		// Use multimodal embedding
+		embedding, err := s.neurondbClient.GenerateMultimodalEmbedding(ctx, text, imageData, modelName)
+		if err != nil {
+			// Fallback to text-only
+			return s.neurondbClient.GenerateEmbedding(ctx, text, modelName)
+		}
+		return embedding, nil
+	}
+
+	// Use text-only embedding
+	return s.neurondbClient.GenerateEmbedding(ctx, text, modelName)
+}
+
+/* GenerateImageOnlyEmbedding generates embedding for image-only metadata */
+func (s *CatalogService) GenerateImageOnlyEmbedding(ctx context.Context, imageData []byte) (string, error) {
+	if s.neurondbClient == nil {
+		return "", fmt.Errorf("NeuronDB client not configured")
+	}
+
+	modelName := "sentence-transformers/all-MiniLM-L6-v2"
+	return s.neurondbClient.GenerateImageEmbedding(ctx, imageData, modelName)
 }

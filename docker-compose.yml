@@ -27,11 +27,12 @@ services:
       - neurondb-network
     restart: "no"
 
-  neuronip-api:
+  neuronip-server:
     build:
       context: ./api
       dockerfile: Dockerfile
-    container_name: neuronip-api
+    image: neuronip-server:local
+    container_name: neuronip-server
     depends_on:
       - neuronip-init
       - neurondb
@@ -52,13 +53,14 @@ services:
       - neurondb-network
     restart: unless-stopped
 
-  neuronip-frontend:
+  neuronip-ui:
     build:
       context: ./frontend
       dockerfile: Dockerfile
-    container_name: neuronip-frontend
+    image: neuronip-ui:local
+    container_name: neuronip-ui
     depends_on:
-      - neuronip-api
+      - neuronip-server
     environment:
       NEXT_PUBLIC_API_URL: http://localhost:8082/api/v1
     ports:

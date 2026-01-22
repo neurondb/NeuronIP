@@ -93,6 +93,59 @@ func (s *Service) ExtractEntities(ctx context.Context, req ExtractEntitiesReques
 	return entities, nil
 }
 
+/* AnswerQuestionWithKG answers a question using knowledge graph entities and RAG */
+func (s *Service) AnswerQuestionWithKG(ctx context.Context, question string, entityTypeID *uuid.UUID, limit int) (map[string]interface{}, error) {
+	if limit <= 0 {
+		limit = 10
+	}
+
+	// Search for relevant entities using semantic search
+	entities, err := s.SearchEntities(ctx, question, entityTypeID, limit)
+	if err != nil {
+		return nil, fmt.Errorf("failed to search entities: %w", err)
+	}
+
+	// Build context from entities
+	context := make([]map[string]interface{}, 0, len(entities))
+	for _, entity := range entities {
+		context = append(context, map[string]interface{}{
+			"entity_name":  entity.EntityName,
+			"entity_value": entity.EntityValue,
+			"description":  entity.Description,
+		})
+	}
+
+	// Use NeuronDB AnswerWithCitations for RAG response with entity context
+	contextTexts := make([]string, 0, len(entities))
+	for _, entity := range entities {
+		entityText := entity.EntityName
+		if entity.EntityValue != nil {
+			entityText += ": " + *entity.EntityValue
+		}
+		if entity.Description != nil {
+			entityText += " - " + *entity.Description
+		}
+		contextTexts = append(contextTexts, entityText)
+	}
+
+	model := "sentence-transformers/all-MiniLM-L6-v2"
+	answer, err := s.neurondbClient.AnswerWithCitations(ctx, question, context, model)
+	if err != nil {
+		// Fallback to GenerateResponse
+		response, err := s.neurondbClient.GenerateResponse(ctx, question, contextTexts, model)
+		if err != nil {
+			return nil, fmt.Errorf("failed to generate answer: %w", err)
+		}
+		return map[string]interface{}{
+			"answer":    response,
+			"entities":  entities,
+			"citations": []string{},
+		}, nil
+	}
+
+	return answer, nil
+}
+
 /* parseClassificationResults parses classification results into entities */
 func (s *Service) parseClassificationResults(ctx context.Context, classification map[string]interface{}, req ExtractEntitiesRequest) []Entity {
 	var entities []Entity
@@ -325,8 +378,16 @@ func (s *Service) GetEntityLinks(ctx context.Context, entityID uuid.UUID, direct
 
 /* SearchEntities performs semantic search on entities */
 func (s *Service) SearchEntities(ctx context.Context, query string, entityTypeID *uuid.UUID, limit int) ([]Entity, error) {
+	return s.SearchEntitiesWithMetric(ctx, query, entityTypeID, limit, "cosine")
+}
+
+/* SearchEntitiesWithMetric performs semantic search on entities using specified distance metric */
+func (s *Service) SearchEntitiesWithMetric(ctx context.Context, query string, entityTypeID *uuid.UUID, limit int, distanceMetric string) ([]Entity, error) {
 	if limit <= 0 {
 		limit = 10
+	}
+	if distanceMetric == "" {
+		distanceMetric = "cosine"
 	}
 
 	// Generate embedding for query
@@ -335,15 +396,78 @@ func (s *Service) SearchEntities(ctx context.Context, query string, entityTypeID
 		return nil, fmt.Errorf("failed to generate query embedding: %w", err)
 	}
 
-	// Build query
+	// Build query based on distance metric
 	var searchQuery string
 	var args []interface{}
 
 	if entityTypeID != nil {
+		switch distanceMetric {
+		case "l2":
+			searchQuery = `
+				SELECT id, entity_name, entity_type_id, entity_value, description, source_document_id, metadata, confidence_score, created_at, updated_at,
+					1.0 / (1.0 + (embedding <-> $1::vector)) as similarity
+				FROM neuronip.entities
+				WHERE entity_type_id = $2 AND embedding IS NOT NULL
+				ORDER BY embedding <-> $1::vector
+				LIMIT $3`
+			args = []interface{}{queryEmbedding, entityTypeID, limit}
+		case "inner_product":
+			searchQuery = `
+				SELECT id, entity_name, entity_type_id, entity_value, description, source_document_id, metadata, confidence_score, created_at, updated_at,
+					(embedding <#> $1::vector) * -1 as similarity
+				FROM neuronip.entities
+				WHERE entity_type_id = $2 AND embedding IS NOT NULL
+				ORDER BY embedding <#> $1::vector
+				LIMIT $3`
+			args = []interface{}{queryEmbedding, entityTypeID, limit}
+		default: // cosine
+			searchQuery = `
+				SELECT id, entity_name, entity_type_id, entity_value, description, source_document_id, metadata, confidence_score, created_at, updated_at,
+					1 - (embedding <=> $1::vector) as similarity
+				FROM neuronip.entities
+				WHERE entity_type_id = $2 AND embedding IS NOT NULL
+				ORDER BY embedding <=> $1::vector
+				LIMIT $3`
+			args = []interface{}{queryEmbedding, entityTypeID, limit}
+		}
+	} else {
+		switch distanceMetric {
+		case "l2":
+			searchQuery = `
+				SELECT id, entity_name, entity_type_id, entity_value, description, source_document_id, metadata, confidence_score, created_at, updated_at,
+					1.0 / (1.0 + (embedding <-> $1::vector)) as similarity
+				FROM neuronip.entities
+				WHERE embedding IS NOT NULL
+				ORDER BY embedding <-> $1::vector
+				LIMIT $2`
+			args = []interface{}{queryEmbedding, limit}
+		case "inner_product":
+			searchQuery = `
+				SELECT id, entity_name, entity_type_id, entity_value, description, source_document_id, metadata, confidence_score, created_at, updated_at,
+					(embedding <#> $1::vector) * -1 as similarity
+				FROM neuronip.entities
+				WHERE embedding IS NOT NULL
+				ORDER BY embedding <#> $1::vector
+				LIMIT $2`
+			args = []interface{}{queryEmbedding, limit}
+		default: // cosine
+			searchQuery = `
+				SELECT id, entity_name, entity_type_id, entity_value, description, source_document_id, metadata, confidence_score, created_at, updated_at,
+					1 - (embedding <=> $1::vector) as similarity
+				FROM neuronip.entities
+				WHERE embedding IS NOT NULL
+				ORDER BY embedding <=> $1::vector
+				LIMIT $2`
+			args = []interface{}{queryEmbedding, limit}
+		}
+	}
+	
+	if entityTypeID != nil {
+		// Search with entity type filter
 		searchQuery = `
 			SELECT id, entity_name, entity_type_id, entity_value, description, source_document_id, metadata, confidence_score, created_at, updated_at
 			FROM neuronip.entities
-			WHERE entity_type_id = $2 AND embedding IS NOT NULL
+			WHERE embedding IS NOT NULL AND entity_type_id = $2
 			ORDER BY embedding <=> $1::vector
 			LIMIT $3`
 		args = []interface{}{queryEmbedding, entityTypeID, limit}
@@ -367,11 +491,12 @@ func (s *Service) SearchEntities(ctx context.Context, query string, entityTypeID
 	for rows.Next() {
 		var entity Entity
 		var metadataJSON json.RawMessage
+		var similarity float64 // Will be scanned but not stored in Entity struct
 
 		err := rows.Scan(
 			&entity.ID, &entity.EntityName, &entity.EntityTypeID, &entity.EntityValue,
 			&entity.Description, &entity.SourceDocumentID, &metadataJSON, &entity.ConfidenceScore,
-			&entity.CreatedAt, &entity.UpdatedAt,
+			&entity.CreatedAt, &entity.UpdatedAt, &similarity,
 		)
 
 		if err != nil {
@@ -382,10 +507,56 @@ func (s *Service) SearchEntities(ctx context.Context, query string, entityTypeID
 			json.Unmarshal(metadataJSON, &entity.Metadata)
 		}
 
+		// Store similarity in metadata for reference
+		if entity.Metadata == nil {
+			entity.Metadata = make(map[string]interface{})
+		}
+		entity.Metadata["similarity"] = similarity
+
 		entities = append(entities, entity)
 	}
 
 	return entities, nil
+}
+
+/* CompareEntities compares two entities using vector similarity */
+func (s *Service) CompareEntities(ctx context.Context, entityID1, entityID2 uuid.UUID, metric string) (float64, error) {
+	if metric == "" {
+		metric = "cosine"
+	}
+
+	// Get embeddings for both entities
+	var embedding1, embedding2 string
+	query := `SELECT embedding::text FROM neuronip.entities WHERE id = $1`
+	
+	err := s.pool.QueryRow(ctx, query, entityID1).Scan(&embedding1)
+	if err != nil {
+		return 0, fmt.Errorf("failed to get embedding for entity 1: %w", err)
+	}
+
+	err = s.pool.QueryRow(ctx, query, entityID2).Scan(&embedding2)
+	if err != nil {
+		return 0, fmt.Errorf("failed to get embedding for entity 2: %w", err)
+	}
+
+	// Calculate similarity based on metric
+	var similarity float64
+	switch metric {
+	case "l2":
+		similarityQuery := `SELECT 1.0 / (1.0 + ($1::vector <-> $2::vector)) as similarity`
+		err = s.pool.QueryRow(ctx, similarityQuery, embedding1, embedding2).Scan(&similarity)
+	case "inner_product":
+		similarityQuery := `SELECT ($1::vector <#> $2::vector) * -1 as similarity`
+		err = s.pool.QueryRow(ctx, similarityQuery, embedding1, embedding2).Scan(&similarity)
+	default: // cosine
+		similarityQuery := `SELECT 1 - ($1::vector <=> $2::vector) as similarity`
+		err = s.pool.QueryRow(ctx, similarityQuery, embedding1, embedding2).Scan(&similarity)
+	}
+
+	if err != nil {
+		return 0, fmt.Errorf("failed to calculate similarity: %w", err)
+	}
+	return similarity, nil
 }
 
 /* getEntityTypeID gets entity type ID by name */

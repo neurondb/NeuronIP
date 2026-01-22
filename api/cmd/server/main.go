@@ -13,6 +13,8 @@ import (
 	"github.com/gorilla/mux"
 	"github.com/neurondb/NeuronIP/api/internal/agent"
 	"github.com/neurondb/NeuronIP/api/internal/agents"
+	"github.com/neurondb/NeuronIP/api/internal/ai"
+	"github.com/neurondb/NeuronIP/api/internal/rag"
 	"github.com/neurondb/NeuronIP/api/internal/alerts"
 	"github.com/neurondb/NeuronIP/api/internal/analytics"
 	"github.com/neurondb/NeuronIP/api/internal/audit"
@@ -53,6 +55,12 @@ import (
 	"github.com/neurondb/NeuronIP/api/internal/warehouse"
 	"github.com/neurondb/NeuronIP/api/internal/webhooks"
 	"github.com/neurondb/NeuronIP/api/internal/workflows"
+	"github.com/neurondb/NeuronIP/api/internal/session"
+	"github.com/neurondb/NeuronIP/api/internal/execution"
+	"github.com/neurondb/NeuronIP/api/internal/collaboration"
+	slackbot "github.com/neurondb/NeuronIP/api/internal/integrations/slack"
+	teamsbot "github.com/neurondb/NeuronIP/api/internal/integrations/teams"
+	bibot "github.com/neurondb/NeuronIP/api/internal/integrations/bi"
 )
 
 var (
@@ -109,25 +117,36 @@ func main() {
 		"git_commit", gitCommit,
 	)
 
-	// Create database connection pool
+	// Create database connection pools (multi-database support)
 	ctx := context.Background()
-	pool, err := db.NewPool(ctx, cfg.Database)
+	multiPool, err := db.NewMultiPool(ctx, *cfg)
 	if err != nil {
-		logger.Error("Failed to create database pool", "error", err)
+		logger.Error("Failed to create database pools", "error", err)
 		os.Exit(1)
 	}
-	defer pool.Close()
+	defer multiPool.Close()
 
-	logger.Info("Database pool created successfully",
+	// Get default neuronip pool for backward compatibility
+	pool, err := multiPool.GetPool("neuronip")
+	if err != nil {
+		logger.Error("Failed to get neuronip pool", "error", err)
+		os.Exit(1)
+	}
+
+	// Create Pool wrapper for backward compatibility
+	poolWrapper := &db.Pool{Pool: pool}
+
+	logger.Info("Database pools created successfully",
 		"max_conns", cfg.Database.MaxOpenConns,
 		"min_conns", cfg.Database.MaxIdleConns,
+		"databases", []string{"neuronip", "neuronai-demo"},
 	)
 
-	// Initialize database queries
-	queries := db.NewQueries(pool.Pool)
+	// Initialize database queries (uses default pool, but queries can be context-aware)
+	queries := db.NewQueries(pool)
 
 	// Initialize NeuronDB client
-	neurondbClient := neurondb.NewClient(pool.Pool)
+	neurondbClient := neurondb.NewClient(pool)
 
 	// Create router
 	router := mux.NewRouter()
@@ -153,9 +172,9 @@ func main() {
 	// Health check endpoint (no auth required)
 	var healthHandler *handlers.HealthHandler
 	if mcpClient != nil {
-		healthHandler = handlers.NewHealthHandlerWithMCP(pool.Pool, mcpClient)
+		healthHandler = handlers.NewHealthHandlerWithMCP(pool, mcpClient)
 	} else {
-		healthHandler = handlers.NewHealthHandler(pool.Pool)
+		healthHandler = handlers.NewHealthHandler(pool)
 	}
 	router.Handle("/health", healthHandler).Methods("GET")
 	router.Handle("/api/v1/health", healthHandler).Methods("GET")
@@ -165,9 +184,10 @@ func main() {
 
 	// API routes (require auth)
 	apiRouter := router.PathPrefix("/api/v1").Subrouter()
-	if cfg.Auth.EnableAPIKeys {
-		apiRouter.Use(auth.Middleware(queries))
-	}
+	
+	// Apply session middleware first (supports cookie-based auth)
+	// Note: sessionManager is initialized later, so we'll add this after initialization
+	// For now, we'll add it after sessionManager is created
 
 	// Apply rate limiting to API routes (after auth)
 	if cfg.RateLimit.Enabled {
@@ -178,32 +198,35 @@ func main() {
 	// Initialize agent client
 	agentClient := agent.NewClient(cfg.NeuronAgent.Endpoint, cfg.NeuronAgent.APIKey)
 
-	// Initialize services
-	semanticService := semantic.NewService(queries, pool.Pool, neurondbClient)
-	semanticHandler := handlers.NewSemanticHandler(semanticService)
+	// Initialize services (use pool directly - services can be enhanced later to use context-aware pools)
+	semanticService := semantic.NewService(queries, pool, neurondbClient, mcpClient)
+	approvalService := semantic.NewApprovalService(pool)
+	ownershipService := semantic.NewMetricOwnershipService(pool)
+	lineageService := semantic.NewLineageService(pool)
+	semanticHandler := handlers.NewSemanticHandler(semanticService, approvalService, ownershipService, lineageService)
 
 	// Initialize pipeline service
-	pipelineService := semantic.NewPipelineService(pool.Pool)
+	pipelineService := semantic.NewPipelineService(pool)
 	pipelineHandler := handlers.NewPipelineHandler(pipelineService)
 
 	// Initialize warehouse service
-	warehouseService := warehouse.NewService(pool.Pool, agentClient, neurondbClient)
+	warehouseService := warehouse.NewService(pool, agentClient, neurondbClient, mcpClient)
 	warehouseHandler := handlers.NewWarehouseHandler(warehouseService)
 
 	// Initialize saved search service
-	savedSearchService := warehouse.NewSavedSearchService(pool.Pool)
+	savedSearchService := warehouse.NewSavedSearchService(pool)
 	savedSearchHandler := handlers.NewSavedSearchHandler(savedSearchService, warehouseService)
 
 	// Initialize governance service
-	governanceService := warehouse.NewGovernanceService(pool.Pool)
+	governanceService := warehouse.NewGovernanceService(pool)
 	governanceHandler := handlers.NewGovernanceHandler(governanceService)
 
 	// Initialize cache service
-	cacheService := warehouse.NewCacheService(pool.Pool)
+	cacheService := warehouse.NewCacheService(pool)
 	cacheHandler := handlers.NewCacheHandler(cacheService)
 
 	// Initialize workflow service
-	workflowService := workflows.NewService(pool.Pool, agentClient, neurondbClient)
+	workflowService := workflows.NewService(pool, agentClient, neurondbClient, mcpClient)
 	workflowHandler := handlers.NewWorkflowHandler(workflowService)
 
 	// Initialize compliance services
@@ -213,11 +236,11 @@ func main() {
 	complianceHandler := handlers.NewComplianceHandler(complianceService, anomalyService, policyService)
 
 	// Initialize analytics service
-	analyticsService := analytics.NewService(pool.Pool)
+	analyticsService := analytics.NewService(pool.Pool, neurondbClient, mcpClient)
 	analyticsHandler := handlers.NewAnalyticsHandler(analyticsService)
 
 	// Initialize models service
-	modelsService := models.NewService(pool.Pool, neurondbClient)
+	modelsService := models.NewService(pool.Pool, neurondbClient, mcpClient)
 	modelsHandler := handlers.NewModelHandler(modelsService)
 
 	// Initialize integrations services
@@ -250,12 +273,49 @@ func main() {
 	businessMetricsHandler := handlers.NewMetricsHandler(businessMetricsService, metricsCatalogService)
 
 	// Initialize agents service
-	agentsService := agents.NewAgentsService(pool.Pool)
+	agentsService := agents.NewAgentsService(pool.Pool, agentClient)
 	agentsHandler := handlers.NewAgentsHandler(agentsService)
 
 	// Initialize observability service
 	observabilityService := observability.NewObservabilityService(pool.Pool)
-	observabilityHandler := handlers.NewObservabilityHandler(observabilityService)
+	observabilityHandler := handlers.NewObservabilityHandler(pool.Pool)
+	
+	// Initialize model governance handler
+	modelGovernanceHandler := handlers.NewModelGovernanceHandler(pool.Pool)
+	
+	// Initialize collaboration handler
+	collaborationHandler := handlers.NewCollaborationHandler(pool.Pool)
+	
+	// Initialize execution services
+	replicaService := execution.NewReplicaService(pool.Pool)
+	shardService := execution.NewShardService(pool.Pool)
+	jobQueueService := execution.NewJobQueueService(pool.Pool)
+	_ = replicaService // Used for read routing
+	_ = shardService   // Used for sharding
+	_ = jobQueueService // Used for job queue
+	
+	// Initialize quota service
+	quotaService := tenancy.NewQuotaService(pool.Pool)
+	_ = quotaService // Used for resource limits
+	
+	// Initialize row security service
+	rowSecurityService := auth.NewRowSecurityService(queries)
+	
+	// Initialize policy-aware service
+	policyAwareService := semantic.NewPolicyAwareService(pool.Pool, rowSecurityService)
+	_ = policyAwareService // Used for policy-aware retrieval
+	
+	// Initialize Slack bot service
+	slackToken := os.Getenv("SLACK_BOT_TOKEN")
+	slackBotService := slackbot.NewSlackBotService(agentClient, neurondbClient, slackToken)
+	
+	// Initialize Teams bot service
+	teamsAppID := os.Getenv("TEAMS_APP_ID")
+	teamsAppPassword := os.Getenv("TEAMS_APP_PASSWORD")
+	teamsBotService := teamsbot.NewTeamsBotService(agentClient, neurondbClient, teamsAppID, teamsAppPassword)
+	
+	// Initialize BI export service
+	biExportService := bibot.NewBIExportService(warehouseService)
 
 	// Initialize metrics collector
 	metricsCollector := metrics.NewMetricsCollector(pool.Pool)
@@ -283,16 +343,24 @@ func main() {
 	versioningService := versioning.NewVersioningService(pool.Pool)
 	versioningHandler := handlers.NewVersioningHandler(versioningService)
 
-	// Initialize catalog service
-	catalogService := catalog.NewCatalogService(pool.Pool)
+	// Initialize catalog service with NeuronDB client for multimodal embeddings
+	catalogService := catalog.NewCatalogServiceWithNeuronDB(pool.Pool, neurondbClient)
 	catalogHandler := handlers.NewCatalogHandler(catalogService)
 
 	// Initialize semantic definitions service
 	// Note: semantic search handler uses semantic.Service, not catalog.SemanticService
 	_ = catalog.NewSemanticService(pool.Pool) // Reserved for future use
 
+	// Initialize unified AI service for orchestration
+	unifiedAIService := ai.NewUnifiedAIService(neurondbClient, mcpClient, agentClient)
+	unifiedAIHandler := handlers.NewUnifiedAIHandler(unifiedAIService)
+
+	// Initialize unified RAG service
+	unifiedRAGService := rag.NewUnifiedRAGService(neurondbClient, mcpClient, agentClient)
+	unifiedRAGHandler := handlers.NewUnifiedRAGHandler(unifiedRAGService)
+
 	// Initialize ingestion service
-	ingestionService := ingestion.NewService(pool.Pool)
+	ingestionService := ingestion.NewService(pool.Pool, mcpClient)
 	// Register connector factories to avoid import cycles
 	ingestionService.RegisterConnectorFactory("zendesk", func(ct string) ingestion.Connector {
 		return ingestionconnectors.NewZendeskConnector()
@@ -404,8 +472,29 @@ func main() {
 	auditService := audit.NewAuditService(pool.Pool)
 	auditHandler := handlers.NewAuditHandler(auditService)
 
+	// Initialize session manager
+	sessionManager := session.NewManager(
+		pool.Pool,
+		cfg.Auth.Session.AccessTokenTTL,
+		cfg.Auth.Session.RefreshTokenTTL,
+		cfg.Auth.Session.CookieDomain,
+		cfg.Auth.Session.CookieSecure,
+		cfg.Auth.Session.CookieSameSite,
+	)
+
+	// Start session cleanup service (runs every hour)
+	var cleanupService *session.CleanupService
+	cleanupService = session.NewCleanupService(pool.Pool, 1*time.Hour)
+	cleanupService.Start(ctx)
+
+	// Apply session middleware to API routes (before API key middleware)
+	apiRouter.Use(sessionManager.SessionMiddleware())
+
+	// Apply database middleware to inject correct database pool based on session
+	apiRouter.Use(middleware.DatabaseMiddleware(multiPool))
+
 	// Initialize enhanced auth services
-	authService := auth.NewAuthService(queries, cfg.Auth.JWTSecret)
+	authService := auth.NewAuthService(queries, cfg.Auth.JWTSecret, sessionManager)
 	oidcService := auth.NewOIDCService(queries)
 	scimService := auth.NewSCIMService(queries, cfg.Auth.SCIMSecret)
 	sessionService := auth.NewSessionService(queries)
@@ -416,6 +505,7 @@ func main() {
 		scimService,
 		sessionService,
 		twoFactorService,
+		sessionManager,
 	)
 
 	// Initialize RBAC services
@@ -447,6 +537,16 @@ func main() {
 	apiRouter.HandleFunc("/semantic/documents", semanticHandler.CreateDocument).Methods("POST")
 	apiRouter.HandleFunc("/semantic/documents/{id}", semanticHandler.UpdateDocument).Methods("PUT")
 	apiRouter.HandleFunc("/semantic/collections/{id}", semanticHandler.GetCollection).Methods("GET")
+
+	// Unified AI routes
+	apiRouter.HandleFunc("/ai/embedding", unifiedAIHandler.GenerateEmbedding).Methods("POST")
+	apiRouter.HandleFunc("/ai/workflow", unifiedAIHandler.ExecuteWorkflow).Methods("POST")
+	apiRouter.HandleFunc("/ai/register-tools", unifiedAIHandler.RegisterTools).Methods("POST")
+
+	// Unified RAG routes
+	apiRouter.HandleFunc("/rag/query", unifiedRAGHandler.PerformRAG).Methods("POST")
+	apiRouter.HandleFunc("/rag/query/stream", unifiedRAGHandler.PerformRAGStream).Methods("POST")
+	apiRouter.HandleFunc("/rag/status", unifiedRAGHandler.GetRAGStatus).Methods("GET")
 
 	// Pipeline routes
 	apiRouter.HandleFunc("/semantic/pipelines", pipelineHandler.CreatePipeline).Methods("POST")
@@ -665,6 +765,14 @@ func main() {
 	apiRouter.HandleFunc("/webhooks/{id}/trigger", webhookHandler.TriggerWebhook).Methods("POST")
 
 	// Enhanced authentication routes
+	// Auth routes (login, register, me, logout, refresh)
+	apiRouter.HandleFunc("/auth/login", authEnhancedHandler.Login).Methods("POST")
+	apiRouter.HandleFunc("/auth/register", authEnhancedHandler.Register).Methods("POST")
+	apiRouter.HandleFunc("/auth/me", authEnhancedHandler.GetCurrentUser).Methods("GET")
+	apiRouter.HandleFunc("/auth/logout", authEnhancedHandler.Logout).Methods("POST")
+	apiRouter.HandleFunc("/auth/refresh", authEnhancedHandler.RefreshToken).Methods("POST")
+
+	// OIDC routes
 	apiRouter.HandleFunc("/auth/oidc/{provider}/initiate", authEnhancedHandler.InitiateOIDC).Methods("POST")
 	apiRouter.HandleFunc("/auth/oidc/{provider}/callback", authEnhancedHandler.HandleOIDCCallback).Methods("GET")
 	apiRouter.HandleFunc("/auth/scim/{path:.*}", authEnhancedHandler.HandleSCIM).Methods("GET", "POST", "PUT", "DELETE")
@@ -710,11 +818,12 @@ func main() {
 	connectorHandler := handlers.NewConnectorHandler(connectorService)
 
 	// Initialize data quality service
-	dataQualityService := dataquality.NewService(pool.Pool)
+	// Initialize data quality service with MCP and Agent clients for ML-powered analysis
+	dataQualityService := dataquality.NewServiceWithMCPAndAgent(pool.Pool, neurondbClient, mcpClient, agentClient)
 	dataQualityHandler := handlers.NewDataQualityHandler(dataQualityService)
 
 	// Initialize profiling service
-	profilingService := profiling.NewService(pool.Pool)
+	profilingService := profiling.NewService(pool.Pool, neurondbClient, mcpClient)
 	profilingHandler := handlers.NewProfilingHandler(profilingService)
 
 	// Initialize classification service
@@ -848,6 +957,73 @@ func main() {
 	apiRouter.HandleFunc("/masking/policies", maskingHandler.GetMaskingPolicy).Methods("GET")
 	apiRouter.HandleFunc("/masking/apply", maskingHandler.ApplyMasking).Methods("POST")
 
+	// Enterprise Feature Routes - Semantic Layer Approval
+	apiRouter.HandleFunc("/metrics/approvals/queue", semanticHandler.GetApprovalQueue).Methods("GET")
+	apiRouter.HandleFunc("/metrics/{id}/approvals", semanticHandler.GetMetricApprovals).Methods("GET")
+	apiRouter.HandleFunc("/metrics/{id}/approvals", semanticHandler.CreateMetricApproval).Methods("POST")
+	apiRouter.HandleFunc("/metrics/approvals/{id}/approve", semanticHandler.ApproveMetric).Methods("POST")
+	apiRouter.HandleFunc("/metrics/approvals/{id}/reject", semanticHandler.RejectMetric).Methods("POST")
+	apiRouter.HandleFunc("/metrics/approvals/{id}/request-changes", semanticHandler.RequestChanges).Methods("POST")
+	apiRouter.HandleFunc("/metrics/{id}/owners", semanticHandler.GetMetricOwners).Methods("GET")
+	apiRouter.HandleFunc("/metrics/{id}/owners", semanticHandler.AddMetricOwner).Methods("POST")
+	apiRouter.HandleFunc("/metrics/{id}/owners/{owner_id}", semanticHandler.RemoveMetricOwner).Methods("DELETE")
+
+	// Enterprise Feature Routes - Ingestion Status
+	apiRouter.HandleFunc("/ingestion/data-sources/{id}/status", ingestionHandler.GetIngestionStatus).Methods("GET")
+	apiRouter.HandleFunc("/ingestion/failures", ingestionHandler.GetIngestionFailures).Methods("GET")
+	apiRouter.HandleFunc("/ingestion/jobs/{id}/retry", ingestionHandler.RetryIngestionJob).Methods("POST")
+
+	// Enterprise Feature Routes - Model & Prompt Governance
+	apiRouter.HandleFunc("/models", modelGovernanceHandler.ListModels).Methods("GET")
+	apiRouter.HandleFunc("/models/{id}", modelGovernanceHandler.GetModel).Methods("GET")
+	apiRouter.HandleFunc("/models/{id}/versions", modelGovernanceHandler.GetModelVersions).Methods("GET")
+	apiRouter.HandleFunc("/models/{id}/approve", modelGovernanceHandler.ApproveModel).Methods("POST")
+	apiRouter.HandleFunc("/models/{name}/rollback", modelGovernanceHandler.RollbackModel).Methods("POST")
+	apiRouter.HandleFunc("/prompts", modelGovernanceHandler.ListPrompts).Methods("GET")
+	apiRouter.HandleFunc("/prompts/{id}", modelGovernanceHandler.GetPrompt).Methods("GET")
+	apiRouter.HandleFunc("/prompts/{name}/versions", modelGovernanceHandler.GetPromptVersions).Methods("GET")
+	apiRouter.HandleFunc("/prompts/{id}/approve", modelGovernanceHandler.ApprovePrompt).Methods("POST")
+	apiRouter.HandleFunc("/prompts/{name}/rollback", modelGovernanceHandler.RollbackPrompt).Methods("POST")
+
+	// Enterprise Feature Routes - AI Observability
+	apiRouter.HandleFunc("/observability/agents/{agent_id}/logs", observabilityHandler.GetAgentExecutionLogs).Methods("GET")
+	apiRouter.HandleFunc("/observability/retrieval/metrics", observabilityHandler.GetRetrievalMetrics).Methods("GET")
+	apiRouter.HandleFunc("/observability/retrieval/stats", observabilityHandler.GetRetrievalStats).Methods("GET")
+	apiRouter.HandleFunc("/observability/hallucination/signals", observabilityHandler.GetHallucinationSignals).Methods("GET")
+	apiRouter.HandleFunc("/observability/hallucination/stats", observabilityHandler.GetHallucinationStats).Methods("GET")
+	apiRouter.HandleFunc("/observability/queries/{id}/cost", observabilityHandler.GetQueryCost).Methods("GET")
+	apiRouter.HandleFunc("/observability/agents/runs/{id}/cost", observabilityHandler.GetAgentRunCost).Methods("GET")
+
+	// Enterprise Feature Routes - Knowledge Graph Query
+	apiRouter.HandleFunc("/knowledge-graph/query", knowledgeGraphHandler.ExecuteGraphQuery).Methods("POST")
+
+	// Enterprise Feature Routes - Collaboration
+	apiRouter.HandleFunc("/collaboration/dashboards", collaborationHandler.CreateSharedDashboard).Methods("POST")
+	apiRouter.HandleFunc("/collaboration/dashboards", collaborationHandler.GetSharedDashboards).Methods("GET")
+	apiRouter.HandleFunc("/collaboration/dashboards/{id}/comments", collaborationHandler.AddDashboardComment).Methods("POST")
+	apiRouter.HandleFunc("/collaboration/dashboards/{id}/comments", collaborationHandler.GetDashboardComments).Methods("GET")
+	apiRouter.HandleFunc("/collaboration/answer-cards", collaborationHandler.CreateAnswerCard).Methods("POST")
+	apiRouter.HandleFunc("/collaboration/saved-questions", collaborationHandler.SaveQuestion).Methods("POST")
+
+	// Enterprise Feature Routes - Governance (RLS)
+	rlsHandler := handlers.NewRLSHandler(queries)
+	apiRouter.HandleFunc("/governance/rls/policies", rlsHandler.GetRLSPolicies).Methods("GET")
+	apiRouter.HandleFunc("/governance/rls/policies", rlsHandler.CreateRLSPolicy).Methods("POST")
+	
+	// Enterprise Feature Routes - Resource Quotas
+	quotaHandler := handlers.NewQuotaHandler(pool.Pool)
+	apiRouter.HandleFunc("/quotas", quotaHandler.SetQuota).Methods("POST")
+	apiRouter.HandleFunc("/quotas", quotaHandler.ListQuotas).Methods("GET")
+	apiRouter.HandleFunc("/quotas/check", quotaHandler.CheckQuota).Methods("POST")
+
+	// Enterprise Feature Routes - Integrations (Slack/Teams)
+	apiRouter.HandleFunc("/integrations/slack/command", slackBotService.HandleHTTPRequest).Methods("POST")
+	apiRouter.HandleFunc("/integrations/teams/message", teamsBotService.HandleHTTPRequest).Methods("POST")
+	
+	// BI Export Handler
+	biExportHandler := handlers.NewBIExportHandler(biExportService)
+	apiRouter.HandleFunc("/integrations/bi/export", biExportHandler.ExportQuery).Methods("GET")
+
 	// Tenancy routes (if needed)
 	// apiRouter.HandleFunc("/tenants", ...).Methods("POST")
 
@@ -879,6 +1055,11 @@ func main() {
 	<-quit
 
 	logger.Info("Shutdown signal received, shutting down server...")
+
+	// Stop cleanup service
+	if cleanupService != nil {
+		cleanupService.Stop()
+	}
 
 	// Graceful shutdown
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)

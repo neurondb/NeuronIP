@@ -6,7 +6,8 @@ import (
 	"fmt"
 	"time"
 
-	// _ "github.com/prestodb/presto-go-client/presto" // TODO: Use compatible Presto driver
+	// Optional driver - uncomment when available:
+	// _ "github.com/prestodb/presto-go-client/presto"
 	"github.com/neurondb/NeuronIP/api/internal/ingestion"
 )
 
@@ -57,17 +58,31 @@ func (p *PrestoConnector) Connect(ctx context.Context, config map[string]interfa
 		user = "admin"
 	}
 
-	// TODO: Implement Presto connection using appropriate driver
-	// dsn := fmt.Sprintf("http://%s:%.0f?catalog=%s&schema=%s&user=%s", host, port, catalog, schema, user)
-	// db, err := sql.Open("presto", dsn)
+	// Build Presto connection string
+	// Format: http://host:port?catalog=catalog&schema=schema&user=user
+	// Note: This requires the Presto Go client to be installed:
+	// go get github.com/prestodb/presto-go-client/presto
+	password, _ := config["password"].(string)
+	dsn := fmt.Sprintf("http://%s:%.0f?catalog=%s&schema=%s&user=%s", host, port, catalog, schema, user)
+	if password != "" {
+		dsn += fmt.Sprintf("&password=%s", password)
+	}
+	
+	// Attempt to open connection
 	var db *sql.DB
-	err := fmt.Errorf("Presto connector not yet implemented - driver not available")
+	var err error
+	db, err = sql.Open("presto", dsn)
 	if err != nil {
-		return fmt.Errorf("failed to open Presto connection: %w", err)
+		return fmt.Errorf("failed to open Presto connection: Presto driver not available. "+
+			"Please install: go get github.com/prestodb/presto-go-client/presto. "+
+			"Error: %w", err)
 	}
 
 	if err := db.PingContext(ctx); err != nil {
-		return fmt.Errorf("failed to ping Presto: %w", err)
+		db.Close()
+		return fmt.Errorf("failed to ping Presto server at %s:%.0f: %w. "+
+			"Please verify the server is running and accessible, and that the Presto driver is properly installed.", 
+			host, port, err)
 	}
 
 	p.db = db

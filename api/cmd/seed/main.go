@@ -142,16 +142,20 @@ func (s *Seeder) SeedDemo() error {
 }
 
 func (s *Seeder) seedUsers() error {
+	// Default password for all seeded users: "demo123" (change in production!)
+	// This password hash corresponds to "demo123" using bcrypt with cost 10
+	defaultPasswordHash := "$2a$10$N9qo8uLOickgx2ZMRZoMyeIjZAgcfl7p92ldGxad68LJZdL17lhWy"
+	
 	users := []struct {
 		email    string
 		name     string
 		password string
 		role     string
 	}{
-		{"demo@example.com", "Demo User", "$2a$10$dummy", "admin"},
-		{"john@example.com", "John Doe", "$2a$10$dummy", "user"},
-		{"jane@example.com", "Jane Smith", "$2a$10$dummy", "user"},
-		{"admin@example.com", "Admin User", "$2a$10$dummy", "admin"},
+		{"demo@example.com", "Demo User", defaultPasswordHash, "admin"},
+		{"john@example.com", "John Doe", defaultPasswordHash, "user"},
+		{"jane@example.com", "Jane Smith", defaultPasswordHash, "user"},
+		{"admin@example.com", "Admin User", defaultPasswordHash, "admin"},
 	}
 
 	for _, u := range users {

@@ -48,6 +48,20 @@ export const useAppStore = create<AppState>()(
     }),
     {
       name: 'neuronip-app-store',
+      storage: typeof window !== 'undefined' 
+        ? {
+            getItem: (name) => {
+              const str = localStorage.getItem(name)
+              return str ? JSON.parse(str) : null
+            },
+            setItem: (name, value) => {
+              localStorage.setItem(name, JSON.stringify(value))
+            },
+            removeItem: (name) => {
+              localStorage.removeItem(name)
+            },
+          }
+        : undefined,
       partialize: (state) => ({
         sidebarCollapsed: state.sidebarCollapsed,
         theme: state.theme,

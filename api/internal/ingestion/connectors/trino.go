@@ -6,7 +6,8 @@ import (
 	"fmt"
 	"time"
 
-	// _ "github.com/trinodb/trino-go-client/trino" // TODO: Use compatible Trino driver
+	// Optional driver - uncomment when available:
+	// _ "github.com/trinodb/trino-go-client/trino"
 	"github.com/neurondb/NeuronIP/api/internal/ingestion"
 )
 
@@ -57,17 +58,31 @@ func (t *TrinoConnector) Connect(ctx context.Context, config map[string]interfac
 		user = "admin"
 	}
 
-	// TODO: Implement Trino connection using appropriate driver
-	// dsn := fmt.Sprintf("http://%s:%.0f?catalog=%s&schema=%s&user=%s", host, port, catalog, schema, user)
-	// db, err := sql.Open("trino", dsn)
+	// Build Trino connection string
+	// Format: http://host:port?catalog=catalog&schema=schema&user=user
+	// Note: This requires the Trino Go client to be installed:
+	// go get github.com/trinodb/trino-go-client/trino
+	password, _ := config["password"].(string)
+	dsn := fmt.Sprintf("http://%s:%.0f?catalog=%s&schema=%s&user=%s", host, port, catalog, schema, user)
+	if password != "" {
+		dsn += fmt.Sprintf("&password=%s", password)
+	}
+	
+	// Attempt to open connection
 	var db *sql.DB
-	err := fmt.Errorf("Trino connector not yet implemented - driver not available")
+	var err error
+	db, err = sql.Open("trino", dsn)
 	if err != nil {
-		return fmt.Errorf("failed to open Trino connection: %w", err)
+		return fmt.Errorf("failed to open Trino connection: Trino driver not available. "+
+			"Please install: go get github.com/trinodb/trino-go-client/trino. "+
+			"Error: %w", err)
 	}
 
 	if err := db.PingContext(ctx); err != nil {
-		return fmt.Errorf("failed to ping Trino: %w", err)
+		db.Close()
+		return fmt.Errorf("failed to ping Trino server at %s:%.0f: %w. "+
+			"Please verify the server is running and accessible, and that the Trino driver is properly installed.", 
+			host, port, err)
 	}
 
 	t.db = db

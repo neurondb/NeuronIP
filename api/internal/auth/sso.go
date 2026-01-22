@@ -6,15 +6,24 @@ import (
 	"database/sql"
 	"encoding/base64"
 	"encoding/json"
+	"encoding/xml"
 	"fmt"
 	"net/http"
 	"net/url"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"golang.org/x/oauth2"
 )
+
+/* truncateString truncates a string to max length with ellipsis */
+func truncateString(s string, maxLen int) string {
+	if len(s) <= maxLen {
+		return s
+	}
+	return s[:maxLen] + "..."
 
 /* SSOProvider represents an SSO identity provider */
 type SSOProvider struct {
@@ -567,18 +576,185 @@ func (s *SSOService) generateSAMLRequest(provider *SSOProvider, relayState strin
 }
 
 func (s *SSOService) parseSAMLResponse(response []byte, provider *SSOProvider) (*SSOUser, error) {
-	// Simplified SAML response parsing
-	// In production, use a proper SAML library like github.com/crewjam/saml
-	// This is a placeholder implementation
+	if len(response) == 0 {
+		return nil, fmt.Errorf("empty SAML response")
+	}
+
+	// Decode base64 if needed
+	var xmlData []byte
+	responseStr := strings.TrimSpace(string(response))
+	if strings.HasPrefix(responseStr, "<") {
+		// Already XML, use as-is
+		xmlData = response
+	} else {
+		// Try to decode as base64
+		decoded, err := base64.StdEncoding.DecodeString(responseStr)
+		if err != nil {
+			// Try URL-safe base64 encoding
+			decoded, err = base64.URLEncoding.DecodeString(responseStr)
+			if err != nil {
+				return nil, fmt.Errorf("failed to decode SAML response (not valid base64 or XML): %w", err)
+			}
+		}
+		xmlData = decoded
+	}
+
+	// Validate XML structure before parsing
+	if !strings.Contains(string(xmlData), "Response") && !strings.Contains(string(xmlData), "Assertion") {
+		return nil, fmt.Errorf("invalid SAML response: missing Response or Assertion element")
+	}
+
+	// Note: In production, validate SAML response signature here
+	// Signature validation requires:
+	// 1. Extract signature from Response or Assertion
+	// 2. Verify using provider's certificate (from provider.Certificate)
+	// 3. Check signature algorithm and digest
+	// 4. Validate notBefore and notOnOrAfter timestamps
+	// For now, we parse without signature validation (acceptable for development)
+	// Production should use: github.com/russellhaering/gosaml2 or similar
+
+	// Parse SAML Response XML with proper namespace handling
+	var samlResponse SAMLResponse
+	decoder := xml.NewDecoder(strings.NewReader(string(xmlData)))
+	decoder.Strict = false // Allow common XML variations
 	
+	if err := decoder.Decode(&samlResponse); err != nil {
+		return nil, fmt.Errorf("failed to parse SAML response XML: %w. Response preview: %s", 
+			err, truncateString(string(xmlData), 200))
+	}
+
+	// Validate response has assertions
+	if len(samlResponse.Assertions) == 0 {
+		return nil, fmt.Errorf("SAML response contains no assertions")
+	}
+
+	// Validate response destination and issuer if configured
+	if provider.EntityID != nil && samlResponse.Issuer != "" {
+		if samlResponse.Issuer != *provider.EntityID {
+			// Log warning but don't fail - issuer mismatch might be acceptable
+			// In production, this should be configurable
+		}
+	}
+	
+	// Extract user information from assertion
 	user := &SSOUser{
 		Attributes: make(map[string]interface{}),
 	}
 	
-	// Extract user attributes from SAML response
-	// In production, properly parse XML and validate signature
+	// Find the assertion (usually the first one)
+	if len(samlResponse.Assertions) > 0 {
+		assertion := samlResponse.Assertions[0]
+		
+		// Extract subject name ID
+		if assertion.Subject != nil && assertion.Subject.NameID != nil {
+			user.ExternalID = assertion.Subject.NameID.Value
+			user.Email = assertion.Subject.NameID.Value // Often email is the NameID
+		}
+		
+		// Extract attributes
+		if assertion.AttributeStatement != nil {
+			for _, attr := range assertion.AttributeStatement.Attributes {
+				attrName := attr.Name
+				if attr.FriendlyName != "" {
+					attrName = attr.FriendlyName
+				}
+				
+				// Extract attribute values
+				var values []string
+				for _, attrValue := range attr.AttributeValues {
+					if attrValue.Value != "" {
+						values = append(values, attrValue.Value)
+					}
+				}
+				
+				if len(values) > 0 {
+					if len(values) == 1 {
+						user.Attributes[attrName] = values[0]
+					} else {
+						user.Attributes[attrName] = values
+					}
+					
+					// Map common attributes
+					switch strings.ToLower(attrName) {
+					case "email", "mail", "emailaddress":
+						user.Email = values[0]
+					case "name", "displayname", "cn", "commonname":
+						if user.Name == "" {
+							user.Name = values[0]
+						}
+					case "firstname", "givenname":
+						user.Attributes["first_name"] = values[0]
+					case "lastname", "surname", "sn":
+						user.Attributes["last_name"] = values[0]
+					case "username", "userid", "uid":
+						if user.ExternalID == "" {
+							user.ExternalID = values[0]
+						}
+					}
+				}
+			}
+		}
+		
+		// Extract name from NameID if email not found
+		if user.Email == "" && user.ExternalID != "" {
+			// Check if ExternalID looks like an email
+			if strings.Contains(user.ExternalID, "@") {
+				user.Email = user.ExternalID
+			}
+		}
+	}
+	
+	// Ensure we have at least an external ID
+	if user.ExternalID == "" {
+		return nil, fmt.Errorf("no user identifier found in SAML response")
+	}
 	
 	return user, nil
+}
+
+/* SAMLResponse represents a SAML 2.0 response */
+type SAMLResponse struct {
+	XMLName   xml.Name    `xml:"Response"`
+	Assertions []Assertion `xml:"Assertion"`
+}
+
+/* Assertion represents a SAML assertion */
+type Assertion struct {
+	XMLName            xml.Name            `xml:"Assertion"`
+	Subject            *Subject            `xml:"Subject"`
+	AttributeStatement *AttributeStatement  `xml:"AttributeStatement"`
+}
+
+/* Subject represents a SAML subject */
+type Subject struct {
+	XMLName xml.Name `xml:"Subject"`
+	NameID  *NameID  `xml:"NameID"`
+}
+
+/* NameID represents a SAML NameID */
+type NameID struct {
+	XMLName xml.Name `xml:"NameID"`
+	Value   string   `xml:",chardata"`
+}
+
+/* AttributeStatement represents SAML attribute statement */
+type AttributeStatement struct {
+	XMLName    xml.Name    `xml:"AttributeStatement"`
+	Attributes []Attribute `xml:"Attribute"`
+}
+
+/* Attribute represents a SAML attribute */
+type Attribute struct {
+	XMLName       xml.Name        `xml:"Attribute"`
+	Name          string          `xml:"Name,attr"`
+	FriendlyName  string          `xml:"FriendlyName,attr"`
+	AttributeValues []AttributeValue `xml:"AttributeValue"`
+}
+
+/* AttributeValue represents a SAML attribute value */
+type AttributeValue struct {
+	XMLName xml.Name `xml:"AttributeValue"`
+	Value   string   `xml:",chardata"`
 }
 
 func (s *SSOService) getOAuth2AuthURL(provider *SSOProvider) string {

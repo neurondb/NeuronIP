@@ -650,6 +650,468 @@ Discover datasets.
 
 ---
 
+## 📥 Ingestion
+
+### POST `/api/v1/ingestion/jobs`
+
+Create a new ingestion job.
+
+**Request:**
+```json
+{
+  "connector_type": "snowflake",
+  "connector_config": {
+    "account": "your-account",
+    "warehouse": "COMPUTE_WH",
+    "database": "SNOWFLAKE_SAMPLE_DATA"
+  },
+  "schedule": {
+    "frequency": "daily",
+    "time": "02:00"
+  }
+}
+```
+
+### GET `/api/v1/ingestion/jobs`
+
+List all ingestion jobs.
+
+### GET `/api/v1/ingestion/jobs/{id}`
+
+Get ingestion job details.
+
+### POST `/api/v1/ingestion/jobs/{id}/execute`
+
+Execute an ingestion job manually.
+
+---
+
+## 🔍 Data Quality
+
+### POST `/api/v1/data-quality/rules`
+
+Create a data quality rule.
+
+**Request:**
+```json
+{
+  "name": "Column Not Null Check",
+  "type": "not_null",
+  "target": {
+    "connector_id": "uuid",
+    "schema_name": "public",
+    "table_name": "users",
+    "column_name": "email"
+  },
+  "threshold": 0.95
+}
+```
+
+### GET `/api/v1/data-quality/rules/{id}`
+
+Get data quality rule details.
+
+### POST `/api/v1/data-quality/rules/{id}/execute`
+
+Execute a data quality rule.
+
+### GET `/api/v1/data-quality/dashboard`
+
+Get data quality dashboard metrics.
+
+### GET `/api/v1/data-quality/trends`
+
+Get data quality trends over time.
+
+---
+
+## 📊 Data Profiling
+
+### POST `/api/v1/profiling/connectors/{connector_id}/schemas/{schema_name}/tables/{table_name}`
+
+Profile a table.
+
+**Response:**
+```json
+{
+  "table_name": "users",
+  "row_count": 1000000,
+  "column_count": 15,
+  "columns": [
+    {
+      "name": "id",
+      "type": "integer",
+      "null_count": 0,
+      "distinct_count": 1000000,
+      "min": 1,
+      "max": 1000000
+    }
+  ],
+  "profiled_at": "2024-01-01T00:00:00Z"
+}
+```
+
+### POST `/api/v1/profiling/connectors/{connector_id}/schemas/{schema_name}/tables/{table_name}/columns/{column_name}`
+
+Profile a specific column.
+
+---
+
+## 🏷️ Data Classification
+
+### POST `/api/v1/classification/connectors/{connector_id}/schemas/{schema_name}/tables/{table_name}/columns/{column_name}`
+
+Classify a column (e.g., PII detection).
+
+**Response:**
+```json
+{
+  "column_name": "email",
+  "classification": "pii",
+  "sub_classification": "email_address",
+  "confidence": 0.98,
+  "classified_at": "2024-01-01T00:00:00Z"
+}
+```
+
+### POST `/api/v1/classification/connectors/{id}/classify`
+
+Classify all columns in a connector.
+
+### POST `/api/v1/classification/rules`
+
+Create a custom classification rule.
+
+---
+
+## 🔗 Column Lineage
+
+### GET `/api/v1/lineage/columns/{connector_id}/{schema_name}/{table_name}/{column_name}`
+
+Get column-level lineage.
+
+**Response:**
+```json
+{
+  "column": {
+    "connector_id": "uuid",
+    "schema_name": "public",
+    "table_name": "orders",
+    "column_name": "total_amount"
+  },
+  "upstream": [
+    {
+      "connector_id": "uuid",
+      "schema_name": "public",
+      "table_name": "order_items",
+      "column_name": "price"
+    }
+  ],
+  "downstream": []
+}
+```
+
+### POST `/api/v1/lineage/columns/track`
+
+Track column lineage transformation.
+
+### POST `/api/v1/lineage/columns/nodes`
+
+Create a column lineage node.
+
+---
+
+## 🔐 SSO (Single Sign-On)
+
+### POST `/api/v1/sso/providers`
+
+Create an SSO provider.
+
+**Request:**
+```json
+{
+  "name": "Okta",
+  "type": "saml",
+  "config": {
+    "sso_url": "https://your-org.okta.com/sso/saml",
+    "certificate": "..."
+  }
+}
+```
+
+### GET `/api/v1/sso/providers`
+
+List SSO providers.
+
+### GET `/api/v1/sso/providers/{id}`
+
+Get SSO provider details.
+
+### GET `/api/v1/sso/providers/{id}/initiate`
+
+Initiate SSO login.
+
+### GET `/api/v1/sso/callback`
+
+Handle SSO callback.
+
+### POST `/api/v1/sso/validate`
+
+Validate SSO session.
+
+---
+
+## 💬 Comments
+
+### POST `/api/v1/comments`
+
+Create a comment on a resource.
+
+**Request:**
+```json
+{
+  "resource_type": "dataset",
+  "resource_id": "uuid",
+  "content": "This dataset needs better documentation"
+}
+```
+
+### GET `/api/v1/comments/{id}`
+
+Get comment details.
+
+### GET `/api/v1/comments/{resource_type}/{resource_id}`
+
+List comments for a resource.
+
+### POST `/api/v1/comments/{id}/resolve`
+
+Resolve a comment.
+
+### DELETE `/api/v1/comments/{id}`
+
+Delete a comment.
+
+---
+
+## 👤 Ownership
+
+### POST `/api/v1/ownership`
+
+Assign ownership to a resource.
+
+**Request:**
+```json
+{
+  "resource_type": "dataset",
+  "resource_id": "uuid",
+  "owner_id": "user-uuid",
+  "owner_type": "user"
+}
+```
+
+### GET `/api/v1/ownership/{resource_type}/{resource_id}`
+
+Get ownership information.
+
+### GET `/api/v1/ownership/by-owner`
+
+List resources owned by a user.
+
+### DELETE `/api/v1/ownership/{resource_type}/{resource_id}`
+
+Remove ownership.
+
+---
+
+## 🔌 Connectors
+
+### POST `/api/v1/connectors`
+
+Create a connector configuration.
+
+### GET `/api/v1/connectors`
+
+List all connectors.
+
+### GET `/api/v1/connectors/{id}`
+
+Get connector details.
+
+### POST `/api/v1/connectors/{id}/sync`
+
+Trigger a connector sync.
+
+---
+
+## 🔄 Backup & Recovery
+
+### POST `/api/v1/backups`
+
+Create a backup.
+
+**Response:**
+```json
+{
+  "id": "uuid",
+  "status": "completed",
+  "backup_type": "full",
+  "size_bytes": 1073741824,
+  "created_at": "2024-01-01T00:00:00Z"
+}
+```
+
+### GET `/api/v1/backups`
+
+List all backups.
+
+### POST `/api/v1/backups/{id}/restore`
+
+Restore from a backup.
+
+---
+
+## 🌐 Multi-Region
+
+### POST `/api/v1/regions`
+
+Create a new region.
+
+**Request:**
+```json
+{
+  "name": "us-west-2",
+  "display_name": "US West (Oregon)",
+  "endpoint": "https://us-west-2.api.neurondb.ai"
+}
+```
+
+### GET `/api/v1/regions`
+
+List all regions.
+
+### GET `/api/v1/regions/{id}`
+
+Get region details.
+
+### GET `/api/v1/regions/{id}/health`
+
+Check region health.
+
+### POST `/api/v1/regions/{id}/failover`
+
+Failover to a region.
+
+---
+
+## 🔒 Privacy & Compliance
+
+### DSAR (Data Subject Access Request)
+
+### POST `/api/v1/dsar/requests`
+
+Create a DSAR request.
+
+**Request:**
+```json
+{
+  "subject_id": "user-123",
+  "request_type": "access",
+  "email": "user@example.com"
+}
+```
+
+### GET `/api/v1/dsar/requests`
+
+List DSAR requests.
+
+### GET `/api/v1/dsar/requests/{id}`
+
+Get DSAR request details.
+
+### POST `/api/v1/dsar/requests/{id}/complete`
+
+Mark DSAR request as complete.
+
+### PIA (Privacy Impact Assessment)
+
+### POST `/api/v1/pia/requests`
+
+Create a PIA request.
+
+### GET `/api/v1/pia/requests/{id}`
+
+Get PIA request details.
+
+### POST `/api/v1/pia/requests/{id}/submit`
+
+Submit PIA for review.
+
+### POST `/api/v1/pia/requests/{id}/review`
+
+Review PIA request.
+
+### Consent Management
+
+### POST `/api/v1/consent`
+
+Record user consent.
+
+**Request:**
+```json
+{
+  "subject_id": "user-123",
+  "purpose": "marketing",
+  "consent_given": true
+}
+```
+
+### POST `/api/v1/consent/withdraw`
+
+Withdraw consent.
+
+### GET `/api/v1/consent/{subject_id}`
+
+Check consent status.
+
+### GET `/api/v1/consent/subject/{subject_id}`
+
+Get all consents for a subject.
+
+### Data Masking
+
+### POST `/api/v1/masking/policies`
+
+Create a masking policy.
+
+**Request:**
+```json
+{
+  "name": "Email Masking",
+  "target": {
+    "connector_id": "uuid",
+    "schema_name": "public",
+    "table_name": "users",
+    "column_name": "email"
+  },
+  "masking_type": "partial",
+  "config": {
+    "reveal_first": 2,
+    "reveal_domain": true
+  }
+}
+```
+
+### GET `/api/v1/masking/policies`
+
+List masking policies.
+
+### POST `/api/v1/masking/apply`
+
+Apply masking to data.
+
+---
+
 ## 📚 Related Documentation
 
 - [API Overview](overview.md) - API introduction

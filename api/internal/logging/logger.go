@@ -10,8 +10,6 @@ import (
 	"github.com/google/uuid"
 )
 
-type contextKey string
-
 const requestIDKey contextKey = "request_id"
 
 /* Logger wraps slog.Logger with additional utilities */

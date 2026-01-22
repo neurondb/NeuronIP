@@ -57,5 +57,11 @@ func (c *Config) Validate() error {
 		}
 	}
 
+	// Validate using schema if available
+	schema := DefaultConfigSchema()
+	if schemaErrors := schema.Validate(c); len(schemaErrors) > 0 {
+		return fmt.Errorf("schema validation failed: %v", schemaErrors)
+	}
+
 	return nil
 }

@@ -3,6 +3,8 @@
 import { useEffect } from 'react'
 import Button from '@/components/ui/Button'
 
+export const dynamic = 'force-dynamic'
+
 export default function GlobalError({
   error,
   reset,

@@ -5,10 +5,12 @@ import { motion } from 'framer-motion'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/Card'
 import MetricCard from '@/components/dashboard/MetricCard'
 import TicketList from '@/components/support/TicketList'
+import CreateTicketDialog from '@/components/support/CreateTicketDialog'
 import FilterChips from '@/components/filters/FilterChips'
 import Button from '@/components/ui/Button'
 import { PlusIcon, FunnelIcon } from '@heroicons/react/24/outline'
 import { staggerContainer, slideUp } from '@/lib/animations/variants'
+import { useSupportTickets } from '@/lib/api/queries'
 
 interface Ticket {
   id: string
@@ -20,60 +22,25 @@ interface Ticket {
 }
 
 export default function SupportPage() {
-  // Mock tickets data - replace with real API call
-  const [tickets] = useState<Ticket[]>([
-    {
-      id: '1',
-      title: 'Integration sync issue',
-      status: 'open',
-      priority: 'high',
-      createdAt: new Date(Date.now() - 1000 * 60 * 60 * 2),
-      updatedAt: new Date(Date.now() - 1000 * 60 * 60 * 2),
-    },
-    {
-      id: '2',
-      title: 'Customer memory not updating',
-      status: 'in-progress',
-      priority: 'medium',
-      createdAt: new Date(Date.now() - 1000 * 60 * 60 * 24),
-      updatedAt: new Date(Date.now() - 1000 * 60 * 30),
-    },
-    {
-      id: '3',
-      title: 'API rate limit question',
-      status: 'resolved',
-      priority: 'low',
-      createdAt: new Date(Date.now() - 1000 * 60 * 60 * 24 * 3),
-      updatedAt: new Date(Date.now() - 1000 * 60 * 60 * 24 * 2),
-    },
-    {
-      id: '4',
-      title: 'Database connection timeout',
-      status: 'open',
-      priority: 'high',
-      createdAt: new Date(Date.now() - 1000 * 60 * 60 * 6),
-      updatedAt: new Date(Date.now() - 1000 * 60 * 60 * 6),
-    },
-    {
-      id: '5',
-      title: 'Feature request: Export to Excel',
-      status: 'in-progress',
-      priority: 'low',
-      createdAt: new Date(Date.now() - 1000 * 60 * 60 * 24 * 5),
-      updatedAt: new Date(Date.now() - 1000 * 60 * 60 * 24 * 4),
-    },
-    {
-      id: '6',
-      title: 'Authentication token expiry issue',
-      status: 'open',
-      priority: 'medium',
-      createdAt: new Date(Date.now() - 1000 * 60 * 60 * 12),
-      updatedAt: new Date(Date.now() - 1000 * 60 * 60 * 12),
-    },
-  ])
-
+  const [showCreateDialog, setShowCreateDialog] = useState(false)
   const [filters, setFilters] = useState<Array<{ id: string; label: string; value: string; type: string }>>([])
   const [statusFilter, setStatusFilter] = useState<string | null>(null)
+
+  // Fetch tickets from API
+  const { data: ticketsData, isLoading, refetch } = useSupportTickets()
+  
+  // Transform API data to match Ticket interface
+  const rawTickets = ticketsData?.tickets || ticketsData || []
+  const tickets: Ticket[] = Array.isArray(rawTickets)
+    ? rawTickets.map((ticket: any) => ({
+        id: ticket.id || ticket.ticket_id || String(ticket),
+        title: ticket.title || ticket.subject || 'Untitled',
+        status: (ticket.status || 'open') as Ticket['status'],
+        priority: (ticket.priority || 'medium') as Ticket['priority'],
+        createdAt: ticket.created_at ? new Date(ticket.created_at) : new Date(),
+        updatedAt: ticket.updated_at ? new Date(ticket.updated_at) : new Date(),
+      }))
+    : []
 
   // Calculate metrics
   const metrics = [
@@ -137,12 +104,7 @@ export default function SupportPage() {
               AI-powered customer support with persistent long-term memory. Every interaction is remembered, every solution is learned.
             </p>
           </div>
-          <Button
-            onClick={() => {
-              // TODO: Open create ticket dialog
-              console.log('Create new ticket')
-            }}
-          >
+          <Button onClick={() => setShowCreateDialog(true)}>
             <PlusIcon className="h-4 w-4 mr-2" />
             New Ticket
           </Button>
@@ -172,12 +134,18 @@ export default function SupportPage() {
       <motion.div variants={slideUp} className="flex-1 min-h-0">
         <TicketList
           tickets={filteredTickets}
-          onCreateNew={() => {
-            // TODO: Open create ticket dialog
-            console.log('Create new ticket')
-          }}
+          onCreateNew={() => setShowCreateDialog(true)}
         />
       </motion.div>
+
+      {/* Create Ticket Dialog */}
+      <CreateTicketDialog
+        open={showCreateDialog}
+        onOpenChange={setShowCreateDialog}
+        onSuccess={() => {
+          refetch()
+        }}
+      />
     </motion.div>
   )
 }

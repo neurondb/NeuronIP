@@ -4,20 +4,21 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"sync"
+	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
-	// Note: For production MySQL CDC, use:
-	// github.com/siddontang/go-mysql/mysql
-	// github.com/siddontang/go-mysql/replication
+	"github.com/go-mysql-org/go-mysql/mysql"
+	"github.com/go-mysql-org/go-mysql/replication"
 )
 
 /* MySQLCDC implements CDC for MySQL using binlog replication */
 type MySQLCDC struct {
-	// Binlog syncer and streamer - would be populated when go-mysql library is available
-	// syncer   *replication.BinlogSyncer
-	// streamer *replication.BinlogStreamer
-	pool   *pgxpool.Pool              // For storing checkpoints
-	config map[string]interface{}     // Connection config
+	syncer   *replication.BinlogSyncer
+	streamer *replication.BinlogStreamer
+	pool     *pgxpool.Pool              // For storing checkpoints
+	config   map[string]interface{}     // Connection config
+	mu       sync.RWMutex                // Protects syncer and streamer
 }
 
 /* NewMySQLCDC creates a new MySQL CDC instance */
@@ -29,58 +30,167 @@ func NewMySQLCDC(pool *pgxpool.Pool) *MySQLCDC {
 
 /* StartCDC starts the CDC replication process */
 func (m *MySQLCDC) StartCDC(ctx context.Context, config map[string]interface{}) error {
-	// Store config for later use
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	// Store config
 	m.config = config
 
-	// Note: Full implementation requires go-mysql library:
-	// import (
-	//     "github.com/siddontang/go-mysql/mysql"
-	//     "github.com/siddontang/go-mysql/replication"
-	// )
-	//
-	// Implementation would:
-	// 1. Create BinlogSyncer with config
-	// 2. Get current binlog position
-	// 3. Start streaming binlog events
-	//
-	// For now, we store the config and return success
-	// Actual CDC would require the library to be installed
-	
-	return nil // Config stored, ready for CDC when library is available
+	// Extract connection parameters
+	host, _ := config["host"].(string)
+	port, _ := config["port"].(float64)
+	user, _ := config["user"].(string)
+	password, _ := config["password"].(string)
+	serverID, _ := config["server_id"].(float64)
+
+	if host == "" {
+		return fmt.Errorf("host is required for MySQL CDC")
+	}
+	if user == "" {
+		return fmt.Errorf("user is required for MySQL CDC")
+	}
+
+	// Default values
+	if port == 0 {
+		port = 3306
+	}
+	if serverID == 0 {
+		serverID = 100 // Default server ID
+	}
+
+	// Create binlog syncer
+	cfg := replication.BinlogSyncerConfig{
+		ServerID: uint32(serverID),
+		Flavor:   "mysql",
+		Host:     host,
+		Port:     uint16(port),
+		User:     user,
+		Password: password,
+	}
+
+	syncer := replication.NewBinlogSyncer(&cfg)
+	m.syncer = syncer
+
+	// Get current binlog position (or use provided position)
+	var position mysql.Position
+	if pos, ok := config["position"].(map[string]interface{}); ok {
+		if file, ok := pos["file"].(string); ok {
+			position.Name = file
+		}
+		if posVal, ok := pos["pos"].(float64); ok {
+			position.Pos = uint32(posVal)
+		}
+	}
+
+	// If no position provided, start from current position
+	if position.Name == "" {
+		// Connect to MySQL to get current position
+		conn, err := mysql.Connect(fmt.Sprintf("%s:%d", host, uint16(port)), user, password, "")
+		if err != nil {
+			// If we can't get position, start from beginning
+			position.Name = "mysql-bin.000001"
+			position.Pos = 4
+		} else {
+			pos, err := conn.Execute("SHOW MASTER STATUS")
+			if err == nil && len(pos.Values) > 0 {
+				if file, ok := pos.Values[0][0].(string); ok {
+					position.Name = file
+				}
+				if posVal, ok := pos.Values[0][1].(uint64); ok {
+					position.Pos = uint32(posVal)
+				}
+			}
+			conn.Close()
+		}
+	}
+
+	// Start streaming from position
+	streamer, err := syncer.StartSync(position)
+	if err != nil {
+		syncer.Close()
+		m.syncer = nil
+		return fmt.Errorf("failed to start binlog sync: %w", err)
+	}
+
+	m.streamer = streamer
+	return nil
 }
 
 /* StopCDC stops the CDC replication process */
 func (m *MySQLCDC) StopCDC(ctx context.Context) error {
-	// Stop binlog syncer
-	// if m.syncer != nil {
-	//     m.syncer.Close()
-	//     m.syncer = nil
-	// }
-	// m.streamer = nil
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	if m.syncer != nil {
+		m.syncer.Close()
+		m.syncer = nil
+	}
+	m.streamer = nil
 	m.config = nil
 	return nil
 }
 
 /* GetChanges retrieves changes from the binlog */
 func (m *MySQLCDC) GetChanges(ctx context.Context, lastPosition interface{}) ([]ChangeEvent, error) {
-	if m.config == nil {
+	m.mu.RLock()
+	streamer := m.streamer
+	config := m.config
+	m.mu.RUnlock()
+
+	if config == nil {
 		return nil, fmt.Errorf("CDC not started - call StartCDC first")
 	}
 
-	// Note: Full implementation requires go-mysql library
-	// With the library, this would:
-	// 1. Read binlog events from streamer
-	// 2. Convert to ChangeEvent structures
-	// 3. Return changes
-	//
-	// For now, return empty - CDC will work when library is installed
-	
-	// Poll-based fallback using change log table if available
+	// Try to get changes from binlog streamer if available
+	if streamer != nil {
+		changes, err := m.getChangesFromBinlog(ctx, streamer, lastPosition)
+		if err == nil {
+			return changes, nil
+		}
+		// If binlog fails, fall back to polling
+	}
+
+	// Fallback to polling if binlog is not available or fails
 	if m.pool != nil {
 		return m.getChangesFromPolling(ctx, lastPosition)
 	}
-	
+
 	return []ChangeEvent{}, nil
+}
+
+/* getChangesFromBinlog retrieves changes from MySQL binlog stream */
+func (m *MySQLCDC) getChangesFromBinlog(ctx context.Context, streamer *replication.BinlogStreamer, lastPosition interface{}) ([]ChangeEvent, error) {
+	var changes []ChangeEvent
+	maxEvents := 1000 // Limit number of events per call
+	eventCount := 0
+
+	// Set timeout for reading events
+	timeoutCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+
+	for eventCount < maxEvents {
+		ev, err := streamer.GetEvent(timeoutCtx)
+		if err != nil {
+			if err == context.DeadlineExceeded || err == context.Canceled {
+				// Timeout is expected - return what we have
+				break
+			}
+			return changes, fmt.Errorf("failed to read binlog event: %w", err)
+		}
+
+		// Convert binlog event to ChangeEvent
+		change, err := m.convertBinlogEvent(ev)
+		if err != nil {
+			// Skip events we can't convert
+			continue
+		}
+		if change != nil {
+			changes = append(changes, *change)
+			eventCount++
+		}
+	}
+
+	return changes, nil
 }
 
 /* getChangesFromPolling retrieves changes using polling approach */
@@ -143,10 +253,78 @@ func (m *MySQLCDC) getChangesFromPolling(ctx context.Context, lastPosition inter
 }
 
 /* convertBinlogEvent converts a binlog event to ChangeEvent */
-// Note: This requires go-mysql/replication library
-// func (m *MySQLCDC) convertBinlogEvent(ev *replication.BinlogEvent) (*ChangeEvent, error) {
-//     // Implementation with go-mysql library
-// }
+func (m *MySQLCDC) convertBinlogEvent(ev *replication.BinlogEvent) (*ChangeEvent, error) {
+	if ev == nil {
+		return nil, fmt.Errorf("nil binlog event")
+	}
+
+	change := &ChangeEvent{
+		LSN:       fmt.Sprintf("%s:%d", ev.Header.LogPos, ev.Header.LogPos),
+		Timestamp: time.Unix(int64(ev.Header.Timestamp), 0),
+		OldData:   make(map[string]interface{}),
+		NewData:   make(map[string]interface{}),
+	}
+
+	// Handle different event types
+	switch e := ev.Event.(type) {
+	case *replication.RowsEvent:
+		// Extract table name
+		change.Table = string(e.Table.Schema) + "." + string(e.Table.Table)
+
+		// Handle row events
+		switch ev.Header.EventType {
+		case replication.WRITE_ROWS_EVENTv1, replication.WRITE_ROWS_EVENTv2:
+			change.Operation = "insert"
+			// Extract new row data
+			if len(e.Rows) > 0 {
+				row := e.Rows[0]
+				for i, col := range e.Table.Columns {
+					if i < len(row) {
+						change.NewData[col.Name] = row[i]
+					}
+				}
+			}
+
+		case replication.UPDATE_ROWS_EVENTv1, replication.UPDATE_ROWS_EVENTv2:
+			change.Operation = "update"
+			// Extract old and new row data
+			if len(e.Rows) >= 2 {
+				oldRow := e.Rows[0]
+				newRow := e.Rows[1]
+				for i, col := range e.Table.Columns {
+					if i < len(oldRow) {
+						change.OldData[col.Name] = oldRow[i]
+					}
+					if i < len(newRow) {
+						change.NewData[col.Name] = newRow[i]
+					}
+				}
+			}
+
+		case replication.DELETE_ROWS_EVENTv1, replication.DELETE_ROWS_EVENTv2:
+			change.Operation = "delete"
+			// Extract old row data
+			if len(e.Rows) > 0 {
+				row := e.Rows[0]
+				for i, col := range e.Table.Columns {
+					if i < len(row) {
+						change.OldData[col.Name] = row[i]
+					}
+				}
+			}
+
+		default:
+			// Unknown event type, skip
+			return nil, nil
+		}
+
+	default:
+		// Not a row event, skip
+		return nil, nil
+	}
+
+	return change, nil
+}
 
 /* SaveCheckpoint saves a CDC checkpoint */
 func (m *MySQLCDC) SaveCheckpoint(ctx context.Context, dataSourceID string, tableName string, checkpoint map[string]interface{}) error {

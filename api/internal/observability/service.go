@@ -2,6 +2,7 @@ package observability
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"time"
@@ -692,4 +693,238 @@ type CostBreakdown struct {
 	TotalCost   float64 `json:"total_cost"`
 	AvgCost     float64 `json:"avg_cost"`
 	RecordCount int     `json:"record_count"`
+}
+
+/* AgentExecutionLog represents an agent execution log entry */
+type AgentExecutionLog struct {
+	ID              uuid.UUID              `json:"id"`
+	AgentID          string                 `json:"agent_id"`
+	AgentRunID       uuid.UUID              `json:"agent_run_id"`
+	StepID           *string                `json:"step_id,omitempty"`
+	StepType         string                 `json:"step_type"` // tool_call, reasoning, decision, etc.
+	ToolName         *string                `json:"tool_name,omitempty"`
+	Input            map[string]interface{} `json:"input,omitempty"`
+	Output           map[string]interface{} `json:"output,omitempty"`
+	Decision         *string                `json:"decision,omitempty"`
+	LatencyMs        int64                  `json:"latency_ms"`
+	TokensUsed       *int64                 `json:"tokens_used,omitempty"`
+	Cost             *float64               `json:"cost,omitempty"`
+	Metadata         map[string]interface{} `json:"metadata,omitempty"`
+	Timestamp        time.Time              `json:"timestamp"`
+}
+
+/* GetAgentExecutionLogs retrieves agent execution logs */
+func (s *ObservabilityService) GetAgentExecutionLogs(ctx context.Context, agentID *string, agentRunID *uuid.UUID, limit int) ([]AgentExecutionLog, error) {
+	if limit <= 0 {
+		limit = 100
+	}
+
+	query := `
+		SELECT id, agent_id, agent_run_id, step_id, step_type, tool_name, input_data, output_data,
+		       decision, latency_ms, tokens_used, cost, metadata, timestamp
+		FROM neuronip.agent_execution_logs
+		WHERE 1=1`
+
+	args := []interface{}{}
+	argIndex := 1
+
+	if agentID != nil {
+		query += fmt.Sprintf(" AND agent_id = $%d", argIndex)
+		args = append(args, *agentID)
+		argIndex++
+	}
+
+	if agentRunID != nil {
+		query += fmt.Sprintf(" AND agent_run_id = $%d", argIndex)
+		args = append(args, *agentRunID)
+		argIndex++
+	}
+
+	query += " ORDER BY timestamp ASC"
+	query += fmt.Sprintf(" LIMIT $%d", argIndex)
+	args = append(args, limit)
+
+	rows, err := s.pool.Query(ctx, query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get agent execution logs: %w", err)
+	}
+	defer rows.Close()
+
+	var logs []AgentExecutionLog
+	for rows.Next() {
+		var log AgentExecutionLog
+		var stepID, toolName, decision sql.NullString
+		var inputJSON, outputJSON, metadataJSON json.RawMessage
+		var tokensUsed sql.NullInt64
+		var cost sql.NullFloat64
+
+		err := rows.Scan(
+			&log.ID, &log.AgentID, &log.AgentRunID, &stepID, &log.StepType, &toolName,
+			&inputJSON, &outputJSON, &decision, &log.LatencyMs, &tokensUsed, &cost,
+			&metadataJSON, &log.Timestamp,
+		)
+		if err != nil {
+			continue
+		}
+
+		if stepID.Valid {
+			log.StepID = &stepID.String
+		}
+		if toolName.Valid {
+			log.ToolName = &toolName.String
+		}
+		if decision.Valid {
+			log.Decision = &decision.String
+		}
+		if tokensUsed.Valid {
+			log.TokensUsed = &tokensUsed.Int64
+		}
+		if cost.Valid {
+			log.Cost = &cost.Float64
+		}
+		if inputJSON != nil {
+			json.Unmarshal(inputJSON, &log.Input)
+		}
+		if outputJSON != nil {
+			json.Unmarshal(outputJSON, &log.Output)
+		}
+		if metadataJSON != nil {
+			json.Unmarshal(metadataJSON, &log.Metadata)
+		}
+
+		logs = append(logs, log)
+	}
+
+	return logs, nil
+}
+
+/* RecordAgentExecutionLog records an agent execution log */
+func (s *ObservabilityService) RecordAgentExecutionLog(ctx context.Context, agentID string, agentRunID uuid.UUID, stepID *string, stepType string, toolName *string, input map[string]interface{}, output map[string]interface{}, decision *string, latencyMs int64, tokensUsed *int64, cost *float64, metadata map[string]interface{}) error {
+	id := uuid.New()
+	inputJSON, _ := json.Marshal(input)
+	outputJSON, _ := json.Marshal(output)
+	metadataJSON, _ := json.Marshal(metadata)
+
+	var stepIDVal, toolNameVal, decisionVal sql.NullString
+	if stepID != nil {
+		stepIDVal = sql.NullString{String: *stepID, Valid: true}
+	}
+	if toolName != nil {
+		toolNameVal = sql.NullString{String: *toolName, Valid: true}
+	}
+	if decision != nil {
+		decisionVal = sql.NullString{String: *decision, Valid: true}
+	}
+
+	var tokensUsedVal sql.NullInt64
+	if tokensUsed != nil {
+		tokensUsedVal = sql.NullInt64{Int64: *tokensUsed, Valid: true}
+	}
+
+	var costVal sql.NullFloat64
+	if cost != nil {
+		costVal = sql.NullFloat64{Float64: *cost, Valid: true}
+	}
+
+	query := `
+		INSERT INTO neuronip.agent_execution_logs 
+		(id, agent_id, agent_run_id, step_id, step_type, tool_name, input_data, output_data,
+		 decision, latency_ms, tokens_used, cost, metadata, timestamp)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, NOW())`
+
+	_, err := s.pool.Exec(ctx, query, id, agentID, agentRunID, stepIDVal, stepType, toolNameVal,
+		inputJSON, outputJSON, decisionVal, latencyMs, tokensUsedVal, costVal, metadataJSON)
+	if err != nil {
+		return fmt.Errorf("failed to record agent execution log: %w", err)
+	}
+
+	return nil
+}
+
+/* GetQueryCost retrieves cost for a specific query */
+func (s *ObservabilityService) GetQueryCost(ctx context.Context, queryID uuid.UUID) (*QueryCost, error) {
+	query := `
+		SELECT 
+			SUM(cost_amount) as total_cost,
+			COUNT(*) as cost_records,
+			AVG(cost_amount) as avg_cost
+		FROM neuronip.cost_tracking
+		WHERE resource_type = 'query' AND resource_id = $1::text`
+
+	var cost QueryCost
+	var totalCost, avgCost sql.NullFloat64
+	var recordCount sql.NullInt64
+
+	err := s.pool.QueryRow(ctx, query, queryID.String()).Scan(&totalCost, &recordCount, &avgCost)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get query cost: %w", err)
+	}
+
+	cost.QueryID = queryID
+	if totalCost.Valid {
+		cost.TotalCost = totalCost.Float64
+	}
+	if avgCost.Valid {
+		cost.AvgCost = avgCost.Float64
+	}
+	if recordCount.Valid {
+		cost.RecordCount = int(recordCount.Int64)
+	}
+
+	return &cost, nil
+}
+
+/* GetAgentRunCost retrieves cost for a specific agent run */
+func (s *ObservabilityService) GetAgentRunCost(ctx context.Context, agentRunID uuid.UUID) (*AgentRunCost, error) {
+	query := `
+		SELECT 
+			SUM(cost_amount) as total_cost,
+			COUNT(*) as cost_records,
+			AVG(cost_amount) as avg_cost,
+			SUM(tokens_used) as total_tokens
+		FROM neuronip.cost_tracking ct
+		LEFT JOIN neuronip.agent_execution_logs ael ON ct.resource_id = ael.agent_run_id::text
+		WHERE ct.resource_type = 'agent' AND ct.resource_id = $1::text`
+
+	var cost AgentRunCost
+	var totalCost, avgCost sql.NullFloat64
+	var recordCount, totalTokens sql.NullInt64
+
+	err := s.pool.QueryRow(ctx, query, agentRunID.String()).Scan(&totalCost, &recordCount, &avgCost, &totalTokens)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get agent run cost: %w", err)
+	}
+
+	cost.AgentRunID = agentRunID
+	if totalCost.Valid {
+		cost.TotalCost = totalCost.Float64
+	}
+	if avgCost.Valid {
+		cost.AvgCost = avgCost.Float64
+	}
+	if recordCount.Valid {
+		cost.RecordCount = int(recordCount.Int64)
+	}
+	if totalTokens.Valid {
+		cost.TotalTokens = totalTokens.Int64
+	}
+
+	return &cost, nil
+}
+
+/* QueryCost represents cost for a query */
+type QueryCost struct {
+	QueryID    uuid.UUID `json:"query_id"`
+	TotalCost  float64   `json:"total_cost"`
+	AvgCost    float64   `json:"avg_cost"`
+	RecordCount int      `json:"record_count"`
+}
+
+/* AgentRunCost represents cost for an agent run */
+type AgentRunCost struct {
+	AgentRunID  uuid.UUID `json:"agent_run_id"`
+	TotalCost   float64   `json:"total_cost"`
+	AvgCost     float64   `json:"avg_cost"`
+	TotalTokens int64     `json:"total_tokens"`
+	RecordCount int       `json:"record_count"`
 }

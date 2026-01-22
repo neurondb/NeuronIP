@@ -7,8 +7,12 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"fmt"
+	"io"
+	"os"
 	"regexp"
 	"strings"
+
+	"golang.org/x/crypto/hkdf"
 )
 
 /* Tokenize tokenizes a value */
@@ -20,14 +24,14 @@ func (a *MaskingAlgorithms) Tokenize(value string, algorithm string) (string, er
 	return fmt.Sprintf("TOKEN_%s", token[:24]), nil
 }
 
-/* Encrypt encrypts a value */
+/* Encrypt encrypts a value using AES-256-GCM with key derivation */
 func (a *MaskingAlgorithms) Encrypt(value string, algorithm string) (string, error) {
-	// Use AES-256-GCM for encryption
-	key := make([]byte, 32)
-	if _, err := rand.Read(key); err != nil {
-		return "", fmt.Errorf("failed to generate key: %w", err)
-	}
-
+	// Get master key from environment or use default (in production, use proper key management)
+	masterKey := getMasterKey()
+	
+	// Derive encryption key using HKDF
+	key := deriveKey(masterKey, []byte("encryption-key"), 32)
+	
 	block, err := aes.NewCipher(key)
 	if err != nil {
 		return "", fmt.Errorf("failed to create cipher: %w", err)
@@ -44,7 +48,10 @@ func (a *MaskingAlgorithms) Encrypt(value string, algorithm string) (string, err
 	}
 
 	ciphertext := gcm.Seal(nonce, nonce, []byte(value), nil)
-	return base64.StdEncoding.EncodeToString(ciphertext), nil
+	
+	// Encode as base64 with prefix to identify encryption format
+	encoded := base64.StdEncoding.EncodeToString(ciphertext)
+	return "enc:" + encoded, nil
 }
 
 /* FormatPreservingMask masks a value while preserving format */
@@ -144,9 +151,88 @@ func maskString(s string, showChars int) string {
 	return s[:showChars] + strings.Repeat("*", len(s)-showChars)
 }
 
-/* Decrypt decrypts an encrypted value */
+/* Decrypt decrypts an encrypted value using AES-256-GCM with key derivation */
 func (a *MaskingAlgorithms) Decrypt(encryptedValue string, algorithm string) (string, error) {
-	// Decrypt using AES-256-GCM
-	// In production, you'd need to store/retrieve the encryption key securely
-	return "", fmt.Errorf("decryption requires key management - not implemented in basic version")
+	// Check if value has encryption prefix
+	if !strings.HasPrefix(encryptedValue, "enc:") {
+		return "", fmt.Errorf("value does not appear to be encrypted (missing 'enc:' prefix)")
+	}
+	
+	// Remove prefix and decode base64
+	encoded := strings.TrimPrefix(encryptedValue, "enc:")
+	ciphertext, err := base64.StdEncoding.DecodeString(encoded)
+	if err != nil {
+		return "", fmt.Errorf("failed to decode encrypted value: %w", err)
+	}
+	
+	// Get master key from environment
+	masterKey := getMasterKey()
+	
+	// Derive decryption key using same method as encryption
+	key := deriveKey(masterKey, []byte("encryption-key"), 32)
+	
+	block, err := aes.NewCipher(key)
+	if err != nil {
+		return "", fmt.Errorf("failed to create cipher: %w", err)
+	}
+
+	gcm, err := cipher.NewGCM(block)
+	if err != nil {
+		return "", fmt.Errorf("failed to create GCM: %w", err)
+	}
+
+	// Extract nonce and ciphertext
+	nonceSize := gcm.NonceSize()
+	if len(ciphertext) < nonceSize {
+		return "", fmt.Errorf("ciphertext too short")
+	}
+
+	nonce, ciphertext := ciphertext[:nonceSize], ciphertext[nonceSize:]
+	
+	// Decrypt
+	plaintext, err := gcm.Open(nil, nonce, ciphertext, nil)
+	if err != nil {
+		return "", fmt.Errorf("failed to decrypt: %w", err)
+	}
+
+	return string(plaintext), nil
+}
+
+/* getMasterKey retrieves the master encryption key from environment */
+func getMasterKey() []byte {
+	// Try to get from environment variable
+	masterKeyStr := os.Getenv("ENCRYPTION_MASTER_KEY")
+	if masterKeyStr != "" {
+		// If provided as hex, decode it
+		if key, err := base64.StdEncoding.DecodeString(masterKeyStr); err == nil && len(key) >= 32 {
+			return key[:32] // Use first 32 bytes
+		}
+		// If provided as string, hash it to get 32 bytes
+		hash := sha256.Sum256([]byte(masterKeyStr))
+		return hash[:]
+	}
+	
+	// Fallback: use a default key (WARNING: not secure for production)
+	// In production, this should always come from a secure key management service
+	defaultKey := sha256.Sum256([]byte("default-encryption-key-change-in-production"))
+	return defaultKey[:]
+}
+
+/* deriveKey derives a key using HKDF */
+func deriveKey(masterKey []byte, salt []byte, keyLen int) []byte {
+	// Use HKDF for key derivation
+	hash := sha256.New
+	hkdfReader := hkdf.New(hash, masterKey, salt, nil)
+	
+	key := make([]byte, keyLen)
+	if _, err := io.ReadFull(hkdfReader, key); err != nil {
+		// Fallback: use SHA256 hash if HKDF fails
+		h := sha256.New()
+		h.Write(masterKey)
+		h.Write(salt)
+		hashSum := h.Sum(nil)
+		copy(key, hashSum[:keyLen])
+	}
+	
+	return key
 }

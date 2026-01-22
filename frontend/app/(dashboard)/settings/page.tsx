@@ -7,6 +7,8 @@ import SecuritySettings from '@/components/settings/SecuritySettings'
 import PreferencesPanel from '@/components/settings/PreferencesPanel'
 import { staggerContainer, slideUp } from '@/lib/animations/variants'
 
+export const dynamic = 'force-dynamic'
+
 export default function SettingsPage() {
   return (
     <motion.div

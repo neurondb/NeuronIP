@@ -71,6 +71,7 @@ export default function DashboardPage() {
       initial="hidden"
       animate="visible"
       className="space-y-3 sm:space-y-4 flex flex-col h-full"
+      style={{ opacity: 1 }}
     >
       {/* Page Header */}
       <div className="flex-shrink-0 pb-2">
@@ -83,10 +84,20 @@ export default function DashboardPage() {
       {/* Metrics Grid */}
       <motion.div
         variants={staggerContainer}
+        initial="hidden"
+        animate="visible"
         className="grid grid-cols-2 lg:grid-cols-4 gap-2 sm:gap-3 flex-shrink-0"
+        style={{ opacity: 1 }}
       >
         {metrics.map((metric, index) => (
-          <motion.div key={metric.title} variants={slideUp} transition={{ ...transition, delay: index * 0.05 }}>
+          <motion.div 
+            key={metric.title} 
+            variants={slideUp} 
+            initial="hidden"
+            animate="visible"
+            transition={{ ...transition, delay: index * 0.05 }}
+            style={{ opacity: 1 }}
+          >
             <MetricCard {...metric} />
           </motion.div>
         ))}
@@ -95,7 +106,13 @@ export default function DashboardPage() {
       {/* Charts and Activity - Fill remaining space */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-3 sm:gap-4 flex-1 min-h-0">
         {/* Activity Chart - Takes 2 columns on large screens */}
-        <motion.div variants={slideUp} className="lg:col-span-2 flex flex-col min-h-0">
+        <motion.div 
+          variants={slideUp} 
+          initial="hidden"
+          animate="visible"
+          className="lg:col-span-2 flex flex-col min-h-0"
+          style={{ opacity: 1 }}
+        >
           <ChartContainer
             title="Activity Overview"
             description="Search and query activity over the last week"
@@ -113,13 +130,25 @@ export default function DashboardPage() {
         </motion.div>
 
         {/* Activity Feed - Takes 1 column */}
-        <motion.div variants={slideUp} className="flex flex-col min-h-0">
+        <motion.div 
+          variants={slideUp} 
+          initial="hidden"
+          animate="visible"
+          className="flex flex-col min-h-0"
+          style={{ opacity: 1 }}
+        >
           <ActivityFeed />
         </motion.div>
       </div>
 
       {/* Quick Actions - Compact at bottom */}
-      <motion.div variants={slideUp} className="flex-shrink-0">
+      <motion.div 
+        variants={slideUp} 
+        initial="hidden"
+        animate="visible"
+        className="flex-shrink-0"
+        style={{ opacity: 1 }}
+      >
         <QuickActions />
       </motion.div>
     </motion.div>

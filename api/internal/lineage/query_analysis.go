@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"regexp"
 	"strings"
 	"time"
 
@@ -171,31 +172,113 @@ func normalizeQuery(query string) string {
 
 /* extractTableNames extracts table names from SQL query after a keyword */
 func (s *QueryAnalysisService) extractTableNames(query, keyword string) []string {
-	// Simplified table name extraction - in production would use SQL parser
-	// This is a placeholder that would parse SQL properly
+	// Robust table name extraction using regex patterns
+	// Handles: FROM table, FROM schema.table, FROM table AS alias, JOIN table, etc.
 	lowerQuery := strings.ToLower(query)
 	keywordPos := strings.Index(lowerQuery, strings.ToLower(keyword))
 	if keywordPos == -1 {
 		return []string{}
 	}
 
-	// Extract table names (simplified - would need proper SQL parsing)
-	// For now, return empty - proper implementation would parse SQL
-	return []string{}
+	// Extract the portion after the keyword
+	afterKeyword := query[keywordPos+len(keyword):]
+	
+	// Remove leading whitespace
+	afterKeyword = strings.TrimSpace(afterKeyword)
+	
+	// Pattern to match table names:
+	// - schema.table or table
+	// - Handles aliases (AS alias or just alias)
+	// - Handles JOIN clauses
+	// - Handles subqueries (stops at opening parenthesis)
+	
+	tablePattern := regexp.MustCompile(`(?i)(?:^|\s+)(?:FROM|JOIN)\s+([a-zA-Z_][a-zA-Z0-9_]*(?:\.[a-zA-Z_][a-zA-Z0-9_]*)?)`)
+	matches := tablePattern.FindAllStringSubmatch(afterKeyword, -1)
+	
+	tables := make([]string, 0)
+	seen := make(map[string]bool)
+	
+	for _, match := range matches {
+		if len(match) > 1 {
+			tableName := strings.TrimSpace(match[1])
+			// Remove alias if present (everything after space or comma)
+			if spaceIdx := strings.Index(tableName, " "); spaceIdx > 0 {
+				tableName = tableName[:spaceIdx]
+			}
+			if commaIdx := strings.Index(tableName, ","); commaIdx > 0 {
+				tableName = tableName[:commaIdx]
+			}
+			// Remove parentheses (subquery indicator)
+			tableName = strings.Trim(tableName, "()")
+			
+			if tableName != "" && !seen[tableName] {
+				tables = append(tables, tableName)
+				seen[tableName] = true
+			}
+		}
+	}
+	
+	// Also try simpler pattern: extract identifiers after FROM/JOIN
+	if len(tables) == 0 {
+		simplePattern := regexp.MustCompile(`(?i)(?:FROM|JOIN)\s+([a-zA-Z_][a-zA-Z0-9_]*(?:\.[a-zA-Z_][a-zA-Z0-9_]*)?)`)
+		simpleMatches := simplePattern.FindAllStringSubmatch(afterKeyword, -1)
+		for _, match := range simpleMatches {
+			if len(match) > 1 {
+				tableName := strings.TrimSpace(match[1])
+				// Stop at keywords that indicate end of table list
+				if strings.Contains(tableName, "WHERE") || strings.Contains(tableName, "GROUP") ||
+					strings.Contains(tableName, "ORDER") || strings.Contains(tableName, "LIMIT") {
+					break
+				}
+				if !seen[tableName] {
+					tables = append(tables, tableName)
+					seen[tableName] = true
+				}
+			}
+		}
+	}
+	
+	return tables
 }
 
 /* extractTableName extracts a table name from SQL query after a keyword */
 func (s *QueryAnalysisService) extractTableName(query, keyword string) string {
-	// Simplified table name extraction - in production would use SQL parser
-	// This is a placeholder that would parse SQL properly
+	// Robust table name extraction for single table operations
 	lowerQuery := strings.ToLower(query)
 	keywordPos := strings.Index(lowerQuery, strings.ToLower(keyword))
 	if keywordPos == -1 {
 		return ""
 	}
 
-	// Extract table name (simplified - would need proper SQL parsing)
-	// For now, return empty - proper implementation would parse SQL
+	// Extract the portion after the keyword
+	afterKeyword := query[keywordPos+len(keyword):]
+	afterKeyword = strings.TrimSpace(afterKeyword)
+	
+	// Pattern to match table name after keyword
+	// Handles: CREATE TABLE table, INSERT INTO table, SELECT INTO table, etc.
+	tablePattern := regexp.MustCompile(`(?i)^(?:IF\s+NOT\s+EXISTS\s+)?([a-zA-Z_][a-zA-Z0-9_]*(?:\.[a-zA-Z_][a-zA-Z0-9_]*)?)`)
+	match := tablePattern.FindStringSubmatch(afterKeyword)
+	
+	if len(match) > 1 {
+		tableName := strings.TrimSpace(match[1])
+		// Remove any trailing keywords or clauses
+		if spaceIdx := strings.Index(tableName, " "); spaceIdx > 0 {
+			tableName = tableName[:spaceIdx]
+		}
+		// Remove parentheses
+		tableName = strings.Trim(tableName, "()")
+		return tableName
+	}
+	
+	// Fallback: try to extract identifier directly after keyword
+	words := strings.Fields(afterKeyword)
+	if len(words) > 0 {
+		tableName := words[0]
+		// Remove schema prefix if needed (keep full name)
+		tableName = strings.Trim(tableName, "()")
+		return tableName
+	}
+	
 	return ""
 }
 

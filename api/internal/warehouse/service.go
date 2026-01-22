@@ -12,6 +12,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/neurondb/NeuronIP/api/internal/agent"
+	"github.com/neurondb/NeuronIP/api/internal/mcp"
 	"github.com/neurondb/NeuronIP/api/internal/neurondb"
 )
 
@@ -20,14 +21,16 @@ type Service struct {
 	pool           *pgxpool.Pool
 	agentClient    *agent.Client
 	neurondbClient *neurondb.Client
+	mcpClient      *mcp.Client
 }
 
 /* NewService creates a new warehouse service */
-func NewService(pool *pgxpool.Pool, agentClient *agent.Client, neurondbClient *neurondb.Client) *Service {
+func NewService(pool *pgxpool.Pool, agentClient *agent.Client, neurondbClient *neurondb.Client, mcpClient *mcp.Client) *Service {
 	return &Service{
 		pool:           pool,
 		agentClient:    agentClient,
 		neurondbClient: neurondbClient,
+		mcpClient:      mcpClient,
 	}
 }
 
@@ -91,6 +94,30 @@ func (s *Service) ExecuteQuery(ctx context.Context, req QueryRequest) (*QueryRes
 		return nil, fmt.Errorf("invalid SQL: %w", err)
 	}
 
+	// Use MCP PostgreSQL query optimization if available
+	if s.mcpClient != nil {
+		// Use MCP PostgreSQL tools for query optimization and plan analysis
+		if s.mcpClient != nil {
+			// Get query plan
+			plan, err := s.mcpClient.PostgreSQLQueryPlan(ctx, generatedSQL)
+			if err == nil && plan != nil {
+				// Store plan in metadata
+				if metadata == nil {
+					metadata = make(map[string]interface{})
+				}
+				metadata["query_plan"] = plan
+			}
+
+			// Get optimization suggestions
+			optimization, err := s.mcpClient.PostgreSQLQueryOptimization(ctx, generatedSQL)
+		if err == nil {
+			// Log optimization suggestions (could be used to improve query)
+			if suggestions, ok := optimization["suggestions"].([]interface{}); ok && len(suggestions) > 0 {
+				// Store optimization suggestions (could be added to response metadata)
+			}
+		}
+	}
+
 	// Create warehouse query record
 	queryID := uuid.New()
 	now := time.Now()
@@ -107,22 +134,54 @@ func (s *Service) ExecuteQuery(ctx context.Context, req QueryRequest) (*QueryRes
 		return nil, fmt.Errorf("failed to create query record: %w", err)
 	}
 
-	// Execute SQL with timeout
+	// Execute SQL with timeout - use MCP if available for better execution
 	execCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 
-	rows, err := s.pool.Query(execCtx, generatedSQL)
-	if err != nil {
+	var results []map[string]interface{}
+	var execErr error
+
+	// Try MCP PostgreSQLExecuteQuery first if available
+	if s.mcpClient != nil {
+		mcpResult, mcpErr := s.mcpClient.PostgreSQLExecuteQuery(execCtx, generatedSQL, nil)
+		if mcpErr == nil {
+			// Convert MCP result to map slice
+			if resultRows, ok := mcpResult["rows"].([]interface{}); ok {
+				results = make([]map[string]interface{}, 0, len(resultRows))
+				for _, row := range resultRows {
+					if rowMap, ok := row.(map[string]interface{}); ok {
+						results = append(results, rowMap)
+					}
+				}
+			} else if data, ok := mcpResult["data"].([]interface{}); ok {
+				results = make([]map[string]interface{}, 0, len(data))
+				for _, row := range data {
+					if rowMap, ok := row.(map[string]interface{}); ok {
+						results = append(results, rowMap)
+					}
+				}
+			}
+			// If we got results from MCP, skip direct execution
+			if len(results) > 0 || execErr == nil {
+				// Use MCP results or continue with empty results
+				goto processResults
+			}
+		}
+		// Fall through to direct execution if MCP fails
+	}
+
+	// Direct SQL execution (fallback or primary method)
+	rows, execErr := s.pool.Query(execCtx, generatedSQL)
+	if execErr != nil {
 		// Update query status to failed
 		s.pool.Exec(ctx, `UPDATE neuronip.warehouse_queries SET status = $1, error_message = $2, executed_at = $3 WHERE id = $4`,
-			"failed", err.Error(), time.Now(), queryID)
-		return nil, fmt.Errorf("failed to execute SQL: %w", err)
+			"failed", execErr.Error(), time.Now(), queryID)
+		return nil, fmt.Errorf("failed to execute SQL: %w", execErr)
 	}
 	defer rows.Close()
 
-	// Parse results
+	// Parse results from direct execution
 	fieldDescriptions := rows.FieldDescriptions()
-	var results []map[string]interface{}
 	for rows.Next() {
 		values, err := rows.Values()
 		if err != nil {
@@ -135,6 +194,8 @@ func (s *Service) ExecuteQuery(ctx context.Context, req QueryRequest) (*QueryRes
 		}
 		results = append(results, row)
 	}
+
+processResults:
 
 	// Update query status to completed
 	executedAt := time.Now()
@@ -188,6 +249,226 @@ func (s *Service) ExecuteQuery(ctx context.Context, req QueryRequest) (*QueryRes
 		ChartConfig: chartConfig,
 		ChartType:   chartType,
 	}, nil
+}
+
+/* ValidateDataQualityWithML validates data quality using NeuronDB ML classification */
+func (s *Service) ValidateDataQualityWithML(ctx context.Context, tableName string, columnName string, sampleValues []string, modelPath string) (map[string]interface{}, error) {
+	// Use NeuronDB classification to validate data types and patterns
+	results := map[string]interface{}{
+		"valid_count":        0,
+		"invalid_count":      0,
+		"validation_results": []map[string]interface{}{},
+	}
+
+	for _, value := range sampleValues {
+		// Classify the value to determine if it's valid
+		classification, err := s.neurondbClient.Classify(ctx, value, modelPath)
+		if err != nil {
+			continue
+		}
+
+		isValid := false
+		// classification is already map[string]interface{}
+		if valid, ok := classification["valid"].(bool); ok {
+			isValid = valid
+		} else if class, ok := classification["class"].(string); ok {
+			isValid = class == "valid"
+		}
+
+		result := map[string]interface{}{
+			"value":          value,
+			"valid":          isValid,
+			"classification": classification,
+		}
+
+		if isValid {
+			validCount := results["valid_count"].(int) + 1
+			results["valid_count"] = validCount
+		} else {
+			invalidCount := results["invalid_count"].(int) + 1
+			results["invalid_count"] = invalidCount
+		}
+
+		validationResults := results["validation_results"].([]map[string]interface{})
+		results["validation_results"] = append(validationResults, result)
+	}
+
+	return results, nil
+}
+
+/* ScoreAnomalyWithML scores anomalies using NeuronDB regression */
+func (s *Service) ScoreAnomalyWithML(ctx context.Context, features map[string]interface{}, modelPath string) (float64, error) {
+	// Use NeuronDB regression to score how anomalous a data point is
+	// Higher score indicates more anomalous
+	score, err := s.neurondbClient.Regress(ctx, features, modelPath)
+	if err != nil {
+		return 0, fmt.Errorf("failed to score anomaly: %w", err)
+	}
+
+	return score, nil
+}
+
+/* GetDatabaseInfo gets database information using MCP PostgreSQL tools */
+func (s *Service) GetDatabaseInfo(ctx context.Context) (map[string]interface{}, error) {
+	if s.mcpClient == nil {
+		return nil, fmt.Errorf("MCP client not configured")
+	}
+
+	// Get PostgreSQL version
+	version, err := s.mcpClient.PostgreSQLVersion(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get PostgreSQL version: %w", err)
+	}
+
+	// Get list of tables
+	tables, err := s.mcpClient.PostgreSQLTables(ctx, "")
+	if err != nil {
+		return nil, fmt.Errorf("failed to get tables: %w", err)
+	}
+
+	return map[string]interface{}{
+		"version": version,
+		"tables":  tables,
+	}, nil
+}
+
+/* OptimizeQueryIntelligently optimizes a query using NeuronAgent for intent, MCP for plan analysis, and NeuronDB for execution */
+func (s *Service) OptimizeQueryIntelligently(ctx context.Context, query string, schemaMetadata map[string]interface{}) (map[string]interface{}, error) {
+	result := make(map[string]interface{})
+	result["original_query"] = query
+
+	// Step 1: NeuronAgent - Understand query intent and get specialized agent if available
+	var queryIntent string
+	var suggestedOptimizations []string
+	var specializedAgentID string
+
+	if s.agentClient != nil {
+		// Use agent to understand query intent
+		intentPrompt := fmt.Sprintf("Analyze this SQL query and describe its intent: %s", query)
+		context := []map[string]interface{}{
+			{"query": query, "schema": schemaMetadata},
+		}
+		intent, err := s.agentClient.GenerateReply(ctx, context, intentPrompt)
+		if err == nil {
+			queryIntent = intent
+			result["query_intent"] = queryIntent
+		}
+
+		// Check for SQL specialization
+		specializations, err := s.agentClient.GetSpecializations(ctx, "")
+		if err == nil {
+			if specs, ok := specializations["specializations"].([]interface{}); ok {
+				for _, spec := range specs {
+					if specMap, ok := spec.(map[string]interface{}); ok {
+						if name, ok := specMap["name"].(string); ok && name == "sql_optimizer" {
+							if id, ok := specMap["id"].(string); ok {
+								specializedAgentID = id
+								result["specialized_agent_id"] = specializedAgentID
+							}
+						}
+					}
+				}
+			}
+		}
+
+		// Get optimization suggestions from agent
+		optPrompt := fmt.Sprintf("Provide optimization suggestions for this SQL query: %s", query)
+		suggestions, err := s.agentClient.GenerateReply(ctx, context, optPrompt)
+		if err == nil {
+			suggestedOptimizations = []string{suggestions}
+			result["agent_suggestions"] = suggestedOptimizations
+		}
+	}
+
+	// Step 2: NeuronMCP - Analyze query plan
+	if s.mcpClient != nil {
+		// Get query execution plan
+		plan, err := s.mcpClient.PostgreSQLQueryPlan(ctx, query)
+		if err == nil {
+			result["query_plan"] = plan
+			if planStr, ok := plan["plan"].(string); ok {
+				result["plan_text"] = planStr
+			}
+		}
+
+		// Get optimization suggestions from MCP
+		optimization, err := s.mcpClient.PostgreSQLQueryOptimization(ctx, query)
+		if err == nil {
+			result["mcp_optimization"] = optimization
+			if suggestions, ok := optimization["suggestions"].([]interface{}); ok {
+				mcpSuggestions := make([]string, 0, len(suggestions))
+				for _, s := range suggestions {
+					if str, ok := s.(string); ok {
+						mcpSuggestions = append(mcpSuggestions, str)
+					}
+				}
+				result["mcp_suggestions"] = mcpSuggestions
+			}
+			if optimizedQuery, ok := optimization["optimized_query"].(string); ok {
+				result["mcp_optimized_query"] = optimizedQuery
+			}
+		}
+	}
+
+	// Step 3: Generate optimized query using agent if specialized agent available
+	var optimizedQuery string
+	if specializedAgentID != "" && s.agentClient != nil {
+		// Use specialized agent to optimize query
+		optContext := []map[string]interface{}{
+			{"query": query, "schema": schemaMetadata, "mcp_suggestions": result["mcp_suggestions"]},
+		}
+		optPrompt := fmt.Sprintf("Optimize this SQL query based on the suggestions: %s", query)
+		optimized, err := s.agentClient.GenerateReply(ctx, optContext, optPrompt)
+		if err == nil && optimized != "" {
+			optimizedQuery = optimized
+			result["agent_optimized_query"] = optimizedQuery
+		} else {
+			optimizedQuery = query
+		}
+	} else if result["mcp_optimized_query"] != nil {
+		optimizedQuery = result["mcp_optimized_query"].(string)
+	} else {
+		optimizedQuery = query
+	}
+	result["optimized_query"] = optimizedQuery
+	result["query_changed"] = optimizedQuery != query
+
+	// Step 4: NeuronDB - Could execute both and compare performance
+	if optimizedQuery != query && s.neurondbClient != nil {
+		result["optimization_applied"] = true
+	}
+
+	return result, nil
+}
+
+/* OptimizeQueryWithMCPAndAgent optimizes a query using MCP query optimization and NeuronAgent analysis */
+func (s *Service) OptimizeQueryWithMCPAndAgent(ctx context.Context, query string, schemaID *uuid.UUID) (map[string]interface{}, error) {
+	optimizationResult := map[string]interface{}{
+		"original_query": query,
+	}
+
+	// Use MCP query optimization
+	if s.mcpClient != nil {
+		optimization, err := s.mcpClient.PostgreSQLQueryOptimization(ctx, query)
+		if err == nil {
+			optimizationResult["mcp_optimization"] = optimization
+			if suggestions, ok := optimization["suggestions"].([]interface{}); ok {
+				optimizationResult["suggestions"] = suggestions
+			}
+		}
+	}
+
+	// Use NeuronAgent for query pattern analysis if available
+	if s.agentClient != nil {
+		// Convert NL query analysis to agent task
+		analysisTask := fmt.Sprintf("Analyze this SQL query for optimization opportunities: %s", query)
+		analysis, err := s.agentClient.ExecuteAgent(ctx, "", analysisTask, []string{}, nil)
+		if err == nil {
+			optimizationResult["agent_analysis"] = analysis
+		}
+	}
+
+	return optimizationResult, nil
 }
 
 /* GetQuery retrieves a query with results */
@@ -546,57 +827,91 @@ func (s *Service) ExecuteHybridSearch(ctx context.Context, req HybridSearchReque
 		// Generate embedding for semantic query
 		queryEmbedding, err := s.neurondbClient.GenerateEmbedding(ctx, req.SemanticQuery, "sentence-transformers/all-MiniLM-L6-v2")
 		if err == nil {
-			// Build semantic search query with SQL filters
-			semanticSQL := fmt.Sprintf(`
-				SELECT *, 1 - (%s <=> $1::vector) as similarity
-				FROM %s
-				WHERE %s IS NOT NULL
-				AND 1 - (%s <=> $1::vector) >= $2`,
-				req.SemanticColumn, req.SemanticTable, req.SemanticColumn, req.SemanticColumn)
-
-			// Add SQL filters if provided
-			args := []interface{}{queryEmbedding, req.Threshold}
-			if len(req.SQLFilters) > 0 {
-				// Build WHERE clause from filters
-				for col, condition := range req.SQLFilters {
-					if condMap, ok := condition.(map[string]interface{}); ok {
-						for op, val := range condMap {
-							switch op {
-							case "lt":
-								semanticSQL += fmt.Sprintf(" AND %s < $%d", col, len(args)+1)
-								args = append(args, val)
-							case "lte":
-								semanticSQL += fmt.Sprintf(" AND %s <= $%d", col, len(args)+1)
-								args = append(args, val)
-							case "gt":
-								semanticSQL += fmt.Sprintf(" AND %s > $%d", col, len(args)+1)
-								args = append(args, val)
-							case "gte":
-								semanticSQL += fmt.Sprintf(" AND %s >= $%d", col, len(args)+1)
-								args = append(args, val)
-							case "eq":
-								semanticSQL += fmt.Sprintf(" AND %s = $%d", col, len(args)+1)
-								args = append(args, val)
+			// Use MCP or NeuronDB HybridSearch if keyword query is also provided
+			if req.Query != "" {
+				weights := map[string]float64{
+					"semantic": 0.7,
+					"keyword":  0.3,
+				}
+				
+				// Try MCP hybrid search first
+				if s.mcpClient != nil {
+					mcpResult, mcpErr := s.mcpClient.HybridSearch(ctx, req.SemanticQuery, req.SemanticTable, req.SemanticColumn, "content", req.Limit, weights)
+					if mcpErr == nil {
+						if docs, ok := mcpResult["documents"].([]interface{}); ok {
+							semanticResults = make([]map[string]interface{}, 0, len(docs))
+							for _, doc := range docs {
+								if docMap, ok := doc.(map[string]interface{}); ok {
+									semanticResults = append(semanticResults, docMap)
+								}
 							}
 						}
 					}
 				}
+				
+				// Fallback to NeuronDB if MCP didn't work
+				if len(semanticResults) == 0 {
+					hybridResults, err := s.neurondbClient.HybridSearch(ctx, queryEmbedding, req.Query, req.SemanticTable, req.SemanticColumn, "content", req.Limit, weights)
+					if err == nil {
+						semanticResults = hybridResults
+					}
+				}
 			}
 
-			semanticSQL += fmt.Sprintf(" ORDER BY %s <=> $1::vector LIMIT $%d", req.SemanticColumn, len(args)+1)
-			args = append(args, req.Limit)
+			// Fallback to regular semantic search if hybrid failed or not applicable
+			if len(semanticResults) == 0 {
+				// Build semantic search query with SQL filters
+				semanticSQL := fmt.Sprintf(`
+					SELECT *, 1 - (%s <=> $1::vector) as similarity
+					FROM %s
+					WHERE %s IS NOT NULL
+					AND 1 - (%s <=> $1::vector) >= $2`,
+					req.SemanticColumn, req.SemanticTable, req.SemanticColumn, req.SemanticColumn)
 
-			rows, err := s.pool.Query(ctx, semanticSQL, args...)
-			if err == nil {
-				defer rows.Close()
-				fieldDescriptions := rows.FieldDescriptions()
-				for rows.Next() {
-					values, _ := rows.Values()
-					row := make(map[string]interface{})
-					for i, desc := range fieldDescriptions {
-						row[desc.Name] = values[i]
+				// Add SQL filters if provided
+				args := []interface{}{queryEmbedding, req.Threshold}
+				if len(req.SQLFilters) > 0 {
+					// Build WHERE clause from filters
+					for col, condition := range req.SQLFilters {
+						if condMap, ok := condition.(map[string]interface{}); ok {
+							for op, val := range condMap {
+								switch op {
+								case "lt":
+									semanticSQL += fmt.Sprintf(" AND %s < $%d", col, len(args)+1)
+									args = append(args, val)
+								case "lte":
+									semanticSQL += fmt.Sprintf(" AND %s <= $%d", col, len(args)+1)
+									args = append(args, val)
+								case "gt":
+									semanticSQL += fmt.Sprintf(" AND %s > $%d", col, len(args)+1)
+									args = append(args, val)
+								case "gte":
+									semanticSQL += fmt.Sprintf(" AND %s >= $%d", col, len(args)+1)
+									args = append(args, val)
+								case "eq":
+									semanticSQL += fmt.Sprintf(" AND %s = $%d", col, len(args)+1)
+									args = append(args, val)
+								}
+							}
+						}
 					}
-					semanticResults = append(semanticResults, row)
+				}
+
+				semanticSQL += fmt.Sprintf(" ORDER BY %s <=> $1::vector LIMIT $%d", req.SemanticColumn, len(args)+1)
+				args = append(args, req.Limit)
+
+				rows, err := s.pool.Query(ctx, semanticSQL, args...)
+				if err == nil {
+					defer rows.Close()
+					fieldDescriptions := rows.FieldDescriptions()
+					for rows.Next() {
+						values, _ := rows.Values()
+						row := make(map[string]interface{})
+						for i, desc := range fieldDescriptions {
+							row[desc.Name] = values[i]
+						}
+						semanticResults = append(semanticResults, row)
+					}
 				}
 			}
 		}

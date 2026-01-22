@@ -32,6 +32,7 @@ export default function MetricCard({
       initial="hidden"
       animate="visible"
       transition={transition}
+      style={{ opacity: 1 }}
     >
       <Card hover className={cn('h-full', className)}>
         <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-1.5 px-4 pt-4">

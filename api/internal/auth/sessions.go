@@ -2,6 +2,8 @@ package auth
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/base64"
 	"fmt"
 	"time"
 
@@ -182,10 +184,29 @@ func (s *SessionService) RefreshSession(ctx context.Context, refreshToken string
 
 /* generateSessionTokens generates session and refresh tokens (helper function) */
 func generateSessionTokens() (string, string, time.Time, error) {
-	// This should match the implementation in AuthService
-	// For now, placeholder
-	sessionToken := uuid.New().String()
-	refreshToken := uuid.New().String()
+	// Generate cryptographically secure random tokens
+	sessionToken, err := generateSecureToken(32)
+	if err != nil {
+		return "", "", time.Time{}, fmt.Errorf("failed to generate session token: %w", err)
+	}
+	
+	refreshToken, err := generateSecureToken(32)
+	if err != nil {
+		return "", "", time.Time{}, fmt.Errorf("failed to generate refresh token: %w", err)
+	}
+	
+	// Set expiration to 24 hours from now
 	expiresAt := time.Now().Add(24 * time.Hour)
+	
 	return sessionToken, refreshToken, expiresAt, nil
+}
+
+/* generateSecureToken generates a cryptographically secure random token */
+func generateSecureToken(length int) (string, error) {
+	bytes := make([]byte, length)
+	if _, err := rand.Read(bytes); err != nil {
+		return "", err
+	}
+	// Use URL-safe base64 encoding
+	return base64.URLEncoding.EncodeToString(bytes), nil
 }

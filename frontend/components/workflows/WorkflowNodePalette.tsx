@@ -4,7 +4,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card'
 import Button from '@/components/ui/Button'
 
 interface WorkflowNodePaletteProps {
-  onAddNode: (type: 'agent' | 'script' | 'condition' | 'parallel') => void
+  onAddNode: (type: 'agent' | 'script' | 'condition' | 'parallel' | 'approval' | 'retry') => void
 }
 
 export default function WorkflowNodePalette({ onAddNode }: WorkflowNodePaletteProps) {
@@ -41,6 +41,20 @@ export default function WorkflowNodePalette({ onAddNode }: WorkflowNodePalettePr
           variant="outline"
         >
           Parallel Node
+        </Button>
+        <Button
+          onClick={() => onAddNode('approval')}
+          className="w-full justify-start"
+          variant="outline"
+        >
+          Approval Node
+        </Button>
+        <Button
+          onClick={() => onAddNode('retry')}
+          className="w-full justify-start"
+          variant="outline"
+        >
+          Retry Node
         </Button>
       </CardContent>
     </Card>

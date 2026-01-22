@@ -3,7 +3,10 @@ package webhooks
 import (
 	"bytes"
 	"context"
+	"crypto/hmac"
+	"crypto/sha256"
 	"database/sql"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -237,9 +240,9 @@ func (s *Service) deliverWebhookAsync(ctx context.Context, webhook *Webhook, del
 
 		// Add signature if secret is set
 		if webhook.Secret != nil {
-			// TODO: Implement HMAC signature
-			// signature := computeHMAC(payloadJSON, *webhook.Secret)
-			// req.Header.Set("X-Webhook-Signature", signature)
+			signature := computeHMAC(payloadJSON, *webhook.Secret)
+			req.Header.Set("X-Webhook-Signature", signature)
+			req.Header.Set("X-Webhook-Signature-Algorithm", "sha256")
 		}
 
 		// Make request with timeout
@@ -335,4 +338,11 @@ func (s *Service) TriggerEvent(ctx context.Context, eventType string, payload ma
 	}
 
 	return nil
+}
+
+/* computeHMAC computes HMAC-SHA256 signature for webhook payload */
+func computeHMAC(payload []byte, secret string) string {
+	mac := hmac.New(sha256.New, []byte(secret))
+	mac.Write(payload)
+	return "sha256=" + hex.EncodeToString(mac.Sum(nil))
 }

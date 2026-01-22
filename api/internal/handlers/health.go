@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/neurondb/NeuronIP/api/internal/db"
 	"github.com/neurondb/NeuronIP/api/internal/mcp"
 )
 
@@ -63,19 +64,37 @@ func (h *HealthHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		Checks:    make(map[string]CheckStatus),
 	}
 
-	// Check database connectivity
+	// Comprehensive database health checks
 	if h.pool != nil {
-		if err := h.pool.Ping(ctx); err != nil {
+		healthChecker := db.NewHealthChecker(h.pool)
+		healthy, results := healthChecker.IsHealthy(ctx)
+		
+		if !healthy {
 			response.Status = "unhealthy"
-			response.Checks["database"] = CheckStatus{
-				Status:  "error",
-				Message: err.Error(),
+		}
+		
+		// Add detailed check results
+		for checkName, result := range results {
+			status := "healthy"
+			if !result.Healthy {
+				status = "error"
+				if response.Status == "ok" {
+					response.Status = "unhealthy"
+				}
 			}
-		} else {
-			stats := h.pool.Stat()
-			response.Checks["database"] = CheckStatus{
-				Status:  "healthy",
-				Message: fmt.Sprintf("Pool: %d/%d connections", stats.AcquiredConns(), stats.MaxConns()),
+			
+			message := result.Message
+			if result.Latency > 0 {
+				message = fmt.Sprintf("%s (latency: %v)", message, result.Latency)
+			}
+			if result.Connections != nil {
+				message = fmt.Sprintf("%s [Pool: %d/%d acquired, %d idle]", 
+					message, result.Connections.AcquiredConns, result.Connections.MaxConns, result.Connections.IdleConns)
+			}
+			
+			response.Checks[fmt.Sprintf("database_%s", checkName)] = CheckStatus{
+				Status:  status,
+				Message: message,
 			}
 		}
 	} else {

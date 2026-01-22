@@ -175,7 +175,64 @@ func (s *CacheService) GetCacheStats(ctx context.Context) (map[string]interface{
 
 /* WarmCache warms the cache with frequently used queries */
 func (s *CacheService) WarmCache(ctx context.Context, queries []string) error {
-	// This would execute queries and cache results
-	// For now, placeholder
+	// Execute each query and cache the results
+	// Default TTL for warmed cache entries is 1 hour
+	defaultTTL := 1 * time.Hour
+	
+	for _, queryText := range queries {
+		if queryText == "" {
+			continue
+		}
+		
+		// Execute query directly on the database
+		rows, err := s.pool.Query(ctx, queryText)
+		if err != nil {
+			// Log error but continue with other queries
+			continue
+		}
+		
+		// Convert rows to result maps
+		results := make([]map[string]interface{}, 0)
+		columns := rows.FieldDescriptions()
+		columnNames := make([]string, len(columns))
+		for i, col := range columns {
+			columnNames[i] = col.Name
+		}
+		
+		for rows.Next() {
+			values := make([]interface{}, len(columns))
+			valuePtrs := make([]interface{}, len(columns))
+			for i := range values {
+				valuePtrs[i] = &values[i]
+			}
+			
+			if err := rows.Scan(valuePtrs...); err != nil {
+				continue
+			}
+			
+			row := make(map[string]interface{})
+			for i, colName := range columnNames {
+				val := values[i]
+				// Convert database types to JSON-serializable types
+				if val != nil {
+					row[colName] = val
+				} else {
+					row[colName] = nil
+				}
+			}
+			results = append(results, row)
+		}
+		rows.Close()
+		
+		// Cache the results
+		if len(results) > 0 {
+			params := make(map[string]interface{})
+			if err := s.SetCachedResult(ctx, queryText, params, results, defaultTTL); err != nil {
+				// Log error but continue
+				continue
+			}
+		}
+	}
+	
 	return nil
 }

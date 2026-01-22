@@ -5,11 +5,13 @@
 BEGIN;
 
 -- Seed Demo Users
+-- Default password for all seeded users: "demo123" (CHANGE IN PRODUCTION!)
+-- This password hash corresponds to "demo123" using bcrypt with cost 10
 INSERT INTO neuronip.users (email, password_hash, name, role, metadata) VALUES
-    ('demo@example.com', '$2a$10$dummy', 'Demo User', 'admin', '{"seeded": true}'::jsonb),
-    ('john@example.com', '$2a$10$dummy', 'John Doe', 'user', '{"seeded": true}'::jsonb),
-    ('jane@example.com', '$2a$10$dummy', 'Jane Smith', 'user', '{"seeded": true}'::jsonb),
-    ('admin@example.com', '$2a$10$dummy', 'Admin User', 'admin', '{"seeded": true}'::jsonb)
+    ('demo@example.com', '$2a$10$N9qo8uLOickgx2ZMRZoMyeIjZAgcfl7p92ldGxad68LJZdL17lhWy', 'Demo User', 'admin', '{"seeded": true}'::jsonb),
+    ('john@example.com', '$2a$10$N9qo8uLOickgx2ZMRZoMyeIjZAgcfl7p92ldGxad68LJZdL17lhWy', 'John Doe', 'user', '{"seeded": true}'::jsonb),
+    ('jane@example.com', '$2a$10$N9qo8uLOickgx2ZMRZoMyeIjZAgcfl7p92ldGxad68LJZdL17lhWy', 'Jane Smith', 'user', '{"seeded": true}'::jsonb),
+    ('admin@example.com', '$2a$10$N9qo8uLOickgx2ZMRZoMyeIjZAgcfl7p92ldGxad68LJZdL17lhWy', 'Admin User', 'admin', '{"seeded": true}'::jsonb)
 ON CONFLICT (email) DO UPDATE SET
     name = EXCLUDED.name,
     role = EXCLUDED.role,

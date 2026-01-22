@@ -359,3 +359,67 @@ func (h *KnowledgeGraphHandler) CreateEntityType(w http.ResponseWriter, r *http.
 	w.WriteHeader(http.StatusCreated)
 	json.NewEncoder(w).Encode(entityType)
 }
+
+/* ExecuteGraphQueryRequest represents graph query request */
+type ExecuteGraphQueryRequest struct {
+	Query string `json:"query"`
+}
+
+/* ExecuteGraphQuery handles graph query execution */
+func (h *KnowledgeGraphHandler) ExecuteGraphQuery(w http.ResponseWriter, r *http.Request) {
+	var req ExecuteGraphQueryRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		WriteErrorResponse(w, errors.BadRequest("Invalid request body"))
+		return
+	}
+
+	if req.Query == "" {
+		WriteErrorResponse(w, errors.ValidationFailed("Query is required", nil))
+		return
+	}
+
+	result, err := h.service.ExecuteGraphQuery(r.Context(), req.Query)
+	if err != nil {
+		WriteError(w, err)
+		return
+	}
+
+	// Convert to frontend-friendly format
+	response := map[string]interface{}{
+		"nodes": result.Nodes,
+		"edges": result.Edges,
+	}
+
+	// Transform edges to have source/target as strings
+	edges := make([]map[string]interface{}, 0, len(result.Edges))
+	for _, edge := range result.Edges {
+		edges = append(edges, map[string]interface{}{
+			"id":                edge.ID,
+			"source":            edge.SourceEntityID.String(),
+			"target":            edge.TargetEntityID.String(),
+			"relationship_type": edge.RelationshipType,
+			"strength":          edge.RelationshipStrength,
+		})
+	}
+	response["edges"] = edges
+
+	// Transform nodes
+	nodes := make([]map[string]interface{}, 0, len(result.Nodes))
+	for _, node := range result.Nodes {
+		nodeMap := map[string]interface{}{
+			"id":          node.ID.String(),
+			"entity_name": node.EntityName,
+		}
+		if node.EntityTypeID != nil {
+			nodeMap["entity_type_id"] = node.EntityTypeID.String()
+		}
+		if node.Metadata != nil {
+			nodeMap["metadata"] = node.Metadata
+		}
+		nodes = append(nodes, nodeMap)
+	}
+	response["nodes"] = nodes
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(response)
+}

@@ -6,7 +6,9 @@ import (
 	"fmt"
 	"time"
 
-	// _ "github.com/Teradata/teradata-driver" // TODO: Install Teradata driver
+	// Optional drivers - uncomment when available:
+	// _ "github.com/Teradata/teradata-driver" // Official Teradata driver
+	// _ "github.com/alexbrainman/odbc" // For Teradata ODBC driver
 	"github.com/neurondb/NeuronIP/api/internal/ingestion"
 )
 
@@ -36,26 +38,77 @@ func NewTeradataConnector() *TeradataConnector {
 /* Connect establishes connection to Teradata */
 func (t *TeradataConnector) Connect(ctx context.Context, config map[string]interface{}) error {
 	host, _ := config["host"].(string)
-	_, _ = config["database"].(string) // Reserved for future use
+	database, _ := config["database"].(string)
 	user, _ := config["user"].(string)
 	password, _ := config["password"].(string)
+	port, _ := config["port"].(float64)
 
 	if host == "" || user == "" || password == "" {
 		return fmt.Errorf("host, user, and password are required")
 	}
 
-	// TODO: Implement Teradata connection using appropriate driver
-	// dsn := fmt.Sprintf("host=%s;database=%s;user=%s;password=%s", host, database, user, password)
-	// db, err := sql.Open("teradata", dsn)
-	var db *sql.DB
-	err := fmt.Errorf("Teradata connector not yet implemented - driver not available")
-	if err != nil {
-		return fmt.Errorf("failed to open Teradata connection: %w", err)
+	// Default port for Teradata
+	if port == 0 {
+		port = 1025
 	}
 
-	if err := db.PingContext(ctx); err != nil {
-		return fmt.Errorf("failed to ping Teradata: %w", err)
+	// Build connection string
+	// Teradata connection string format: host:port/database,user,password
+	// Note: This requires the Teradata Go driver to be installed:
+	// go get github.com/Teradata/teradata-driver
+	// Or use ODBC driver with: github.com/alexbrainman/odbc
+	dsn := fmt.Sprintf("host=%s;port=%.0f;user=%s;password=%s", host, port, user, password)
+	if database != "" {
+		dsn += fmt.Sprintf(";database=%s", database)
 	}
+
+	// Attempt to open connection
+	// The driver name depends on which Teradata driver is installed
+	// Common options: "teradata", "odbc" (with Teradata ODBC driver)
+	var db *sql.DB
+	var err error
+	var lastErr error
+	
+	// Try teradata driver first
+	db, err = sql.Open("teradata", dsn)
+	if err == nil {
+		if pingErr := db.PingContext(ctx); pingErr == nil {
+			t.db = db
+			t.BaseConnector.SetConnected(true)
+			return nil
+		}
+		lastErr = fmt.Errorf("teradata driver ping failed: %w", pingErr)
+		db.Close()
+	} else {
+		lastErr = err
+	}
+	
+	// If teradata driver not available, try ODBC
+	// ODBC DSN format may differ
+	odbcDSN := fmt.Sprintf("DSN=Teradata;Host=%s;Port=%.0f;UID=%s;PWD=%s", host, port, user, password)
+	if database != "" {
+		odbcDSN += fmt.Sprintf(";Database=%s", database)
+	}
+	
+	db, err = sql.Open("odbc", odbcDSN)
+	if err == nil {
+		if pingErr := db.PingContext(ctx); pingErr == nil {
+			t.db = db
+			t.BaseConnector.SetConnected(true)
+			return nil
+		}
+		lastErr = fmt.Errorf("odbc driver ping failed: %w", pingErr)
+		db.Close()
+	} else if lastErr == nil {
+		lastErr = err
+	}
+
+	// If all drivers failed, return comprehensive error
+	return fmt.Errorf("failed to connect to Teradata: no suitable driver available. Tried 'teradata' and 'odbc' drivers. "+
+		"To use Teradata connector, please install one of: "+
+		"1) Official Teradata driver: go get github.com/Teradata/teradata-driver, or "+
+		"2) Configure Teradata ODBC driver and: go get github.com/alexbrainman/odbc. "+
+		"Last error: %w", lastErr)
 
 	t.db = db
 	t.BaseConnector.SetConnected(true)

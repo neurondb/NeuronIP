@@ -1,9 +1,6 @@
-import { useEffect, useState } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 
-export function useLocalStorage<T>(
-  key: string,
-  initialValue: T
-): [T, (value: T | ((val: T) => T)) => void] {
+export function useLocalStorage<T>(key: string, initialValue: T) {
   const [storedValue, setStoredValue] = useState<T>(() => {
     if (typeof window === 'undefined') {
       return initialValue
@@ -17,18 +14,31 @@ export function useLocalStorage<T>(
     }
   })
 
-  const setValue = (value: T | ((val: T) => T)) => {
+  const setValue = useCallback(
+    (value: T | ((val: T) => T)) => {
+      try {
+        const valueToStore = value instanceof Function ? value(storedValue) : value
+        setStoredValue(valueToStore)
+        if (typeof window !== 'undefined') {
+          window.localStorage.setItem(key, JSON.stringify(valueToStore))
+        }
+      } catch (error) {
+        console.error(`Error setting localStorage key "${key}":`, error)
+      }
+    },
+    [key, storedValue]
+  )
+
+  const removeValue = useCallback(() => {
     try {
-      const valueToStore =
-        value instanceof Function ? value(storedValue) : value
-      setStoredValue(valueToStore)
+      setStoredValue(initialValue)
       if (typeof window !== 'undefined') {
-        window.localStorage.setItem(key, JSON.stringify(valueToStore))
+        window.localStorage.removeItem(key)
       }
     } catch (error) {
-      console.error(`Error setting localStorage key "${key}":`, error)
+      console.error(`Error removing localStorage key "${key}":`, error)
     }
-  }
+  }, [key, initialValue])
 
-  return [storedValue, setValue]
+  return [storedValue, setValue, removeValue] as const
 }

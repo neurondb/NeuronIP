@@ -12,6 +12,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/neurondb/NeuronIP/api/internal/agent"
+	"github.com/neurondb/NeuronIP/api/internal/mcp"
 	"github.com/neurondb/NeuronIP/api/internal/neurondb"
 )
 
@@ -20,14 +21,16 @@ type Service struct {
 	pool           *pgxpool.Pool
 	agentClient    *agent.Client
 	neurondbClient *neurondb.Client
+	mcpClient      *mcp.Client
 }
 
 /* NewService creates a new workflows service */
-func NewService(pool *pgxpool.Pool, agentClient *agent.Client, neurondbClient *neurondb.Client) *Service {
+func NewService(pool *pgxpool.Pool, agentClient *agent.Client, neurondbClient *neurondb.Client, mcpClient *mcp.Client) *Service {
 	return &Service{
 		pool:           pool,
 		agentClient:    agentClient,
 		neurondbClient: neurondbClient,
+		mcpClient:      mcpClient,
 	}
 }
 
@@ -151,6 +154,48 @@ func (s *Service) ExecuteWorkflow(ctx context.Context, workflowID uuid.UUID, inp
 	return output, nil
 }
 
+/* ExecuteWorkflowViaNeuronAgent executes a workflow using NeuronAgent workflow system */
+func (s *Service) ExecuteWorkflowViaNeuronAgent(ctx context.Context, workflowID uuid.UUID, input map[string]interface{}) (map[string]interface{}, error) {
+	if s.agentClient == nil {
+		return nil, fmt.Errorf("agent client not configured")
+	}
+
+	// Get workflow definition
+	workflow, err := s.GetWorkflow(ctx, workflowID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get workflow: %w", err)
+	}
+
+	// Convert workflow definition to NeuronAgent format
+	definition := map[string]interface{}{
+		"steps":      workflow.WorkflowDefinition,
+		"start_step": workflow.WorkflowDefinition["start_step"],
+	}
+
+	config := map[string]interface{}{
+		"workflow_id": workflowID.String(),
+		"enabled":     workflow.Enabled,
+	}
+
+	// Execute via NeuronAgent
+	result, err := s.agentClient.ExecuteWorkflow(ctx, workflowID.String(), input)
+	if err != nil {
+		// Fallback to local execution if NeuronAgent fails
+		return s.ExecuteWorkflow(ctx, workflowID, input)
+	}
+
+	// Store execution result for tracking
+	executionID := uuid.New()
+	outputJSON, _ := json.Marshal(result)
+	s.pool.Exec(ctx, `
+		INSERT INTO neuronip.workflow_executions 
+		(id, workflow_id, status, input_data, output_data, started_at, completed_at, created_at)
+		VALUES ($1, $2, $3, $4, $5, NOW(), NOW(), NOW())`,
+		executionID, workflowID, "completed", input, outputJSON)
+
+	return result, nil
+}
+
 /* executeWorkflowSteps executes workflow steps based on DAG */
 func (s *Service) executeWorkflowSteps(ctx context.Context, def *WorkflowDefinition, state *ExecutionState, input map[string]interface{}) (map[string]interface{}, error) {
 	stepMap := make(map[string]*WorkflowStep)
@@ -257,7 +302,7 @@ func (s *Service) executeStep(ctx context.Context, step *WorkflowStep, data map[
 	}
 }
 
-/* executeAgentStep executes an agent step */
+/* executeAgentStep executes an agent step - enhanced to support NeuronAgent workflows */
 func (s *Service) executeAgentStep(ctx context.Context, step *WorkflowStep, data map[string]interface{}, state *ExecutionState) (interface{}, error) {
 	if s.agentClient == nil {
 		return nil, fmt.Errorf("agent client not configured")
@@ -266,6 +311,28 @@ func (s *Service) executeAgentStep(ctx context.Context, step *WorkflowStep, data
 	agentID := step.AgentID
 	if agentID == nil {
 		return nil, fmt.Errorf("agent_id not specified for agent step")
+	}
+
+	// Check if we should use NeuronAgent session-based execution
+	useSession := false
+	sessionID := ""
+	if step.Config != nil {
+		if useSess, ok := step.Config["use_session"].(bool); ok && useSess {
+			useSession = true
+			if sessID, ok := step.Config["session_id"].(string); ok {
+				sessionID = sessID
+			}
+		}
+	}
+
+	if useSession && sessionID != "" {
+		// Execute via NeuronAgent session for context-aware execution
+		task := s.interpolateString(step.Task, data)
+		result, err := s.agentClient.ExecuteSession(ctx, sessionID, task, step.Tools)
+		if err != nil {
+			return nil, fmt.Errorf("session execution failed: %w", err)
+		}
+		return result, nil
 	}
 
 	// Prepare task with data interpolation
@@ -309,19 +376,43 @@ func (s *Service) executeScriptStep(ctx context.Context, step *WorkflowStep, dat
 
 	switch scriptType {
 	case "mcp":
-		// If script references MCP tools, we would use MCP client here
-		// For now, return result indicating MCP execution would occur
+		// Execute MCP tools
+		if s.mcpClient == nil {
+			return nil, fmt.Errorf("MCP client not configured")
+		}
+		
 		if toolName, ok := step.Config["mcp_tool"].(string); ok {
-			// In production, would call: mcpClient.ExecuteTool(ctx, toolName, data)
+			// Execute MCP tool with data as arguments
+			// Merge script data with step data
+			toolArgs := make(map[string]interface{})
+			for k, v := range data {
+				toolArgs[k] = v
+			}
+			// Parse script as JSON if it contains tool arguments
+			if script != "" && strings.HasPrefix(strings.TrimSpace(script), "{") {
+				var scriptData map[string]interface{}
+				if err := json.Unmarshal([]byte(script), &scriptData); err == nil {
+					for k, v := range scriptData {
+						toolArgs[k] = v
+					}
+				}
+			}
+			
+			result, err := s.mcpClient.ExecuteTool(ctx, toolName, toolArgs)
+			if err != nil {
+				return nil, fmt.Errorf("failed to execute MCP tool %s: %w", toolName, err)
+			}
 			return map[string]interface{}{
-				"status":    "executed",
-				"step":      step.ID,
-				"tool":      toolName,
-				"script":    script,
-				"result":    "MCP tool execution would occur here",
+				"status": "executed",
+				"step":   step.ID,
+				"tool":   toolName,
+				"result": result,
 			}, nil
 		}
-		return map[string]interface{}{"status": "executed", "step": step.ID, "script": script}, nil
+		
+		// If no specific tool, try to discover tools from script
+		// For now, return error if tool name not specified
+		return nil, fmt.Errorf("mcp_tool name required in step config for MCP script type")
 
 	case "sql":
 		// Execute SQL script (for warehouse queries)
@@ -1564,6 +1655,135 @@ func (s *Service) GetWorkflowExecutionMetrics(ctx context.Context, executionID u
 	}
 
 	return metrics, nil
+}
+
+/* ListAvailableMCPTools lists available MCP tools for workflow steps */
+func (s *Service) ListAvailableMCPTools(ctx context.Context) ([]map[string]interface{}, error) {
+	if s.mcpClient == nil {
+		return nil, fmt.Errorf("MCP client not configured")
+	}
+	return s.mcpClient.ListTools(ctx)
+}
+
+/* CreateWorkflowSnapshot creates a snapshot of workflow execution state for replay */
+func (s *Service) CreateWorkflowSnapshot(ctx context.Context, executionID uuid.UUID, agentID string, userMessage string) (map[string]interface{}, error) {
+	if s.agentClient == nil {
+		return nil, fmt.Errorf("agent client not configured")
+	}
+
+	// Get execution state
+	execution, err := s.GetWorkflowExecution(ctx, executionID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get execution: %w", err)
+	}
+
+	// Build execution state
+	executionState := map[string]interface{}{
+		"execution_id": executionID.String(),
+		"workflow_id":  execution.WorkflowID.String(),
+		"status":       execution.Status,
+		"input_data":   execution.InputData,
+		"output_data":  execution.OutputData,
+	}
+
+	// Get session ID if available
+	sessionID := ""
+	if execution.Metadata != nil {
+		if sid, ok := execution.Metadata["session_id"].(string); ok {
+			sessionID = sid
+		}
+	}
+
+	// Create snapshot via NeuronAgent
+	snapshot, err := s.agentClient.CreateSnapshot(ctx, sessionID, agentID, userMessage, executionState)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create snapshot: %w", err)
+	}
+
+	return snapshot, nil
+}
+
+/* ReplayWorkflowExecution replays a workflow execution from a snapshot */
+func (s *Service) ReplayWorkflowExecution(ctx context.Context, snapshotID string, options map[string]interface{}) (map[string]interface{}, error) {
+	if s.agentClient == nil {
+		return nil, fmt.Errorf("agent client not configured")
+	}
+
+	result, err := s.agentClient.ReplaySession(ctx, snapshotID, options)
+	if err != nil {
+		return nil, fmt.Errorf("failed to replay workflow: %w", err)
+	}
+
+	return result, nil
+}
+
+/* GetWorkflowSnapshot retrieves a workflow snapshot */
+func (s *Service) GetWorkflowSnapshot(ctx context.Context, snapshotID string) (map[string]interface{}, error) {
+	if s.agentClient == nil {
+		return nil, fmt.Errorf("agent client not configured")
+	}
+
+	snapshot, err := s.agentClient.GetSnapshot(ctx, snapshotID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get snapshot: %w", err)
+	}
+
+	return snapshot, nil
+}
+
+/* ListWorkflowSnapshots lists snapshots for a workflow execution */
+func (s *Service) ListWorkflowSnapshots(ctx context.Context, executionID uuid.UUID, filters map[string]interface{}) (map[string]interface{}, error) {
+	if s.agentClient == nil {
+		return nil, fmt.Errorf("agent client not configured")
+	}
+
+	// Get session ID from execution
+	execution, err := s.GetWorkflowExecution(ctx, executionID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get execution: %w", err)
+	}
+
+	sessionID := ""
+	if execution.Metadata != nil {
+		if sid, ok := execution.Metadata["session_id"].(string); ok {
+			sessionID = sid
+		}
+	}
+
+	snapshots, err := s.agentClient.ListSnapshots(ctx, sessionID, filters)
+	if err != nil {
+		return nil, fmt.Errorf("failed to list snapshots: %w", err)
+	}
+
+	return snapshots, nil
+}
+
+/* UpdateWorkflowSession updates a workflow session configuration */
+func (s *Service) UpdateWorkflowSession(ctx context.Context, sessionID string, updates map[string]interface{}) (map[string]interface{}, error) {
+	if s.agentClient == nil {
+		return nil, fmt.Errorf("agent client not configured")
+	}
+
+	session, err := s.agentClient.UpdateSession(ctx, sessionID, updates)
+	if err != nil {
+		return nil, fmt.Errorf("failed to update session: %w", err)
+	}
+
+	return session, nil
+}
+
+/* ListWorkflowSessions lists all workflow sessions */
+func (s *Service) ListWorkflowSessions(ctx context.Context, agentID string, filters map[string]interface{}) (map[string]interface{}, error) {
+	if s.agentClient == nil {
+		return nil, fmt.Errorf("agent client not configured")
+	}
+
+	sessions, err := s.agentClient.ListSessions(ctx, agentID, filters)
+	if err != nil {
+		return nil, fmt.Errorf("failed to list sessions: %w", err)
+	}
+
+	return sessions, nil
 }
 
 /* WorkflowExecutionMetric represents an execution metric */

@@ -3,6 +3,7 @@ package auth
 import (
 	"context"
 	"crypto/rand"
+	"database/sql"
 	"encoding/base64"
 	"encoding/hex"
 	"fmt"
@@ -10,20 +11,23 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/neurondb/NeuronIP/api/internal/db"
+	"github.com/neurondb/NeuronIP/api/internal/session"
 	"golang.org/x/crypto/bcrypt"
 )
 
 /* AuthService provides authentication services */
 type AuthService struct {
-	queries   *db.Queries
-	jwtSecret string
+	queries       *db.Queries
+	jwtSecret     string
+	sessionManager *session.Manager
 }
 
 /* NewAuthService creates a new authentication service */
-func NewAuthService(queries *db.Queries, jwtSecret string) *AuthService {
+func NewAuthService(queries *db.Queries, jwtSecret string, sessionManager *session.Manager) *AuthService {
 	return &AuthService{
-		queries:   queries,
-		jwtSecret: jwtSecret,
+		queries:        queries,
+		jwtSecret:      jwtSecret,
+		sessionManager: sessionManager,
 	}
 }
 
@@ -256,4 +260,219 @@ func (s *AuthService) generateSessionTokens() (sessionToken, refreshToken string
 	expiresAt = time.Now().Add(24 * time.Hour)
 
 	return sessionToken, refreshToken, expiresAt, nil
+}
+
+/* LoginWithUsername authenticates a user with username and password, supporting database selection */
+func (s *AuthService) LoginWithUsername(ctx context.Context, username, password, database, ipAddress, userAgent string) (*db.User, *session.Session, string, error) {
+	// Default to neuronip if not specified
+	if database == "" {
+		database = "neuronip"
+	}
+
+	// Get user by username or email
+	var user *db.User
+	var err error
+	
+	// Try username first
+	query := `SELECT id, email, email_verified, password_hash, name, avatar_url, role, 
+	          two_factor_enabled, two_factor_secret, preferences, last_login_at, created_at, updated_at
+	          FROM neuronip.users WHERE username = $1 OR email = $1`
+	
+	var userID uuid.UUID
+	var email string
+	var emailVerified bool
+	var passwordHash sql.NullString
+	var name, avatarURL sql.NullString
+	var role string
+	var twoFactorEnabled bool
+	var twoFactorSecret sql.NullString
+	var preferences map[string]interface{}
+	var lastLoginAt sql.NullTime
+	var createdAt, updatedAt time.Time
+
+	// Use pgx query (queries.DB is *pgxpool.Pool)
+	err = s.queries.DB.QueryRow(ctx, query, username).Scan(
+		&userID, &email, &emailVerified, &passwordHash, &name, &avatarURL, &role,
+		&twoFactorEnabled, &twoFactorSecret, &preferences, &lastLoginAt, &createdAt, &updatedAt,
+	)
+	if err != nil {
+		// Check for "no rows" error (pgx uses different error than database/sql)
+		if err.Error() == "no rows in result set" {
+			return nil, nil, "", fmt.Errorf("invalid username or password")
+		}
+		return nil, nil, "", fmt.Errorf("failed to get user: %w", err)
+	}
+
+	user = &db.User{
+		ID:              userID,
+		Email:           email,
+		EmailVerified:   emailVerified,
+		Role:            role,
+		TwoFactorEnabled: twoFactorEnabled,
+		Preferences:     preferences,
+		CreatedAt:       createdAt,
+		UpdatedAt:       updatedAt,
+	}
+	if passwordHash.Valid {
+		hash := passwordHash.String
+		user.PasswordHash = &hash
+	}
+	if name.Valid {
+		user.Name = &name.String
+	}
+	if avatarURL.Valid {
+		user.AvatarURL = &avatarURL.String
+	}
+	if twoFactorSecret.Valid {
+		user.TwoFactorSecret = &twoFactorSecret.String
+	}
+	if lastLoginAt.Valid {
+		user.LastLoginAt = &lastLoginAt.Time
+	}
+
+	// Verify password
+	if user.PasswordHash == nil {
+		return nil, nil, "", fmt.Errorf("account does not have a password set")
+	}
+	if err := bcrypt.CompareHashAndPassword([]byte(*user.PasswordHash), []byte(password)); err != nil {
+		return nil, nil, "", fmt.Errorf("invalid username or password")
+	}
+
+	// Update last login (non-blocking)
+	updateQuery := `UPDATE neuronip.users SET last_login_at = NOW() WHERE id = $1`
+	go func() {
+		_, _ = s.queries.DB.Exec(context.Background(), updateQuery, user.ID)
+	}()
+
+	// Create session using session manager
+	sess, refreshToken, err := s.sessionManager.CreateSession(ctx, user.ID.String(), database, userAgent, ipAddress)
+	if err != nil {
+		return nil, nil, "", fmt.Errorf("failed to create session: %w", err)
+	}
+
+	return user, sess, refreshToken, nil
+}
+
+/* RegisterWithUsername registers a new user with username and password, supporting database selection */
+func (s *AuthService) RegisterWithUsername(ctx context.Context, username, password, database, ipAddress, userAgent string) (*db.User, *session.Session, string, error) {
+	// Default to neuronip if not specified
+	if database == "" {
+		database = "neuronip"
+	}
+
+	// Check if user already exists (always check in neuronip database for user management)
+	checkQuery := `SELECT id FROM neuronip.users WHERE username = $1 OR email = $1`
+	var existingID uuid.UUID
+	err := s.queries.DB.QueryRow(ctx, checkQuery, username).Scan(&existingID)
+	if err == nil {
+		return nil, nil, "", fmt.Errorf("user with username %s already exists", username)
+	}
+	// If error is "no rows", that's fine - user doesn't exist yet
+	if err != nil && err.Error() != "no rows in result set" {
+		return nil, nil, "", fmt.Errorf("failed to check existing user: %w", err)
+	}
+
+	// Hash password
+	passwordHash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
+	if err != nil {
+		return nil, nil, "", fmt.Errorf("failed to hash password: %w", err)
+	}
+	passwordHashStr := string(passwordHash)
+
+	// Create user (use username as email if email format, otherwise generate email)
+	email := username
+	if !contains(username, "@") {
+		email = fmt.Sprintf("%s@neuronip.local", username)
+	}
+
+	insertQuery := `INSERT INTO neuronip.users (email, username, password_hash, role, created_at, updated_at)
+	                VALUES ($1, $2, $3, $4, NOW(), NOW()) RETURNING id, email, email_verified, password_hash, 
+	                name, avatar_url, role, two_factor_enabled, two_factor_secret, preferences, 
+	                last_login_at, created_at, updated_at`
+
+	var userID uuid.UUID
+	var userEmail string
+	var emailVerified bool
+	var passwordHashDB sql.NullString
+	var name, avatarURL sql.NullString
+	var role string
+	var twoFactorEnabled bool
+	var twoFactorSecret sql.NullString
+	var preferences map[string]interface{}
+	var lastLoginAt sql.NullTime
+	var createdAt, updatedAt time.Time
+
+	err = s.queries.DB.QueryRow(ctx, insertQuery, email, username, passwordHashStr, "analyst").Scan(
+		&userID, &userEmail, &emailVerified, &passwordHashDB, &name, &avatarURL, &role,
+		&twoFactorEnabled, &twoFactorSecret, &preferences, &lastLoginAt, &createdAt, &updatedAt,
+	)
+	if err != nil {
+		// Check for unique constraint violation
+		if err.Error() == "duplicate key value violates unique constraint" || 
+		   err.Error() == "ERROR: duplicate key value violates unique constraint" {
+			return nil, nil, "", fmt.Errorf("user with username %s already exists", username)
+		}
+		return nil, nil, "", fmt.Errorf("failed to create user: %w", err)
+	}
+
+	user := &db.User{
+		ID:              userID,
+		Email:           userEmail,
+		EmailVerified:   emailVerified,
+		Role:            role,
+		TwoFactorEnabled: twoFactorEnabled,
+		Preferences:     preferences,
+		CreatedAt:       createdAt,
+		UpdatedAt:       updatedAt,
+	}
+	if passwordHashDB.Valid {
+		hash := passwordHashDB.String
+		user.PasswordHash = &hash
+	}
+
+	// Create default user profile
+	profileQuery := `INSERT INTO neuronip.user_profiles (user_id, metadata, created_at, updated_at)
+	                 VALUES ($1, '{}', NOW(), NOW()) ON CONFLICT (user_id) DO NOTHING`
+	_, err = s.queries.DB.Exec(ctx, profileQuery, userID)
+	if err != nil {
+		// Log error but don't fail registration
+	}
+
+	// Create session using session manager
+	sess, refreshToken, err := s.sessionManager.CreateSession(ctx, user.ID.String(), database, userAgent, ipAddress)
+	if err != nil {
+		return nil, nil, "", fmt.Errorf("failed to create session: %w", err)
+	}
+
+	return user, sess, refreshToken, nil
+}
+
+/* GetCurrentUser gets the current user from session context */
+func (s *AuthService) GetCurrentUser(ctx context.Context) (*db.User, error) {
+	sess, ok := session.GetSessionFromContext(ctx)
+	if !ok {
+		return nil, fmt.Errorf("no session in context")
+	}
+
+	userID, err := uuid.Parse(sess.UserID)
+	if err != nil {
+		return nil, fmt.Errorf("invalid user ID: %w", err)
+	}
+
+	user, err := s.queries.GetUserByID(ctx, userID)
+	if err != nil {
+		return nil, fmt.Errorf("user not found: %w", err)
+	}
+
+	return user, nil
+}
+
+/* Helper function to check if string contains substring */
+func contains(s, substr string) bool {
+	for i := 0; i <= len(s)-len(substr); i++ {
+		if s[i:i+len(substr)] == substr {
+			return true
+		}
+	}
+	return false
 }

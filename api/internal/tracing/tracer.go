@@ -148,16 +148,3 @@ func getTrace(ctx context.Context) *Trace {
 func setTrace(ctx context.Context, trace *Trace) context.Context {
 	return context.WithValue(ctx, traceKey, trace)
 }
-
-/* GetTraceID gets trace ID from context (public function) */
-func GetTraceID(ctx context.Context) string {
-	return getTraceID(ctx)
-}
-
-/* GetSpanID gets span ID from context (public function) */
-func GetSpanID(ctx context.Context) string {
-	if id := getSpanID(ctx); id != nil {
-		return *id
-	}
-	return ""
-}

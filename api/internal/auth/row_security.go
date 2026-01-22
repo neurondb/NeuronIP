@@ -149,7 +149,7 @@ func (s *RowSecurityService) ApplyRowFilter(ctx context.Context, userID string, 
 
 		if applies {
 			// Replace placeholders in filter expression
-			filter := s.replaceFilterPlaceholders(policy.FilterExpression, userID, userRole)
+			filter := s.replaceFilterPlaceholders(ctx, policy.FilterExpression, userID, userRole)
 			applicableFilters = append(applicableFilters, filter)
 		}
 	}
@@ -174,15 +174,42 @@ func (s *RowSecurityService) ApplyRowFilter(ctx context.Context, userID string, 
 }
 
 /* replaceFilterPlaceholders replaces placeholders in filter expression */
-func (s *RowSecurityService) replaceFilterPlaceholders(filter string, userID string, userRole string) string {
+func (s *RowSecurityService) replaceFilterPlaceholders(ctx context.Context, filter string, userID string, userRole string) string {
 	// Replace {user_id} with actual user ID
 	filter = strings.ReplaceAll(filter, "{user_id}", fmt.Sprintf("'%s'", userID))
 	
 	// Replace {user_role} with actual user role
 	filter = strings.ReplaceAll(filter, "{user_role}", fmt.Sprintf("'%s'", userRole))
 
-	// Replace {tenant_id} - would need to get from context in production
-	// For now, leave as placeholder
+	// Replace {tenant_id} - get from context
+	if tenantID := getTenantIDFromContext(ctx); tenantID != nil {
+		filter = strings.ReplaceAll(filter, "{tenant_id}", fmt.Sprintf("'%s'", tenantID.String()))
+	} else {
+		// If tenant ID not in context, replace with NULL or remove condition
+		// This allows queries to work even without tenant context
+		filter = strings.ReplaceAll(filter, "{tenant_id}", "NULL")
+	}
 
 	return filter
+}
+
+/* getTenantIDFromContext retrieves tenant ID from context */
+func getTenantIDFromContext(ctx context.Context) *uuid.UUID {
+	tenantIDValue := ctx.Value("tenant_id")
+	if tenantIDValue == nil {
+		return nil
+	}
+	
+	// Try to convert to UUID
+	switch v := tenantIDValue.(type) {
+	case uuid.UUID:
+		return &v
+	case string:
+		if id, err := uuid.Parse(v); err == nil {
+			return &id
+		}
+		return nil
+	default:
+		return nil
+	}
 }

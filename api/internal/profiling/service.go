@@ -11,16 +11,24 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/neurondb/NeuronIP/api/internal/mcp"
+	"github.com/neurondb/NeuronIP/api/internal/neurondb"
 )
 
 /* Service provides data profiling functionality */
 type Service struct {
-	pool *pgxpool.Pool
+	pool           *pgxpool.Pool
+	neurondbClient *neurondb.Client
+	mcpClient      *mcp.Client
 }
 
 /* NewService creates a new profiling service */
-func NewService(pool *pgxpool.Pool) *Service {
-	return &Service{pool: pool}
+func NewService(pool *pgxpool.Pool, neurondbClient *neurondb.Client, mcpClient *mcp.Client) *Service {
+	return &Service{
+		pool:           pool,
+		neurondbClient: neurondbClient,
+		mcpClient:      mcpClient,
+	}
 }
 
 /* ProfileRequest represents a profiling request */
@@ -297,6 +305,158 @@ func (s *Service) getTableColumns(ctx context.Context, req ProfileRequest) ([]st
 	}
 
 	return columns, nil
+}
+
+/* DetectOutliersInColumn detects outliers in a column using NeuronDB or MCP tools */
+func (s *Service) DetectOutliersInColumn(ctx context.Context, req ProfileRequest, method string) ([]map[string]interface{}, error) {
+	if req.ColumnName == nil {
+		return nil, fmt.Errorf("column name not specified")
+	}
+	if method == "" {
+		method = "isolation_forest"
+	}
+	featureColumns := []string{*req.ColumnName}
+	tableName := fmt.Sprintf("%s.%s", req.SchemaName, req.TableName)
+
+	// Try MCP tool first if available
+	if s.mcpClient != nil {
+		result, err := s.mcpClient.DetectOutliers(ctx, tableName, featureColumns, method)
+		if err == nil {
+			if outliers, ok := result["outliers"].([]interface{}); ok {
+				results := make([]map[string]interface{}, 0, len(outliers))
+				for _, o := range outliers {
+					if outlierMap, ok := o.(map[string]interface{}); ok {
+						results = append(results, outlierMap)
+					}
+				}
+				return results, nil
+			}
+			if len(result) > 0 {
+				return []map[string]interface{}{result}, nil
+			}
+		}
+	}
+
+	// Fallback to NeuronDB client
+	if s.neurondbClient == nil {
+		return nil, fmt.Errorf("neuronDB client not available")
+	}
+	return s.neurondbClient.DetectOutliers(ctx, tableName, featureColumns, method)
+}
+
+/* ReduceDimensionalityForTable reduces dimensionality for feature engineering */
+func (s *Service) ReduceDimensionalityForTable(ctx context.Context, req ProfileRequest, featureColumns []string, targetDimensions int) ([]map[string]interface{}, error) {
+	if s.neurondbClient == nil {
+		return nil, fmt.Errorf("neuronDB client not available")
+	}
+	if targetDimensions <= 0 {
+		targetDimensions = 2
+	}
+	tableName := fmt.Sprintf("%s.%s", req.SchemaName, req.TableName)
+	return s.neurondbClient.ReduceDimensionality(ctx, tableName, featureColumns, targetDimensions)
+}
+
+/* BatchProfileColumns profiles multiple columns using batch operations */
+func (s *Service) BatchProfileColumns(ctx context.Context, tableName string, columnNames []string) ([]map[string]interface{}, error) {
+	if len(columnNames) == 0 {
+		return []map[string]interface{}{}, nil
+	}
+
+	results := make([]map[string]interface{}, 0, len(columnNames))
+	for _, colName := range columnNames {
+		req := ProfileRequest{
+			TableName:  tableName,
+			ColumnName: &colName,
+		}
+		profile, err := s.ProfileColumn(ctx, req)
+		if err != nil {
+			// Continue with other columns even if one fails
+			continue
+		}
+		// Convert ProfileResult to map[string]interface{}
+		profileMap := map[string]interface{}{
+			"table_name":  profile.TableName,
+			"column_name": profile.ColumnName,
+			"statistics":  profile.Statistics,
+		}
+		results = append(results, profileMap)
+	}
+
+	return results, nil
+}
+
+/* ProfileColumnWithML uses NeuronDB ML for automatic column classification and profiling */
+func (s *Service) ProfileColumnWithML(ctx context.Context, req ProfileRequest, modelPath string) (*ProfileResult, error) {
+	if s.neurondbClient == nil || req.ColumnName == nil {
+		return nil, fmt.Errorf("neuronDB client not available or column name not specified")
+	}
+
+	// Sample values from column
+	sampleQuery := fmt.Sprintf(`SELECT %s FROM %s.%s WHERE %s IS NOT NULL LIMIT 100`,
+		*req.ColumnName, req.SchemaName, req.TableName, *req.ColumnName)
+
+	rows, err := s.pool.Query(ctx, sampleQuery)
+	if err != nil {
+		return nil, fmt.Errorf("failed to sample column values: %w", err)
+	}
+	defer rows.Close()
+
+	var sampleValues []string
+	var classifications []map[string]interface{}
+
+	for rows.Next() {
+		var value string
+		if err := rows.Scan(&value); err != nil {
+			continue
+		}
+		sampleValues = append(sampleValues, value)
+
+		// Classify value using NeuronDB
+		classification, err := s.neurondbClient.Classify(ctx, value, modelPath)
+		if err == nil {
+			classifications = append(classifications, classification)
+		}
+	}
+
+	// Analyze classifications to determine column type
+	dataType := "text"
+	typeConfidence := 0.0
+	if len(classifications) > 0 {
+		typeCounts := make(map[string]int)
+		for _, cls := range classifications {
+			if dtype, ok := cls["data_type"].(string); ok {
+				typeCounts[dtype]++
+			}
+		}
+		maxCount := 0
+		for dtype, count := range typeCounts {
+			if count > maxCount {
+				maxCount = count
+				dataType = dtype
+				typeConfidence = float64(count) / float64(len(classifications))
+			}
+		}
+	}
+
+	// Create profile result with ML-derived insights
+	result := &ProfileResult{
+		ID:          uuid.New(),
+		ConnectorID: req.ConnectorID,
+		SchemaName:  req.SchemaName,
+		TableName:   req.TableName,
+		ColumnName:  req.ColumnName,
+		ProfileType: "column_ml",
+		DataType:    &dataType,
+		Statistics: map[string]interface{}{
+			"type_confidence":   typeConfidence,
+			"samples_classified": len(classifications),
+			"classification_method": "neurondb_ml",
+		},
+		SampleValues: sampleValues,
+		ProfiledAt:   time.Now(),
+	}
+
+	return result, nil
 }
 
 /* detectDataType detects data type from values */

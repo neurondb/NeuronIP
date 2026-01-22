@@ -197,14 +197,17 @@ func (s *Service) ListChanges(ctx context.Context, connectorID *uuid.UUID, schem
 
 /* GetCurrentSchema gets the current schema for a table */
 func (s *Service) GetCurrentSchema(ctx context.Context, connectorID *uuid.UUID, schemaName, tableName string) (map[string]interface{}, error) {
-	// This would typically query the information_schema or use connector to get schema
-	// For now, return a placeholder
+	// Query information_schema to get current table schema
 	query := `
 		SELECT 
 			column_name,
 			data_type,
+			character_maximum_length,
+			numeric_precision,
+			numeric_scale,
 			is_nullable,
-			column_default
+			column_default,
+			ordinal_position
 		FROM information_schema.columns
 		WHERE table_schema = $1 AND table_name = $2
 		ORDER BY ordinal_position`
@@ -219,20 +222,32 @@ func (s *Service) GetCurrentSchema(ctx context.Context, connectorID *uuid.UUID, 
 	for rows.Next() {
 		var columnName, dataType, isNullable sql.NullString
 		var columnDefault sql.NullString
+		var charMaxLength, numericPrecision, numericScale sql.NullInt64
+		var ordinalPosition int
 
-		err := rows.Scan(&columnName, &dataType, &isNullable, &columnDefault)
+		err := rows.Scan(&columnName, &dataType, &charMaxLength, &numericPrecision, &numericScale, &isNullable, &columnDefault, &ordinalPosition)
 		if err != nil {
 			continue
 		}
 
 		column := map[string]interface{}{
-			"name":     columnName.String,
-			"type":     dataType.String,
-			"nullable": isNullable.String == "YES",
+			"name":            columnName.String,
+			"type":            dataType.String,
+			"nullable":        isNullable.String == "YES",
+			"ordinal_position": ordinalPosition,
 		}
 		
 		if columnDefault.Valid {
 			column["default"] = columnDefault.String
+		}
+		if charMaxLength.Valid {
+			column["max_length"] = charMaxLength.Int64
+		}
+		if numericPrecision.Valid {
+			column["precision"] = numericPrecision.Int64
+		}
+		if numericScale.Valid {
+			column["scale"] = numericScale.Int64
 		}
 
 		columns = append(columns, column)

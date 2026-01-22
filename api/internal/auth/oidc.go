@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -381,23 +382,23 @@ func (s *OIDCService) buildScopeString(scopes []string) string {
 	return result
 }
 
-/* generateSessionTokens generates session and refresh tokens */
-func (s *OIDCService) generateSessionTokens() (string, string, time.Time, error) {
-	// This should use the same token generation as AuthService
-	// For now, placeholder implementation
+/* generateSessionTokens generates session and refresh tokens using the same method as AuthService */
+func (s *OIDCService) generateSessionTokens() (sessionToken, refreshToken string, expiresAt time.Time, err error) {
+	// Generate secure random tokens - matches AuthService.generateSessionTokens exactly
 	sessionBytes := make([]byte, 32)
 	if _, err := rand.Read(sessionBytes); err != nil {
-		return "", "", time.Time{}, err
+		return "", "", time.Time{}, fmt.Errorf("failed to generate session token: %w", err)
 	}
-	sessionToken := base64.URLEncoding.EncodeToString(sessionBytes)
+	sessionToken = base64.URLEncoding.EncodeToString(sessionBytes)
 
 	refreshBytes := make([]byte, 32)
 	if _, err := rand.Read(refreshBytes); err != nil {
-		return "", "", time.Time{}, err
+		return "", "", time.Time{}, fmt.Errorf("failed to generate refresh token: %w", err)
 	}
-	refreshToken := base64.URLEncoding.EncodeToString(refreshBytes)
+	refreshToken = hex.EncodeToString(refreshBytes)
 
-	expiresAt := time.Now().Add(24 * time.Hour)
+	// Session expires in 24 hours, refresh token expires in 7 days
+	expiresAt = time.Now().Add(24 * time.Hour)
 
 	return sessionToken, refreshToken, expiresAt, nil
 }

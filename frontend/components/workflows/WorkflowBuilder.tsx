@@ -25,8 +25,22 @@ import WorkflowNodePalette from './WorkflowNodePalette'
 interface WorkflowNode extends Node {
   data: {
     label: string
-    type: 'agent' | 'script' | 'condition' | 'parallel'
+    type: 'agent' | 'script' | 'condition' | 'parallel' | 'approval' | 'retry'
     config?: Record<string, any>
+    condition?: {
+      expression: string
+      cases: Array<{ value: string; nextStep: string }>
+      default: string
+    }
+    approval?: {
+      approverId: string
+      timeout?: number
+    }
+    retry?: {
+      maxRetries: number
+      backoffMs: number
+      failurePath?: string
+    }
   }
 }
 
@@ -103,6 +117,42 @@ const nodeTypes: NodeTypes = {
       </div>
     </Tooltip>
   ),
+  approval: ({ data }) => (
+    <Tooltip
+      content={
+        <div>
+          <p className="font-medium mb-1">Approval Node</p>
+          <p className="text-xs">
+            Human approval step. Pauses workflow until approved or rejected by a user.
+          </p>
+        </div>
+      }
+      variant="info"
+    >
+      <div className="px-4 py-2 bg-orange-100 border-2 border-orange-500 rounded-lg cursor-pointer">
+        <div className="font-semibold">{data.label}</div>
+        <div className="text-xs text-gray-600">{data.type}</div>
+      </div>
+    </Tooltip>
+  ),
+  retry: ({ data }) => (
+    <Tooltip
+      content={
+        <div>
+          <p className="font-medium mb-1">Retry Node</p>
+          <p className="text-xs">
+            Retry logic with exponential backoff. Configure max retries and failure path.
+          </p>
+        </div>
+      }
+      variant="info"
+    >
+      <div className="px-4 py-2 bg-red-100 border-2 border-red-500 rounded-lg cursor-pointer">
+        <div className="font-semibold">{data.label}</div>
+        <div className="text-xs text-gray-600">{data.type}</div>
+      </div>
+    </Tooltip>
+  ),
 }
 
 export default function WorkflowBuilder() {
@@ -115,7 +165,7 @@ export default function WorkflowBuilder() {
     [setEdges]
   )
 
-  const addNode = useCallback((type: 'agent' | 'script' | 'condition' | 'parallel') => {
+  const addNode = useCallback((type: 'agent' | 'script' | 'condition' | 'parallel' | 'approval' | 'retry') => {
     const newNode: WorkflowNode = {
       id: `node-${Date.now()}`,
       type: type,
@@ -123,8 +173,29 @@ export default function WorkflowBuilder() {
       data: {
         label: `${type.charAt(0).toUpperCase() + type.slice(1)} Node`,
         type: type,
+        config: {},
       },
     }
+    
+    // Add default config based on type
+    if (type === 'approval') {
+      newNode.data.approval = {
+        approverId: '',
+        timeout: 3600, // 1 hour default
+      }
+    } else if (type === 'retry') {
+      newNode.data.retry = {
+        maxRetries: 3,
+        backoffMs: 1000,
+      }
+    } else if (type === 'condition') {
+      newNode.data.condition = {
+        expression: '',
+        cases: [],
+        default: '',
+      }
+    }
+    
     setNodes((nds) => [...nds, newNode])
   }, [setNodes])
 
@@ -238,9 +309,9 @@ export default function WorkflowBuilder() {
             </ReactFlow>
           </div>
           {selectedNode && (
-            <div className="w-80 flex-shrink-0 border-l border-border p-4">
-              <h3 className="font-semibold mb-2">Node Configuration</h3>
-              <div className="space-y-2">
+            <div className="w-80 flex-shrink-0 border-l border-border p-4 overflow-y-auto">
+              <h3 className="font-semibold mb-4">Node Configuration</h3>
+              <div className="space-y-4">
                 <div>
                   <label className="text-sm font-medium">Label</label>
                   <input
@@ -255,10 +326,275 @@ export default function WorkflowBuilder() {
                         )
                       )
                     }}
-                    className="w-full rounded border border-border px-2 py-1"
+                    className="w-full rounded border border-border px-2 py-1 mt-1"
                   />
                 </div>
-                {/* Add more configuration fields based on node type */}
+
+                {/* Approval Configuration */}
+                {selectedNode.data.type === 'approval' && selectedNode.data.approval && (
+                  <div className="space-y-2">
+                    <div>
+                      <label className="text-sm font-medium">Approver ID</label>
+                      <input
+                        type="text"
+                        value={selectedNode.data.approval.approverId}
+                        onChange={(e) => {
+                          setNodes((nds) =>
+                            nds.map((n) =>
+                              n.id === selectedNode.id
+                                ? {
+                                    ...n,
+                                    data: {
+                                      ...n.data,
+                                      approval: {
+                                        ...n.data.approval!,
+                                        approverId: e.target.value,
+                                      },
+                                    },
+                                  }
+                                : n
+                            )
+                          )
+                        }}
+                        className="w-full rounded border border-border px-2 py-1 mt-1"
+                        placeholder="user@example.com"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-sm font-medium">Timeout (seconds)</label>
+                      <input
+                        type="number"
+                        value={selectedNode.data.approval.timeout}
+                        onChange={(e) => {
+                          setNodes((nds) =>
+                            nds.map((n) =>
+                              n.id === selectedNode.id
+                                ? {
+                                    ...n,
+                                    data: {
+                                      ...n.data,
+                                      approval: {
+                                        ...n.data.approval!,
+                                        timeout: parseInt(e.target.value) || 3600,
+                                      },
+                                    },
+                                  }
+                                : n
+                            )
+                          )
+                        }}
+                        className="w-full rounded border border-border px-2 py-1 mt-1"
+                      />
+                    </div>
+                  </div>
+                )}
+
+                {/* Retry Configuration */}
+                {selectedNode.data.type === 'retry' && selectedNode.data.retry && (
+                  <div className="space-y-2">
+                    <div>
+                      <label className="text-sm font-medium">Max Retries</label>
+                      <input
+                        type="number"
+                        value={selectedNode.data.retry.maxRetries}
+                        onChange={(e) => {
+                          setNodes((nds) =>
+                            nds.map((n) =>
+                              n.id === selectedNode.id
+                                ? {
+                                    ...n,
+                                    data: {
+                                      ...n.data,
+                                      retry: {
+                                        ...n.data.retry!,
+                                        maxRetries: parseInt(e.target.value) || 3,
+                                      },
+                                    },
+                                  }
+                                : n
+                            )
+                          )
+                        }}
+                        className="w-full rounded border border-border px-2 py-1 mt-1"
+                        min="0"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-sm font-medium">Backoff (ms)</label>
+                      <input
+                        type="number"
+                        value={selectedNode.data.retry.backoffMs}
+                        onChange={(e) => {
+                          setNodes((nds) =>
+                            nds.map((n) =>
+                              n.id === selectedNode.id
+                                ? {
+                                    ...n,
+                                    data: {
+                                      ...n.data,
+                                      retry: {
+                                        ...n.data.retry!,
+                                        backoffMs: parseInt(e.target.value) || 1000,
+                                      },
+                                    },
+                                  }
+                                : n
+                            )
+                          )
+                        }}
+                        className="w-full rounded border border-border px-2 py-1 mt-1"
+                        min="0"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-sm font-medium">Failure Path (optional)</label>
+                      <input
+                        type="text"
+                        value={selectedNode.data.retry.failurePath || ''}
+                        onChange={(e) => {
+                          setNodes((nds) =>
+                            nds.map((n) =>
+                              n.id === selectedNode.id
+                                ? {
+                                    ...n,
+                                    data: {
+                                      ...n.data,
+                                      retry: {
+                                        ...n.data.retry!,
+                                        failurePath: e.target.value || undefined,
+                                      },
+                                    },
+                                  }
+                                : n
+                            )
+                          )
+                        }}
+                        className="w-full rounded border border-border px-2 py-1 mt-1"
+                        placeholder="node-id"
+                      />
+                    </div>
+                  </div>
+                )}
+
+                {/* Condition Configuration */}
+                {selectedNode.data.type === 'condition' && selectedNode.data.condition && (
+                  <div className="space-y-2">
+                    <div>
+                      <label className="text-sm font-medium">Condition Expression</label>
+                      <input
+                        type="text"
+                        value={selectedNode.data.condition.expression}
+                        onChange={(e) => {
+                          setNodes((nds) =>
+                            nds.map((n) =>
+                              n.id === selectedNode.id
+                                ? {
+                                    ...n,
+                                    data: {
+                                      ...n.data,
+                                      condition: {
+                                        ...n.data.condition!,
+                                        expression: e.target.value,
+                                      },
+                                    },
+                                  }
+                                : n
+                            )
+                          )
+                        }}
+                        className="w-full rounded border border-border px-2 py-1 mt-1"
+                        placeholder="status == 'success'"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-sm font-medium">Default Next Step</label>
+                      <input
+                        type="text"
+                        value={selectedNode.data.condition.default}
+                        onChange={(e) => {
+                          setNodes((nds) =>
+                            nds.map((n) =>
+                              n.id === selectedNode.id
+                                ? {
+                                    ...n,
+                                    data: {
+                                      ...n.data,
+                                      condition: {
+                                        ...n.data.condition!,
+                                        default: e.target.value,
+                                      },
+                                    },
+                                  }
+                                : n
+                            )
+                          )
+                        }}
+                        className="w-full rounded border border-border px-2 py-1 mt-1"
+                        placeholder="node-id"
+                      />
+                    </div>
+                  </div>
+                )}
+
+                {/* Agent Configuration */}
+                {selectedNode.data.type === 'agent' && (
+                  <div className="space-y-2">
+                    <div>
+                      <label className="text-sm font-medium">Agent ID</label>
+                      <input
+                        type="text"
+                        value={selectedNode.data.config?.agent_id || ''}
+                        onChange={(e) => {
+                          setNodes((nds) =>
+                            nds.map((n) =>
+                              n.id === selectedNode.id
+                                ? {
+                                    ...n,
+                                    data: {
+                                      ...n.data,
+                                      config: {
+                                        ...n.data.config,
+                                        agent_id: e.target.value,
+                                      },
+                                    },
+                                  }
+                                : n
+                            )
+                          )
+                        }}
+                        className="w-full rounded border border-border px-2 py-1 mt-1"
+                        placeholder="agent-uuid"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-sm font-medium">Task</label>
+                      <textarea
+                        value={selectedNode.data.config?.task || ''}
+                        onChange={(e) => {
+                          setNodes((nds) =>
+                            nds.map((n) =>
+                              n.id === selectedNode.id
+                                ? {
+                                    ...n,
+                                    data: {
+                                      ...n.data,
+                                      config: {
+                                        ...n.data.config,
+                                        task: e.target.value,
+                                      },
+                                    },
+                                  }
+                                : n
+                            )
+                          )
+                        }}
+                        className="w-full rounded border border-border px-2 py-1 mt-1"
+                        rows={3}
+                        placeholder="Task description..."
+                      />
+                    </div>
+                  </div>
+                )}
               </div>
             </div>
           )}

@@ -23,10 +23,8 @@ export default function NotificationCenter() {
   const [isOpen, setIsOpen] = useState(false)
 
   // WebSocket connection for real-time notifications
-  const { isConnected, subscribe } = useWebSocket({
-    url: process.env.NEXT_PUBLIC_WS_URL || 'ws://localhost:8080/ws',
-    enabled: true,
-  })
+  const { status, subscribe } = useWebSocket()
+  const isConnected = status === 'connected'
 
   subscribe('notification', (data: any) => {
     const notification: Notification = {

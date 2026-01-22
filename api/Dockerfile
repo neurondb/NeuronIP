@@ -1,6 +1,9 @@
-FROM golang:1.24-alpine AS builder
+FROM golang:1.25-alpine AS builder
 
 WORKDIR /app
+
+# Install build dependencies for CGO (required by some connectors like Oracle)
+RUN apk add --no-cache gcc musl-dev
 
 # Copy go mod files
 COPY go.mod go.sum ./
@@ -9,8 +12,8 @@ RUN go mod download
 # Copy source code
 COPY . .
 
-# Build
-RUN CGO_ENABLED=0 GOOS=linux go build -o /app/neuronip-api ./cmd/server
+# Build with CGO enabled (required by Oracle driver)
+RUN CGO_ENABLED=1 GOOS=linux go build -o /app/neuronip-api ./cmd/server
 
 FROM alpine:latest
 

@@ -7,16 +7,24 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/neurondb/NeuronIP/api/internal/mcp"
+	"github.com/neurondb/NeuronIP/api/internal/neurondb"
 )
 
 /* Service provides analytics aggregation functionality */
 type Service struct {
-	pool *pgxpool.Pool
+	pool           *pgxpool.Pool
+	neurondbClient *neurondb.Client
+	mcpClient      *mcp.Client
 }
 
 /* NewService creates a new analytics service */
-func NewService(pool *pgxpool.Pool) *Service {
-	return &Service{pool: pool}
+func NewService(pool *pgxpool.Pool, neurondbClient *neurondb.Client, mcpClient *mcp.Client) *Service {
+	return &Service{
+		pool:           pool,
+		neurondbClient: neurondbClient,
+		mcpClient:      mcpClient,
+	}
 }
 
 /* AnalyticsQuery represents an analytics query */
@@ -312,6 +320,117 @@ func (s *Service) GetRetrievalQualityMetrics(ctx context.Context, query Analytic
 	}
 	if avgResults.Valid {
 		result["avg_results_per_query"] = avgResults.Float64
+	}
+
+	return result, nil
+}
+
+/* ClusterCustomers performs customer segmentation using NeuronDB clustering or MCP tools */
+func (s *Service) ClusterCustomers(ctx context.Context, tableName string, featureColumns []string, numClusters int, options map[string]interface{}) ([]map[string]interface{}, error) {
+	if numClusters <= 0 {
+		numClusters = 5
+	}
+	if options == nil {
+		options = make(map[string]interface{})
+	}
+	algorithm := "kmeans"
+	if alg, ok := options["algorithm"].(string); ok {
+		algorithm = alg
+	}
+
+	// Try MCP tool first if available
+	if s.mcpClient != nil {
+		result, err := s.mcpClient.ClusterData(ctx, algorithm, tableName, featureColumns, numClusters, options)
+		if err == nil {
+			if clusters, ok := result["clusters"].([]interface{}); ok {
+				results := make([]map[string]interface{}, 0, len(clusters))
+				for _, c := range clusters {
+					if clusterMap, ok := c.(map[string]interface{}); ok {
+						results = append(results, clusterMap)
+					}
+				}
+				return results, nil
+			}
+			// Return result as-is if format is different
+			if len(result) > 0 {
+				return []map[string]interface{}{result}, nil
+			}
+		}
+	}
+
+	// Fallback to NeuronDB client
+	if s.neurondbClient == nil {
+		return nil, fmt.Errorf("neuronDB client not available")
+	}
+	return s.neurondbClient.ClusterData(ctx, algorithm, tableName, featureColumns, numClusters, options)
+}
+
+/* AnalyzeTimeSeries performs time series analysis using NeuronDB */
+func (s *Service) AnalyzeTimeSeries(ctx context.Context, tableName string, timeColumn string, valueColumn string, method string, options map[string]interface{}) (map[string]interface{}, error) {
+	if s.neurondbClient == nil {
+		return nil, fmt.Errorf("neuronDB client not available")
+	}
+	if method == "" {
+		method = "trend"
+	}
+	if options == nil {
+		options = make(map[string]interface{})
+	}
+	return s.neurondbClient.TimeSeriesAnalysis(ctx, tableName, timeColumn, valueColumn, method, options)
+}
+
+/* DiscoverTopics performs topic discovery on text data using MCP */
+func (s *Service) DiscoverTopics(ctx context.Context, tableName string, textColumn string, numTopics int, options map[string]interface{}) (map[string]interface{}, error) {
+	if s.mcpClient == nil {
+		return nil, fmt.Errorf("MCP client not configured")
+	}
+	if numTopics <= 0 {
+		numTopics = 10
+	}
+	if options == nil {
+		options = make(map[string]interface{})
+	}
+
+	result, err := s.mcpClient.TopicDiscovery(ctx, tableName, textColumn, numTopics, options)
+	if err != nil {
+		return nil, fmt.Errorf("failed to discover topics: %w", err)
+	}
+
+	return result, nil
+}
+
+/* AnalyzeData performs comprehensive data analysis using MCP */
+func (s *Service) AnalyzeData(ctx context.Context, tableName string, columns []string, analysisType string) (map[string]interface{}, error) {
+	if s.mcpClient == nil {
+		return nil, fmt.Errorf("MCP client not configured")
+	}
+	if analysisType == "" {
+		analysisType = "comprehensive"
+	}
+
+	result, err := s.mcpClient.AnalyzeData(ctx, tableName, columns, analysisType)
+	if err != nil {
+		return nil, fmt.Errorf("failed to analyze data: %w", err)
+	}
+
+	return result, nil
+}
+
+/* DetectDataDrift detects data drift using MCP */
+func (s *Service) DetectDataDrift(ctx context.Context, tableName string, referenceTable string, featureColumns []string) (map[string]interface{}, error) {
+	if s.mcpClient == nil {
+		return nil, fmt.Errorf("MCP client not configured")
+	}
+
+	// MCP DetectDrift tool (assuming it exists in the client)
+	// Note: This may need to be added to the MCP client if not already present
+	result, err := s.mcpClient.ExecuteTool(ctx, "detect_drift", map[string]interface{}{
+		"table":            tableName,
+		"reference_table": referenceTable,
+		"feature_columns": featureColumns,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to detect data drift: %w", err)
 	}
 
 	return result, nil

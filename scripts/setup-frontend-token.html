@@ -1,0 +1,149 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Set NeuronIP API Token</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 600px;
+            margin: 50px auto;
+            padding: 20px;
+            background: #f5f5f5;
+        }
+        .container {
+            background: white;
+            padding: 30px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        h1 { color: #333; }
+        .token-display {
+            background: #f0f0f0;
+            padding: 15px;
+            border-radius: 4px;
+            font-family: monospace;
+            word-break: break-all;
+            margin: 20px 0;
+        }
+        button {
+            background: #007bff;
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 16px;
+            margin: 10px 5px;
+        }
+        button:hover { background: #0056b3; }
+        .success {
+            background: #d4edda;
+            color: #155724;
+            padding: 15px;
+            border-radius: 4px;
+            margin: 20px 0;
+            display: none;
+        }
+        .error {
+            background: #f8d7da;
+            color: #721c24;
+            padding: 15px;
+            border-radius: 4px;
+            margin: 20px 0;
+            display: none;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🔑 NeuronIP API Token Setup</h1>
+        <p>This page will set your API token in localStorage so the frontend can authenticate with the API.</p>
+        
+        <div class="token-display" id="tokenDisplay">
+            test-key-82f13cedd19abec5bdd9ffad70f3f774
+        </div>
+        
+        <div>
+            <button onclick="setToken()">✅ Set API Token</button>
+            <button onclick="checkToken()">🔍 Check Current Token</button>
+            <button onclick="testAPI()">🧪 Test API Connection</button>
+        </div>
+        
+        <div class="success" id="successMsg"></div>
+        <div class="error" id="errorMsg"></div>
+        
+        <div style="margin-top: 30px;">
+            <h3>Next Steps:</h3>
+            <ol>
+                <li>Click "Set API Token" above</li>
+                <li>Go to <a href="http://localhost:3001/dashboard/warehouse" target="_blank">Warehouse Page</a></li>
+                <li>Refresh the page</li>
+                <li>You should see 3 warehouse schemas!</li>
+            </ol>
+        </div>
+    </div>
+    
+    <script>
+        const API_TOKEN = 'test-key-82f13cedd19abec5bdd9ffad70f3f774';
+        const API_URL = 'http://localhost:8082/api/v1';
+        
+        function setToken() {
+            try {
+                localStorage.setItem('api_token', API_TOKEN);
+                showSuccess('✅ API token set successfully! You can now refresh your NeuronIP pages.');
+            } catch (e) {
+                showError('Failed to set token: ' + e.message);
+            }
+        }
+        
+        function checkToken() {
+            const token = localStorage.getItem('api_token');
+            if (token) {
+                showSuccess('Current token: ' + token);
+            } else {
+                showError('No token found in localStorage');
+            }
+        }
+        
+        async function testAPI() {
+            try {
+                const response = await fetch(API_URL + '/warehouse/schemas', {
+                    headers: {
+                        'Authorization': 'Bearer ' + API_TOKEN
+                    }
+                });
+                
+                if (response.ok) {
+                    const data = await response.json();
+                    showSuccess(`✅ API connection successful! Found ${data.count || data.schemas?.length || 0} schemas.`);
+                } else {
+                    const error = await response.json();
+                    showError('API Error: ' + (error.error?.message || response.statusText));
+                }
+            } catch (e) {
+                showError('Connection failed: ' + e.message + '. Make sure the API is running on port 8082.');
+            }
+        }
+        
+        function showSuccess(msg) {
+            const el = document.getElementById('successMsg');
+            el.textContent = msg;
+            el.style.display = 'block';
+            document.getElementById('errorMsg').style.display = 'none';
+        }
+        
+        function showError(msg) {
+            const el = document.getElementById('errorMsg');
+            el.textContent = msg;
+            el.style.display = 'block';
+            document.getElementById('successMsg').style.display = 'none';
+        }
+        
+        // Auto-set on load
+        window.addEventListener('load', () => {
+            setToken();
+            setTimeout(testAPI, 500);
+        });
+    </script>
+</body>
+</html>

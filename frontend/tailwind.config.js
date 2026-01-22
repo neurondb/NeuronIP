@@ -83,6 +83,8 @@ module.exports = {
         'slide-up': 'slideUp var(--transition-base) ease-out',
         'scale-in': 'scaleIn var(--transition-fast) ease-out',
         shimmer: 'shimmer 2s infinite linear',
+        'accordion-down': 'accordion-down 0.2s ease-out',
+        'accordion-up': 'accordion-up 0.2s ease-out',
       },
       keyframes: {
         fadeIn: {
@@ -96,6 +98,14 @@ module.exports = {
         scaleIn: {
           '0%': { opacity: '0', transform: 'scale(0.95)' },
           '100%': { opacity: '1', transform: 'scale(1)' },
+        },
+        'accordion-down': {
+          from: { height: '0' },
+          to: { height: 'var(--radix-accordion-content-height)' },
+        },
+        'accordion-up': {
+          from: { height: 'var(--radix-accordion-content-height)' },
+          to: { height: '0' },
         },
       },
     },

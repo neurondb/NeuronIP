@@ -4,9 +4,12 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"strings"
 	"time"
 
-	// _ "github.com/aliyun/aliyun-odps-go-sdk/odps" // TODO: Use Hive-compatible driver
+	// Optional drivers - uncomment when available:
+	// _ "github.com/alexbrainman/odbc" // For Hive ODBC driver
+	// _ "github.com/bippio/go-impala" // For Impala/Hive native driver
 	"github.com/neurondb/NeuronIP/api/internal/ingestion"
 )
 
@@ -53,19 +56,64 @@ func (h *HiveConnector) Connect(ctx context.Context, config map[string]interface
 		user = "hive"
 	}
 
-	// TODO: Implement Hive connection using appropriate driver (e.g., Hive JDBC)
-	// dsn := fmt.Sprintf("hive://%s:%.0f/%s?user=%s", host, port, database, user)
-	// Note: This is a placeholder - actual Hive driver would be different
-	// In production, you'd use a proper Hive/Impala driver
+	// Build Hive connection string
+	// Hive uses JDBC-style connection strings
+	// Format: jdbc:hive2://host:port/database or hive://host:port/database
+	// Note: This requires a Hive JDBC driver or Go Hive client
+	// Options:
+	// 1. Use ODBC with Hive ODBC driver: go get github.com/alexbrainman/odbc
+	// 2. Use Hive JDBC via Go JDBC bridge
+	// 3. Use native Hive client if available
+	dsn := fmt.Sprintf("hive2://%s:%.0f/%s?user=%s", host, port, database, user)
+	
+	// Attempt to open connection
+	// Try different driver names depending on what's available
 	var db *sql.DB
-	err := fmt.Errorf("Hive connector not yet implemented - driver not available")
-	if err != nil {
-		return fmt.Errorf("failed to open Hive connection: %w", err)
+	var err error
+	var lastErr error
+	
+	// Try hive driver first
+	db, err = sql.Open("hive", dsn)
+	if err == nil {
+		pingErr := db.PingContext(ctx)
+		if pingErr == nil {
+			h.db = db
+			h.BaseConnector.SetConnected(true)
+			return nil
+		}
+		lastErr = fmt.Errorf("hive driver ping failed: %w", pingErr)
+		db.Close()
+	} else {
+		lastErr = err
+	}
+	
+	// Try ODBC with Hive ODBC driver
+	password, _ := config["password"].(string)
+	odbcDSN := fmt.Sprintf("DSN=Hive;Host=%s;Port=%.0f;Database=%s;UID=%s", host, port, database, user)
+	if password != "" {
+		odbcDSN += fmt.Sprintf(";PWD=%s", password)
+	}
+	
+	db, err = sql.Open("odbc", odbcDSN)
+	if err == nil {
+		if pingErr := db.PingContext(ctx); pingErr == nil {
+			h.db = db
+			h.BaseConnector.SetConnected(true)
+			return nil
+		}
+		lastErr = fmt.Errorf("odbc driver ping failed: %w", pingErr)
+		db.Close()
+	} else {
+		lastErr = err
 	}
 
-	if err := db.PingContext(ctx); err != nil {
-		return fmt.Errorf("failed to ping Hive: %w", err)
-	}
+	// If all drivers failed, return comprehensive error
+	return fmt.Errorf("failed to connect to Hive: no suitable driver available. Tried 'hive' and 'odbc' drivers. "+
+		"To use Hive connector, please install one of: "+
+		"1) Hive ODBC driver and 'go get github.com/alexbrainman/odbc', "+
+		"2) A Hive JDBC bridge, or "+
+		"3) A native Hive Go client. "+
+		"Last error: %w", lastErr)
 
 	h.db = db
 	h.BaseConnector.SetConnected(true)

@@ -11,6 +11,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/neurondb/NeuronIP/api/internal/mcp"
 	"github.com/neurondb/NeuronIP/api/internal/neurondb"
 )
 
@@ -18,13 +19,15 @@ import (
 type Service struct {
 	pool           *pgxpool.Pool
 	neurondbClient *neurondb.Client
+	mcpClient      *mcp.Client
 }
 
 /* NewService creates a new models service */
-func NewService(pool *pgxpool.Pool, neurondbClient *neurondb.Client) *Service {
+func NewService(pool *pgxpool.Pool, neurondbClient *neurondb.Client, mcpClient *mcp.Client) *Service {
 	return &Service{
 		pool:           pool,
 		neurondbClient: neurondbClient,
+		mcpClient:      mcpClient,
 	}
 }
 
@@ -114,6 +117,11 @@ func (s *Service) GetModel(ctx context.Context, id uuid.UUID) (*Model, error) {
 	return &model, nil
 }
 
+/* ListModelsFromNeuronDB lists models directly from NeuronDB */
+func (s *Service) ListModelsFromNeuronDB(ctx context.Context) ([]map[string]interface{}, error) {
+	return s.neurondbClient.ListModels(ctx)
+}
+
 /* ListModels lists all registered models */
 func (s *Service) ListModels(ctx context.Context, modelType string, enabledOnly bool) ([]Model, error) {
 	var whereClauses []string
@@ -174,11 +182,29 @@ func (s *Service) ListModels(ctx context.Context, modelType string, enabledOnly 
 	return models, nil
 }
 
-/* EvaluateModel evaluates model performance */
+/* EvaluateModel evaluates model performance using NeuronDB evaluation */
 func (s *Service) EvaluateModel(ctx context.Context, modelID uuid.UUID, testData []map[string]interface{}) (map[string]interface{}, error) {
 	model, err := s.GetModel(ctx, modelID)
 	if err != nil {
 		return nil, fmt.Errorf("model not found: %w", err)
+	}
+
+	// Try using NeuronDB EvaluateModel if test data is in a table
+	// This is more efficient for large datasets
+	if testTable, ok := testData[0]["_test_table"].(string); ok && len(testData) == 1 {
+		if targetColumn, ok := testData[0]["_target_column"].(string); ok {
+			// Use NeuronDB EvaluateModel for table-based evaluation
+			results, err := s.neurondbClient.EvaluateModel(ctx, model.ModelPath, testTable, targetColumn)
+			if err == nil {
+				// Update model performance
+				model.Performance = results
+				performanceJSON, _ := json.Marshal(results)
+				s.pool.Exec(ctx, `UPDATE neuronip.model_registry SET performance = $1, updated_at = NOW() WHERE id = $2`,
+					performanceJSON, modelID)
+				return results, nil
+			}
+			// Fall through to individual evaluation if table-based fails
+		}
 	}
 
 	// Use NeuronDB ML functions for evaluation based on model type
@@ -204,10 +230,35 @@ func (s *Service) EvaluateModel(ctx context.Context, modelID uuid.UUID, testData
 			featuresList = append(featuresList, features)
 		}
 		
-		// Get predictions for features by looping through each item
+		// Use BatchPredict if available for better performance
 		var predictions []map[string]interface{}
-		for _, features := range featuresList {
-			featuresJSON, _ := json.Marshal(features)
+		if len(featuresList) > 1 {
+			// Try batch prediction first
+			predResults, err := s.neurondbClient.BatchPredict(ctx, model.ModelPath, featuresList)
+			if err == nil {
+				// Convert batch results to predictions format
+				for _, pred := range predResults {
+					if predMap, ok := pred.(map[string]interface{}); ok {
+						predictions = append(predictions, predMap)
+					} else {
+						predictions = append(predictions, map[string]interface{}{"prediction": pred})
+					}
+				}
+			} else {
+				// Fall back to individual predictions
+				for _, features := range featuresList {
+					featuresJSON, _ := json.Marshal(features)
+					featuresStr := string(featuresJSON)
+					prediction, err := s.neurondbClient.Classify(ctx, featuresStr, model.ModelPath)
+					if err != nil {
+						return nil, fmt.Errorf("evaluation failed: %w", err)
+					}
+					predictions = append(predictions, prediction)
+				}
+			}
+		} else if len(featuresList) == 1 {
+			// Single prediction
+			featuresJSON, _ := json.Marshal(featuresList[0])
 			featuresStr := string(featuresJSON)
 			prediction, err := s.neurondbClient.Classify(ctx, featuresStr, model.ModelPath)
 			if err != nil {
@@ -221,13 +272,23 @@ func (s *Service) EvaluateModel(ctx context.Context, modelID uuid.UUID, testData
 			// No ground truth provided, return prediction results without metrics
 			results = map[string]interface{}{"predictions": predictions}
 		} else {
-			// Calculate accuracy, precision, recall, F1
-			// Note: calculateClassificationMetrics expects a different format, using placeholder metrics for now
+			// Calculate actual classification metrics from predictions vs ground truth
+			// Convert predictions and groundTruth to []interface{} for the metrics function
+			predInterfaces := make([]interface{}, len(predictions))
+			for i, p := range predictions {
+				predInterfaces[i] = p
+			}
+			gtInterfaces := make([]interface{}, len(groundTruth))
+			for i, gt := range groundTruth {
+				gtInterfaces[i] = gt
+			}
+			
+			metrics := calculateClassificationMetrics(predInterfaces, gtInterfaces)
 			results = map[string]interface{}{
-				"accuracy":  0.85,
-				"precision": 0.82,
-				"recall":    0.80,
-				"f1_score":  0.81,
+				"accuracy":  metrics["accuracy"],
+				"precision": metrics["precision"],
+				"recall":    metrics["recall"],
+				"f1_score":  metrics["f1_score"],
 				"predictions": predictions,
 			}
 		}
@@ -256,10 +317,37 @@ func (s *Service) EvaluateModel(ctx context.Context, modelID uuid.UUID, testData
 			featuresList = append(featuresList, features)
 		}
 		
-		// Get predictions for features by looping through each item
+		// Use BatchPredict if available for better performance
 		var predictions []float64
-		for _, features := range featuresList {
-			prediction, err := s.neurondbClient.Regress(ctx, features, model.ModelPath)
+		if len(featuresList) > 1 {
+			// Try batch prediction first
+			predResults, err := s.neurondbClient.BatchPredict(ctx, model.ModelPath, featuresList)
+			if err == nil {
+				// Convert batch results to float64 array
+				for _, pred := range predResults {
+					if predFloat, ok := toFloat64(pred); ok {
+						predictions = append(predictions, predFloat)
+					} else if predMap, ok := pred.(map[string]interface{}); ok {
+						if val, ok := predMap["prediction"]; ok {
+							if predFloat, ok := toFloat64(val); ok {
+								predictions = append(predictions, predFloat)
+							}
+						}
+					}
+				}
+			} else {
+				// Fall back to individual predictions
+				for _, features := range featuresList {
+					prediction, err := s.neurondbClient.Regress(ctx, features, model.ModelPath)
+					if err != nil {
+						return nil, fmt.Errorf("evaluation failed: %w", err)
+					}
+					predictions = append(predictions, prediction)
+				}
+			}
+		} else if len(featuresList) == 1 {
+			// Single prediction
+			prediction, err := s.neurondbClient.Regress(ctx, featuresList[0], model.ModelPath)
 			if err != nil {
 				return nil, fmt.Errorf("evaluation failed: %w", err)
 			}
@@ -293,7 +381,24 @@ func (s *Service) EvaluateModel(ctx context.Context, modelID uuid.UUID, testData
 	return results, nil
 }
 
-/* TrainModel trains a model */
+/* TrainModelViaMCP trains a model using MCP TrainModel tool */
+func (s *Service) TrainModelViaMCP(ctx context.Context, algorithm string, tableName string, targetColumn string, featureColumns []string, options map[string]interface{}) (string, error) {
+	if s.mcpClient == nil {
+		return "", fmt.Errorf("MCP client not configured")
+	}
+
+	result, err := s.mcpClient.TrainModel(ctx, algorithm, tableName, targetColumn, featureColumns, options)
+	if err != nil {
+		return "", fmt.Errorf("failed to train model via MCP: %w", err)
+	}
+
+	if modelPath, ok := result["model_path"].(string); ok {
+		return modelPath, nil
+	}
+	return "", fmt.Errorf("model_path not found in MCP result")
+}
+
+/* TrainModel trains a model using NeuronDB ML training */
 func (s *Service) TrainModel(ctx context.Context, trainingData []map[string]interface{}, config map[string]interface{}) (*Model, error) {
 	modelType, ok := config["model_type"].(string)
 	if !ok {
@@ -305,14 +410,59 @@ func (s *Service) TrainModel(ctx context.Context, trainingData []map[string]inte
 		modelName = fmt.Sprintf("model_%s", uuid.New().String()[:8])
 	}
 
-	modelPath, ok := config["model_path"].(string)
-	if !ok {
-		modelPath = fmt.Sprintf("models/%s", modelName)
+	// Determine algorithm based on model type
+	algorithm := "random_forest"
+	if alg, ok := config["algorithm"].(string); ok {
+		algorithm = alg
+	} else {
+		switch modelType {
+		case "classification":
+			algorithm = "random_forest"
+		case "regression":
+			algorithm = "linear_regression"
+		}
 	}
 
-	// For training, we would typically use NeuronDB ML training functions
-	// This is a simplified version that creates a model record
-	// In production, you'd call actual training endpoints or functions
+	// Get table name for training data
+	tableName, ok := config["table_name"].(string)
+	if !ok {
+		// If no table provided, we need to create a temporary table or use a different approach
+		return nil, fmt.Errorf("table_name required in config for NeuronDB training")
+	}
+
+	// Get target column
+	targetColumn, ok := config["target_column"].(string)
+	if !ok {
+		return nil, fmt.Errorf("target_column required in config for NeuronDB training")
+	}
+
+	// Get feature columns
+	featureColumns := []string{}
+	if features, ok := config["feature_columns"].([]interface{}); ok {
+		for _, f := range features {
+			if fStr, ok := f.(string); ok {
+				featureColumns = append(featureColumns, fStr)
+			}
+		}
+	}
+	if len(featureColumns) == 0 {
+		return nil, fmt.Errorf("feature_columns required in config for NeuronDB training")
+	}
+
+	// Build training options
+	options := make(map[string]interface{})
+	if opts, ok := config["options"].(map[string]interface{}); ok {
+		options = opts
+	}
+	options["training_data_size"] = len(trainingData)
+
+	// Use NeuronDB ML training function
+	modelPath, err := s.neurondbClient.TrainModel(ctx, algorithm, tableName, targetColumn, featureColumns, options)
+	if err != nil {
+		return nil, fmt.Errorf("failed to train model using NeuronDB: %w", err)
+	}
+
+	// Create model record
 	model := Model{
 		Name:      modelName,
 		ModelType: modelType,
@@ -321,14 +471,13 @@ func (s *Service) TrainModel(ctx context.Context, trainingData []map[string]inte
 		Metadata: map[string]interface{}{
 			"training_data_size": len(trainingData),
 			"config":             config,
+			"algorithm":          algorithm,
+			"table_name":         tableName,
+			"target_column":      targetColumn,
+			"feature_columns":    featureColumns,
 		},
 		Enabled: true,
 	}
-
-	// In a real implementation, you would:
-	// 1. Call NeuronDB ML training function
-	// 2. Save the trained model to model_path
-	// 3. Register the model
 
 	return s.RegisterModel(ctx, model)
 }
@@ -363,6 +512,32 @@ func (s *Service) InferModel(ctx context.Context, modelID uuid.UUID, input map[s
 	default:
 		return nil, fmt.Errorf("unsupported model type: %s", model.ModelType)
 	}
+}
+
+/* BatchInferModel performs batch inference using a model */
+func (s *Service) BatchInferModel(ctx context.Context, modelID uuid.UUID, inputs []map[string]interface{}) ([]interface{}, error) {
+	model, err := s.GetModel(ctx, modelID)
+	if err != nil {
+		return nil, fmt.Errorf("model not found: %w", err)
+	}
+
+	// Use NeuronDB BatchPredict for efficient batch inference
+	results, err := s.neurondbClient.BatchPredict(ctx, model.ModelPath, inputs)
+	if err != nil {
+		return nil, fmt.Errorf("batch inference failed: %w", err)
+	}
+
+	return results, nil
+}
+
+/* GetModelInfoFromNeuronDB retrieves model information from NeuronDB */
+func (s *Service) GetModelInfoFromNeuronDB(ctx context.Context, modelPath string) (map[string]interface{}, error) {
+	return s.neurondbClient.GetModelInfo(ctx, modelPath)
+}
+
+/* DeleteModelFromNeuronDB deletes a model from NeuronDB */
+func (s *Service) DeleteModelFromNeuronDB(ctx context.Context, modelPath string) error {
+	return s.neurondbClient.DeleteModel(ctx, modelPath)
 }
 
 /* CreateModelVersion creates a new version of a model */
@@ -768,3 +943,106 @@ func toFloat64(v interface{}) (float64, bool) {
 	return 0, false
 }
 
+/* EnsureFeatureVectorIndex ensures a vector index exists for feature vectors used by models */
+func (s *Service) EnsureFeatureVectorIndex(ctx context.Context, tableName string, columnName string) error {
+	if s.neurondbClient == nil {
+		return fmt.Errorf("NeuronDB client not configured")
+	}
+
+	// Check if index already exists
+	indexName := fmt.Sprintf("idx_%s_%s_vector", tableName, columnName)
+	checkQuery := `
+		SELECT COUNT(*) FROM pg_indexes 
+		WHERE indexname = $1 AND tablename = $2`
+	
+	var count int
+	err := s.pool.QueryRow(ctx, checkQuery, indexName, tableName).Scan(&count)
+	if err == nil && count > 0 {
+		return nil // Index already exists
+	}
+
+	// Get row count to determine index parameters
+	var rowCount int
+	countQuery := fmt.Sprintf(`SELECT COUNT(*) FROM %s WHERE %s IS NOT NULL`, tableName, columnName)
+	err = s.pool.QueryRow(ctx, countQuery).Scan(&rowCount)
+	if err != nil {
+		return fmt.Errorf("failed to get row count: %w", err)
+	}
+
+	// Choose index type and parameters based on data size
+	var indexType string
+	var options map[string]interface{}
+	
+	if rowCount < 10000 {
+		// Small dataset - use IVF
+		indexType = "ivf"
+		options = map[string]interface{}{
+			"lists": 100,
+		}
+	} else {
+		// Large dataset - use HNSW
+		indexType = "hnsw"
+		options = map[string]interface{}{
+			"m":              16,
+			"ef_construction": 64,
+		}
+	}
+
+	// Create index using NeuronDB client
+	err = s.neurondbClient.CreateVectorIndex(ctx, indexName, tableName, columnName, indexType, options)
+	if err != nil {
+		return fmt.Errorf("failed to create vector index: %w", err)
+	}
+
+	return nil
+}
+
+/* OptimizeVectorIndex tunes an existing vector index based on usage patterns */
+func (s *Service) OptimizeVectorIndex(ctx context.Context, indexName string, tableName string, columnName string) error {
+	if s.mcpClient == nil {
+		return fmt.Errorf("MCP client not configured")
+	}
+
+	// Get index status first
+	status, err := s.mcpClient.IndexStatus(ctx, indexName)
+	if err != nil {
+		return fmt.Errorf("failed to get index status: %w", err)
+	}
+
+	// Check if index needs tuning based on status
+	// This is a simplified check - in production, analyze actual usage patterns
+	if statusIndexType, ok := status["index_type"].(string); ok {
+		indexType := statusIndexType // Use the status index type
+		if statusIndexType == "hnsw" || indexType == "hnsw" {
+			// Tune HNSW index - need to drop and recreate with new parameters
+			// In production, would use TuneHNSWIndex if available
+			dropQuery := fmt.Sprintf("DROP INDEX IF EXISTS %s", indexName)
+			_, err = s.pool.Exec(ctx, dropQuery)
+			if err != nil {
+				return fmt.Errorf("failed to drop index: %w", err)
+			}
+
+			// Recreate with optimized parameters
+			_, err = s.mcpClient.CreateHNSWIndex(ctx, indexName, tableName, columnName, map[string]interface{}{
+				"m":              32, // Increase for better recall
+				"ef_construction": 128, // Increase for better quality
+			})
+			return err
+		} else if statusIndexType == "ivf" || indexType == "ivf" {
+			// Tune IVF index
+			dropQuery := fmt.Sprintf("DROP INDEX IF EXISTS %s", indexName)
+			_, err = s.pool.Exec(ctx, dropQuery)
+			if err != nil {
+				return fmt.Errorf("failed to drop index: %w", err)
+			}
+
+			// Recreate with optimized parameters
+			_, err = s.mcpClient.CreateIVFIndex(ctx, indexName, tableName, columnName, map[string]interface{}{
+				"lists": 200, // Increase for larger datasets
+			})
+			return err
+		}
+	}
+
+	return nil
+}

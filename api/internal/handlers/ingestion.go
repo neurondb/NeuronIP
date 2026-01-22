@@ -111,3 +111,71 @@ func (h *IngestionHandler) ExecuteJob(w http.ResponseWriter, r *http.Request) {
 		"status": "accepted",
 	})
 }
+
+/* GetIngestionStatus handles GET /api/v1/ingestion/data-sources/{id}/status */
+func (h *IngestionHandler) GetIngestionStatus(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	dataSourceID, err := uuid.Parse(vars["id"])
+	if err != nil {
+		WriteErrorResponse(w, errors.BadRequest("Invalid data source ID"))
+		return
+	}
+
+	status, err := h.service.GetIngestionStatus(r.Context(), dataSourceID)
+	if err != nil {
+		WriteError(w, err)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(status)
+}
+
+/* GetIngestionFailures handles GET /api/v1/ingestion/failures */
+func (h *IngestionHandler) GetIngestionFailures(w http.ResponseWriter, r *http.Request) {
+	var dataSourceID *uuid.UUID
+	if dsIDStr := r.URL.Query().Get("data_source_id"); dsIDStr != "" {
+		if id, err := uuid.Parse(dsIDStr); err == nil {
+			dataSourceID = &id
+		}
+	}
+
+	limit := 100
+	if limitStr := r.URL.Query().Get("limit"); limitStr != "" {
+		if l, err := strconv.Atoi(limitStr); err == nil && l > 0 {
+			limit = l
+		}
+	}
+
+	failures, err := h.service.GetIngestionFailures(r.Context(), dataSourceID, limit)
+	if err != nil {
+		WriteError(w, err)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(failures)
+}
+
+/* RetryIngestionJob handles POST /api/v1/ingestion/jobs/{id}/retry */
+func (h *IngestionHandler) RetryIngestionJob(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	jobID, err := uuid.Parse(vars["id"])
+	if err != nil {
+		WriteErrorResponse(w, errors.BadRequest("Invalid job ID"))
+		return
+	}
+
+	err = h.service.RetryIngestionJob(r.Context(), jobID)
+	if err != nil {
+		WriteError(w, err)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusAccepted)
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"job_id": jobID,
+		"status": "retrying",
+	})
+}

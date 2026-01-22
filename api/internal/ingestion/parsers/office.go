@@ -3,6 +3,7 @@ package parsers
 import (
 	"archive/zip"
 	"bytes"
+	"encoding/xml"
 	"fmt"
 	"io"
 	"strings"
@@ -72,32 +73,95 @@ func (p *OfficeParser) parseWord(reader io.Reader) (*OfficeContent, error) {
 				continue
 			}
 
-			// Parse XML to extract text (simplified)
-			// In production, use proper DOCX library like github.com/unidoc/unioffice
-			xmlStr := string(xmlData)
-			
-			// Extract text between <w:t> tags (simplified approach)
-			textParts := extractTextFromXML(xmlStr)
-			for _, text := range textParts {
-				if text != "" {
-					fullText.WriteString(text)
-					fullText.WriteString(" ")
+			// Parse XML using proper XML decoder
+			decoder := xml.NewDecoder(bytes.NewReader(xmlData))
+			var currentPara strings.Builder
+			var currentText strings.Builder
+
+			for {
+				token, err := decoder.Token()
+				if err == io.EOF {
+					break
+				}
+				if err != nil {
+					// If XML parsing fails, fall back to string extraction
+					xmlStr := string(xmlData)
+					textParts := extractTextFromXML(xmlStr)
+					for _, text := range textParts {
+						if text != "" {
+							fullText.WriteString(text)
+							fullText.WriteString(" ")
+						}
+					}
+					paragraphs := extractParagraphsFromXML(xmlStr)
+					for _, paraText := range paragraphs {
+						if paraText != "" {
+							sectionLevel++
+							section := SectionContent{
+								Title:   "",
+								Content: paraText,
+								Level:   sectionLevel,
+							}
+							content.Sections = append(content.Sections, section)
+						}
+					}
+					break
+				}
+
+				switch se := token.(type) {
+				case xml.StartElement:
+					// Handle paragraph start
+					if se.Name.Local == "p" || se.Name.Space == "http://schemas.openxmlformats.org/wordprocessingml/2006/main" && se.Name.Local == "p" {
+						if currentPara.Len() > 0 {
+							sectionLevel++
+							section := SectionContent{
+								Title:   "",
+								Content: strings.TrimSpace(currentPara.String()),
+								Level:   sectionLevel,
+							}
+							content.Sections = append(content.Sections, section)
+							currentPara.Reset()
+						}
+					}
+				case xml.CharData:
+					// Extract text content
+					text := strings.TrimSpace(string(se))
+					if text != "" {
+						currentText.WriteString(text)
+						currentText.WriteString(" ")
+						currentPara.WriteString(text)
+						currentPara.WriteString(" ")
+					}
+				case xml.EndElement:
+					// Handle paragraph end
+					if se.Name.Local == "p" || se.Name.Space == "http://schemas.openxmlformats.org/wordprocessingml/2006/main" && se.Name.Local == "p" {
+						if currentPara.Len() > 0 {
+							sectionLevel++
+							section := SectionContent{
+								Title:   "",
+								Content: strings.TrimSpace(currentPara.String()),
+								Level:   sectionLevel,
+							}
+							content.Sections = append(content.Sections, section)
+							currentPara.Reset()
+						}
+					}
 				}
 			}
 
-			// Create sections from paragraphs
-			paragraphs := extractParagraphsFromXML(xmlStr)
-			for _, paraText := range paragraphs {
-				if paraText != "" {
-					sectionLevel++
-					section := SectionContent{
-						Title:   "",
-						Content: paraText,
-						Level:   sectionLevel,
-					}
-					content.Sections = append(content.Sections, section)
+			// Add remaining paragraph if any
+			if currentPara.Len() > 0 {
+				sectionLevel++
+				section := SectionContent{
+					Title:   "",
+					Content: strings.TrimSpace(currentPara.String()),
+					Level:   sectionLevel,
 				}
+				content.Sections = append(content.Sections, section)
 			}
+
+			// Add all extracted text
+			fullText.WriteString(strings.TrimSpace(currentText.String()))
 		}
 
 		// Extract metadata from core.xml
@@ -115,7 +179,7 @@ func (p *OfficeParser) parseWord(reader io.Reader) (*OfficeContent, error) {
 	return content, nil
 }
 
-/* extractTextFromXML extracts text from DOCX XML */
+/* extractTextFromXML extracts text from DOCX XML (fallback method) */
 func extractTextFromXML(xmlStr string) []string {
 	var texts []string
 	// Simple text extraction between <w:t> tags
@@ -123,23 +187,47 @@ func extractTextFromXML(xmlStr string) []string {
 	for {
 		startIdx := strings.Index(xmlStr[start:], "<w:t>")
 		if startIdx == -1 {
-			break
+			// Try without namespace
+			startIdx = strings.Index(xmlStr[start:], "<t>")
+			if startIdx == -1 {
+				break
+			}
+			startIdx += start
+			endIdx := strings.Index(xmlStr[startIdx:], "</t>")
+			if endIdx == -1 {
+				break
+			}
+			text := xmlStr[startIdx+3 : startIdx+endIdx]
+			text = unescapeXML(text)
+			texts = append(texts, text)
+			start = startIdx + endIdx + 4
+			continue
 		}
 		startIdx += start
 		endIdx := strings.Index(xmlStr[startIdx:], "</w:t>")
 		if endIdx == -1 {
-			break
+			// Try without namespace
+			endIdx = strings.Index(xmlStr[startIdx:], "</t>")
+			if endIdx == -1 {
+				break
+			}
 		}
 		text := xmlStr[startIdx+5 : startIdx+endIdx]
-		// Unescape XML entities
-		text = strings.ReplaceAll(text, "&amp;", "&")
-		text = strings.ReplaceAll(text, "&lt;", "<")
-		text = strings.ReplaceAll(text, "&gt;", ">")
-		text = strings.ReplaceAll(text, "&quot;", "\"")
+		text = unescapeXML(text)
 		texts = append(texts, text)
 		start = startIdx + endIdx + 7
 	}
 	return texts
+}
+
+/* unescapeXML unescapes XML entities */
+func unescapeXML(s string) string {
+	s = strings.ReplaceAll(s, "&amp;", "&")
+	s = strings.ReplaceAll(s, "&lt;", "<")
+	s = strings.ReplaceAll(s, "&gt;", ">")
+	s = strings.ReplaceAll(s, "&quot;", "\"")
+	s = strings.ReplaceAll(s, "&apos;", "'")
+	return s
 }
 
 /* extractParagraphsFromXML extracts paragraphs from DOCX XML */
@@ -168,22 +256,76 @@ func extractParagraphsFromXML(xmlStr string) []string {
 
 /* extractMetadataFromXML extracts metadata from DOCX core.xml */
 func extractMetadataFromXML(xmlStr string, metadata map[string]interface{}) {
-	// Extract common metadata fields
-	metadataFields := map[string]string{
-		"dc:title":   "title",
-		"dc:creator": "author",
-		"dc:subject": "subject",
-		"cp:keywords": "keywords",
-	}
+	// Use proper XML parsing for metadata
+	decoder := xml.NewDecoder(strings.NewReader(xmlStr))
 	
-	for xmlKey, metaKey := range metadataFields {
-		startIdx := strings.Index(xmlStr, "<"+xmlKey+">")
-		if startIdx > 0 {
-			startIdx += len(xmlKey) + 2
-			endIdx := strings.Index(xmlStr[startIdx:], "</"+xmlKey+">")
-			if endIdx > 0 {
-				value := xmlStr[startIdx : startIdx+endIdx]
-				metadata[metaKey] = value
+	for {
+		token, err := decoder.Token()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			// Fallback to string parsing
+			metadataFields := map[string]string{
+				"dc:title":   "title",
+				"dc:creator": "author",
+				"dc:subject": "subject",
+				"cp:keywords": "keywords",
+			}
+			
+			for xmlKey, metaKey := range metadataFields {
+				startIdx := strings.Index(xmlStr, "<"+xmlKey+">")
+				if startIdx > 0 {
+					startIdx += len(xmlKey) + 2
+					endIdx := strings.Index(xmlStr[startIdx:], "</"+xmlKey+">")
+					if endIdx > 0 {
+						value := xmlStr[startIdx : startIdx+endIdx]
+						metadata[metaKey] = unescapeXML(value)
+					}
+				}
+			}
+			break
+		}
+
+		switch se := token.(type) {
+		case xml.StartElement:
+			var metaKey string
+			switch se.Name.Local {
+			case "title":
+				if se.Name.Space == "http://purl.org/dc/elements/1.1/" {
+					metaKey = "title"
+				}
+			case "creator":
+				if se.Name.Space == "http://purl.org/dc/elements/1.1/" {
+					metaKey = "author"
+				}
+			case "subject":
+				if se.Name.Space == "http://purl.org/dc/elements/1.1/" {
+					metaKey = "subject"
+				}
+			case "keywords":
+				if se.Name.Space == "http://schemas.openxmlformats.org/package/2006/metadata/core-properties" {
+					metaKey = "keywords"
+				}
+			}
+			
+			if metaKey != "" {
+				var value strings.Builder
+				for {
+					token, err := decoder.Token()
+					if err != nil {
+						break
+					}
+					if cd, ok := token.(xml.CharData); ok {
+						value.Write(cd)
+					}
+					if _, ok := token.(xml.EndElement); ok {
+						break
+					}
+				}
+				if value.Len() > 0 {
+					metadata[metaKey] = strings.TrimSpace(value.String())
+				}
 			}
 		}
 	}

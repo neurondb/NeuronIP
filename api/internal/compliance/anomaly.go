@@ -96,6 +96,24 @@ func (s *AnomalyService) calculateAnomalyScore(data map[string]interface{}) floa
 	// If anomaly class is detected, return high score
 	// Convert JSON to string for the client method
 	dataStr := string(dataJSON)
+	// Use NeuronDB DetectOutliers for better anomaly detection
+	if tableName, ok := data["_table_name"].(string); ok {
+		featureColumns := []string{}
+		for k := range data {
+			if k != "_table_name" && k != "_target_column" {
+				featureColumns = append(featureColumns, k)
+			}
+		}
+		if len(featureColumns) > 0 {
+			outliers, err := s.neurondbClient.DetectOutliers(ctx, tableName, featureColumns, "isolation_forest")
+			if err == nil && len(outliers) > 0 {
+				// Return high anomaly score if outliers detected
+				return 1.0
+			}
+		}
+	}
+
+	// Fallback to classification-based detection
 	result, err := s.neurondbClient.Classify(ctx, dataStr, "anomaly-detector")
 	
 	if err == nil && result != nil {

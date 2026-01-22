@@ -8,16 +8,26 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/neurondb/NeuronIP/api/internal/neurondb"
 )
 
 /* PipelineService provides versioned pipeline management */
 type PipelineService struct {
-	pool *pgxpool.Pool
+	pool           *pgxpool.Pool
+	neurondbClient *neurondb.Client
 }
 
 /* NewPipelineService creates a new pipeline service */
 func NewPipelineService(pool *pgxpool.Pool) *PipelineService {
 	return &PipelineService{pool: pool}
+}
+
+/* NewPipelineServiceWithClient creates a new pipeline service with NeuronDB client */
+func NewPipelineServiceWithClient(pool *pgxpool.Pool, neurondbClient *neurondb.Client) *PipelineService {
+	return &PipelineService{
+		pool:           pool,
+		neurondbClient: neurondbClient,
+	}
 }
 
 /* Pipeline represents a versioned chunking/embedding pipeline */
@@ -173,9 +183,48 @@ func (s *PipelineService) ReplayPipeline(ctx context.Context, documentIDs []uuid
 		chunks := ChunkText(content, newPipeline.ChunkingConfig)
 
 		// Regenerate embeddings with new model
-		// This would call the embedding service
-		// For now, placeholder
-		_ = chunks
+		modelName := newPipeline.EmbeddingModel
+		if modelName == "" {
+			modelName = "sentence-transformers/all-MiniLM-L6-v2" // Default model
+		}
+		
+		// Generate embeddings for each chunk
+		for chunkIdx, chunk := range chunks {
+			var embedding string
+			var err error
+			
+			// Use NeuronDB client if available, otherwise use SQL function
+			if s.neurondbClient != nil {
+				embedding, err = s.neurondbClient.GenerateEmbedding(ctx, chunk, modelName)
+				if err != nil {
+					// Log error but continue with other chunks
+					continue
+				}
+			} else {
+				// Fallback: use PostgreSQL embedding function if available
+				// This requires pgvector extension with embedding functions
+				embedQuery := `SELECT neurondb_embed($1, $2)`
+				err = s.pool.QueryRow(ctx, embedQuery, chunk, modelName).Scan(&embedding)
+				if err != nil {
+					// If embedding function not available, skip this chunk
+					continue
+				}
+			}
+			
+			// Store embedding
+			embeddingID := uuid.New()
+			insertEmbeddingQuery := `
+				INSERT INTO neuronip.knowledge_embeddings 
+				(id, document_id, chunk_index, chunk_text, embedding, embedding_model, created_at)
+				VALUES ($1, $2, $3, $4, $5::vector, $6, NOW())
+			`
+			_, err = s.pool.Exec(ctx, insertEmbeddingQuery,
+				embeddingID, docID, chunkIdx, chunk, embedding, modelName)
+			if err != nil {
+				// Log error but continue
+				continue
+			}
+		}
 	}
 
 	// Record replay

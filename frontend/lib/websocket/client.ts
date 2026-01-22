@@ -1,129 +1,148 @@
-type MessageHandler = (data: unknown) => void
+import { WebSocketConfig, WebSocketMessage, WebSocketStatus } from './types'
 
-class WebSocketClient {
+export class WebSocketClient {
   private ws: WebSocket | null = null
-  private url: string
+  private config: WebSocketConfig
+  private status: WebSocketStatus = 'disconnected'
   private reconnectAttempts = 0
-  private maxReconnectAttempts = 10
-  private reconnectDelay = 1000
-  private handlers: Map<string, MessageHandler[]> = new Map()
-  private isConnected = false
+  private reconnectTimer: NodeJS.Timeout | null = null
+  private messageQueue: WebSocketMessage[] = []
+  private listeners: Map<string, Set<(message: WebSocketMessage) => void>> = new Map()
 
-  constructor(url: string) {
-    this.url = url
+  constructor(config: WebSocketConfig) {
+    this.config = {
+      reconnectInterval: 3000,
+      maxReconnectAttempts: 10,
+      ...config,
+    }
   }
 
   connect(): void {
+    if (this.ws?.readyState === WebSocket.OPEN) {
+      return
+    }
+
+    this.status = 'connecting'
     try {
-      this.ws = new WebSocket(this.url)
+      this.ws = new WebSocket(this.config.url)
 
       this.ws.onopen = () => {
-        this.isConnected = true
+        this.status = 'connected'
         this.reconnectAttempts = 0
-        this.emit('connected', {})
+        this.config.onConnect?.()
+        this.flushMessageQueue()
       }
 
       this.ws.onmessage = (event) => {
         try {
-          const data = JSON.parse(event.data)
-          const { type, payload } = data
-          this.emit(type, payload)
+          const message: WebSocketMessage = JSON.parse(event.data)
+          this.handleMessage(message)
         } catch (error) {
           console.error('Failed to parse WebSocket message:', error)
         }
       }
 
       this.ws.onerror = (error) => {
-        console.error('WebSocket error:', error)
-        this.emit('error', error)
+        this.status = 'error'
+        this.config.onError?.(error)
       }
 
       this.ws.onclose = () => {
-        this.isConnected = false
-        this.emit('disconnected', {})
-        this.reconnect()
+        this.status = 'disconnected'
+        this.config.onDisconnect?.()
+        this.attemptReconnect()
       }
     } catch (error) {
-      console.error('Failed to connect WebSocket:', error)
-      this.reconnect()
-    }
-  }
-
-  private reconnect(): void {
-    if (this.reconnectAttempts >= this.maxReconnectAttempts) {
-      console.error('Max reconnection attempts reached')
-      return
-    }
-
-    this.reconnectAttempts++
-    const delay = this.reconnectDelay * Math.pow(2, this.reconnectAttempts - 1)
-
-    setTimeout(() => {
-      console.log(`Reconnecting... (attempt ${this.reconnectAttempts})`)
-      this.connect()
-    }, delay)
-  }
-
-  private emit(type: string, payload: unknown): void {
-    const handlers = this.handlers.get(type) || []
-    handlers.forEach((handler) => handler(payload))
-  }
-
-  on(type: string, handler: MessageHandler): () => void {
-    if (!this.handlers.has(type)) {
-      this.handlers.set(type, [])
-    }
-    this.handlers.get(type)!.push(handler)
-
-    // Return unsubscribe function
-    return () => {
-      const handlers = this.handlers.get(type) || []
-      const index = handlers.indexOf(handler)
-      if (index > -1) {
-        handlers.splice(index, 1)
-      }
-    }
-  }
-
-  send(type: string, payload: unknown): void {
-    if (this.ws && this.isConnected) {
-      this.ws.send(JSON.stringify({ type, payload }))
-    } else {
-      console.warn('WebSocket not connected')
+      this.status = 'error'
+      this.config.onError?.(error as Event)
+      this.attemptReconnect()
     }
   }
 
   disconnect(): void {
-    if (this.ws) {
-      this.ws.close()
-      this.ws = null
+    if (this.reconnectTimer) {
+      clearTimeout(this.reconnectTimer)
+      this.reconnectTimer = null
     }
-    this.handlers.clear()
+    this.ws?.close()
+    this.ws = null
+    this.status = 'disconnected'
   }
 
-  getConnected(): boolean {
-    return this.isConnected
+  send(message: WebSocketMessage): void {
+    if (this.ws?.readyState === WebSocket.OPEN) {
+      this.ws.send(JSON.stringify(message))
+    } else {
+      this.messageQueue.push(message)
+    }
+  }
+
+  subscribe(type: string, callback: (message: WebSocketMessage) => void): () => void {
+    if (!this.listeners.has(type)) {
+      this.listeners.set(type, new Set())
+    }
+    this.listeners.get(type)!.add(callback)
+
+    return () => {
+      this.listeners.get(type)?.delete(callback)
+    }
+  }
+
+  getStatus(): WebSocketStatus {
+    return this.status
+  }
+
+  private handleMessage(message: WebSocketMessage): void {
+    this.config.onMessage?.(message)
+
+    // Notify type-specific listeners
+    const typeListeners = this.listeners.get(message.type)
+    if (typeListeners) {
+      typeListeners.forEach((callback) => callback(message))
+    }
+
+    // Notify wildcard listeners
+    const wildcardListeners = this.listeners.get('*')
+    if (wildcardListeners) {
+      wildcardListeners.forEach((callback) => callback(message))
+    }
+  }
+
+  private flushMessageQueue(): void {
+    while (this.messageQueue.length > 0 && this.ws?.readyState === WebSocket.OPEN) {
+      const message = this.messageQueue.shift()
+      if (message) {
+        this.ws.send(JSON.stringify(message))
+      }
+    }
+  }
+
+  private attemptReconnect(): void {
+    if (
+      this.reconnectAttempts >= (this.config.maxReconnectAttempts || 10) ||
+      this.reconnectTimer
+    ) {
+      return
+    }
+
+    this.reconnectAttempts++
+    this.reconnectTimer = setTimeout(() => {
+      this.reconnectTimer = null
+      this.connect()
+    }, this.config.reconnectInterval)
   }
 }
 
-// Singleton instance
-let wsClient: WebSocketClient | null = null
+let globalClient: WebSocketClient | null = null
 
-export function getWebSocketClient(url?: string): WebSocketClient {
-  if (!wsClient && url) {
-    wsClient = new WebSocketClient(url)
-    wsClient.connect()
+export function createWebSocketClient(config: WebSocketConfig): WebSocketClient {
+  if (globalClient) {
+    globalClient.disconnect()
   }
-  if (!wsClient) {
-    throw new Error('WebSocket client not initialized')
-  }
-  return wsClient
+  globalClient = new WebSocketClient(config)
+  return globalClient
 }
 
-export function createWebSocketClient(url: string): WebSocketClient {
-  const client = new WebSocketClient(url)
-  client.connect()
-  return client
+export function getWebSocketClient(): WebSocketClient | null {
+  return globalClient
 }
-
-export default WebSocketClient

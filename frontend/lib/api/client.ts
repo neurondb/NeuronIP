@@ -15,14 +15,22 @@ const apiClient: AxiosInstance = axios.create({
   headers: {
     'Content-Type': 'application/json',
   },
+  withCredentials: true, // Support cookie-based authentication
 })
 
 // Request interceptor for auth token
 apiClient.interceptors.request.use(
   (config) => {
+    // Support both cookie-based (credentials: 'include') and API key auth
+    // Cookies are sent automatically with credentials: 'include'
+    // API key is added as fallback
     const token = typeof window !== 'undefined' ? localStorage.getItem('api_token') : null
     if (token) {
       config.headers.Authorization = `Bearer ${token}`
+    }
+    // Always include credentials for cookie-based auth
+    if (typeof window !== 'undefined') {
+      config.withCredentials = true
     }
     return config
   },

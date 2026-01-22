@@ -3,6 +3,8 @@
 import { useEffect } from 'react'
 import Button from '@/components/ui/Button'
 
+export const dynamic = 'force-dynamic'
+
 export default function Error({
   error,
   reset,
@@ -15,11 +17,16 @@ export default function Error({
   }, [error])
 
   return (
-    <div className="flex min-h-screen items-center justify-center">
-      <div className="text-center space-y-4">
+    <div className="flex min-h-screen items-center justify-center p-4">
+      <div className="text-center space-y-4 max-w-md">
         <h2 className="text-2xl font-bold">Something went wrong!</h2>
-        <p className="text-muted-foreground">{error.message}</p>
-        <Button onClick={reset}>Try again</Button>
+        <p className="text-muted-foreground">{error.message || 'An unexpected error occurred'}</p>
+        {error.digest && (
+          <p className="text-xs text-muted-foreground">Error ID: {error.digest}</p>
+        )}
+        <div className="pt-4">
+          <Button onClick={reset}>Try again</Button>
+        </div>
       </div>
     </div>
   )

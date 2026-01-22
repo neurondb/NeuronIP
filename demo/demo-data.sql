@@ -51,14 +51,48 @@ ON CONFLICT (user_id) DO NOTHING;
 -- SECTION 2: DATA SOURCES AND WAREHOUSE SCHEMAS
 -- ============================================================================
 
--- Insert data sources (must be inserted before ingestion_jobs due to foreign key)
-INSERT INTO neuronip.data_sources (id, name, source_type, connection_string, enabled, last_accessed_at, created_at, updated_at) VALUES
-('660e8400-e29b-41d4-a716-446655440000', 'Production PostgreSQL', 'postgresql', 'postgresql://prod-db.acmecorp.com:5432/analytics', true, NOW() - INTERVAL '10 minutes', NOW() - INTERVAL '60 days', NOW() - INTERVAL '10 minutes'),
-('660e8400-e29b-41d4-a716-446655440001', 'Customer Data Warehouse', 'postgresql', 'postgresql://warehouse.acmecorp.com:5432/customer_data', true, NOW() - INTERVAL '5 minutes', NOW() - INTERVAL '45 days', NOW() - INTERVAL '5 minutes'),
-('660e8400-e29b-41d4-a716-446655440002', 'Salesforce API', 'api', 'https://api.salesforce.com/v1', true, NOW() - INTERVAL '1 hour', NOW() - INTERVAL '30 days', NOW() - INTERVAL '1 hour'),
-('660e8400-e29b-41d4-a716-446655440003', 'Marketing Analytics DB', 'mysql', 'mysql://marketing-db.acmecorp.com:3306/marketing', true, NOW() - INTERVAL '2 hours', NOW() - INTERVAL '20 days', NOW() - INTERVAL '2 hours'),
-('660e8400-e29b-41d4-a716-446655440004', 'Product Database', 'postgresql', 'postgresql://product-db.acmecorp.com:5432/products', true, NOW() - INTERVAL '30 minutes', NOW() - INTERVAL '15 days', NOW() - INTERVAL '30 minutes')
-ON CONFLICT (name) DO NOTHING;
+-- Insert data sources (using correct table structure: type, status, config)
+INSERT INTO neuronip.data_sources (id, name, type, config, status, connector_type, connector_config, created_at, updated_at) VALUES
+('660e8400-e29b-41d4-a716-446655440000', 'Production PostgreSQL', 'postgresql', 
+ '{"host": "prod-db.acmecorp.com", "port": 5432, "database": "analytics"}'::jsonb, 
+ 'active', 'postgresql', '{"ssl_mode": "require"}'::jsonb, 
+ NOW() - INTERVAL '60 days', NOW() - INTERVAL '10 minutes'),
+
+('660e8400-e29b-41d4-a716-446655440001', 'Customer Data Warehouse', 'postgresql',
+ '{"host": "warehouse.acmecorp.com", "port": 5432, "database": "customer_data"}'::jsonb,
+ 'active', 'postgresql', '{"ssl_mode": "require", "pool_size": 10}'::jsonb,
+ NOW() - INTERVAL '45 days', NOW() - INTERVAL '5 minutes'),
+
+('660e8400-e29b-41d4-a716-446655440002', 'Salesforce API', 'api',
+ '{"endpoint": "https://api.salesforce.com/v1", "api_version": "v58.0"}'::jsonb,
+ 'active', 'salesforce', '{"auth_type": "oauth2"}'::jsonb,
+ NOW() - INTERVAL '30 days', NOW() - INTERVAL '1 hour'),
+
+('660e8400-e29b-41d4-a716-446655440003', 'Marketing Analytics DB', 'mysql',
+ '{"host": "marketing-db.acmecorp.com", "port": 3306, "database": "marketing"}'::jsonb,
+ 'active', 'mysql', '{"charset": "utf8mb4"}'::jsonb,
+ NOW() - INTERVAL '20 days', NOW() - INTERVAL '2 hours'),
+
+('660e8400-e29b-41d4-a716-446655440004', 'Product Database', 'postgresql',
+ '{"host": "product-db.acmecorp.com", "port": 5432, "database": "products"}'::jsonb,
+ 'active', 'postgresql', '{"ssl_mode": "prefer"}'::jsonb,
+ NOW() - INTERVAL '15 days', NOW() - INTERVAL '30 minutes'),
+
+('660e8400-e29b-41d4-a716-446655440005', 'Amazon S3 Data Lake', 's3',
+ '{"bucket": "acmecorp-data-lake", "region": "us-east-1", "prefix": "raw/"}'::jsonb,
+ 'active', 's3', '{"encryption": "AES256"}'::jsonb,
+ NOW() - INTERVAL '10 days', NOW() - INTERVAL '15 minutes'),
+
+('660e8400-e29b-41d4-a716-446655440006', 'Snowflake Warehouse', 'snowflake',
+ '{"account": "acmecorp", "warehouse": "ANALYTICS_WH", "database": "PROD"}'::jsonb,
+ 'active', 'snowflake', '{"role": "ANALYST"}'::jsonb,
+ NOW() - INTERVAL '8 days', NOW() - INTERVAL '5 minutes'),
+
+('660e8400-e29b-41d4-a716-446655440007', 'Google BigQuery', 'bigquery',
+ '{"project_id": "acmecorp-analytics", "dataset": "production"}'::jsonb,
+ 'active', 'bigquery', '{"location": "US"}'::jsonb,
+ NOW() - INTERVAL '5 days', NOW() - INTERVAL '1 minute')
+ON CONFLICT DO NOTHING;
 
 -- Insert warehouse schemas
 INSERT INTO neuronip.warehouse_schemas (id, schema_name, database_name, description, tables, last_synced_at, created_at, updated_at) VALUES

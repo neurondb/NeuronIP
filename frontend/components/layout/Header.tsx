@@ -29,16 +29,24 @@ export default function Header() {
     setTheme(theme === 'dark' ? 'light' : 'dark')
   }
 
-  const handleLogout = () => {
-    // Clear authentication token
+  const handleLogout = async () => {
+    // Call logout API to clear server-side session
+    try {
+      const { logout } = await import('@/lib/auth')
+      await logout()
+    } catch (error) {
+      console.error('Logout error:', error)
+    }
+    
+    // Clear any other stored user data
     if (typeof window !== 'undefined') {
-      localStorage.removeItem('api_token')
-      // Clear any other stored user data
       localStorage.removeItem('user')
       localStorage.removeItem('user_preferences')
+      localStorage.removeItem('selected_database')
     }
-    // Redirect to home/login page
-    router.push('/')
+    
+    // Redirect to login page
+    router.push('/login')
     router.refresh()
   }
 
