@@ -122,59 +122,76 @@ NeuronIP is a comprehensive enterprise intelligence platform that combines multi
 ```
 docs/
 ├── README.md                    # This file - Documentation index
-├── getting-started.md          # Quick start guide
-├── architecture/              # Architecture documentation
+├── getting-started.md           # Quick start guide
+├── authentication.md            # API key & login flow
+├── authentication-session.md    # Session details
+├── FEATURE_MAP.md               # Module → UI → API → migrations map
+├── UX_MAP.md                    # Dashboard routes & page archetypes
+├── implementation-status.md     # Implementation phases status
+├── IMPLEMENTATION-COMPLETE.md   # Completion summary
+├── ENTERPRISE_FEATURES_IMPLEMENTATION.md
+├── neurondb-capability-audit.md # NeuronDB capability audit
+├── architecture/                # Architecture documentation
 │   ├── README.md
 │   ├── overview.md
 │   ├── backend.md
 │   ├── frontend.md
 │   ├── database.md
-│   └── data-flow.md
-├── api/                       # API documentation
+│   ├── data-flow.md
+│   └── request-flow.md          # Request/response lifecycle & middleware order
+├── api/                         # API documentation
 │   ├── README.md
 │   ├── overview.md
 │   ├── endpoints.md
 │   ├── authentication.md
 │   └── rate-limiting.md
-├── features/                  # Feature documentation
+├── features/                    # Feature documentation
 │   ├── semantic-search.md
 │   ├── warehouse-qa.md
 │   ├── support-memory.md
 │   ├── compliance.md
-│   └── agent-workflows.md
-├── development/               # Development guides
+│   ├── agent-workflows.md
+│   └── (see Features section for full list)
+├── development/                 # Development guides
 │   ├── setup.md
 │   ├── contributing.md
 │   ├── coding-standards.md
 │   ├── testing.md
-│   └── debugging.md
-├── deployment/                # Deployment guides
+│   ├── debugging.md
+│   ├── error-handling.md
+│   ├── validation.md
+│   ├── wizards.md
+│   └── neurondb-local-dev.md
+├── deployment/                  # Deployment guides
 │   ├── docker.md
 │   ├── packaging.md
 │   ├── production.md
 │   ├── kubernetes.md
-│   └── monitoring.md
-├── integrations/              # Integration guides
+│   ├── monitoring.md
+│   └── multi-region.md
+├── competitive-analysis/        # Competitive analysis & status
+│   └── README.md (+ comparison, gap analysis, etc.)
+├── integrations/                # Integration guides
 │   ├── neurondb.md
 │   ├── neuronagent.md
 │   ├── neuronmcp.md
 │   └── custom-integrations.md
-├── security/                   # Security documentation
+├── security/                    # Security documentation
 │   ├── overview.md
 │   ├── authentication.md
 │   ├── authorization.md
 │   └── data-protection.md
-├── tutorials/                 # Tutorials and examples
+├── tutorials/                   # Tutorials and examples
 │   ├── quick-start-tutorial.md
 │   ├── semantic-search-tutorial.md
 │   ├── warehouse-qa-tutorial.md
 │   ├── agent-workflow-tutorial.md
 │   └── api-integration-tutorial.md
-├── troubleshooting/           # Troubleshooting guides
+├── troubleshooting/             # Troubleshooting guides
 │   ├── common-issues.md
 │   ├── performance.md
 │   └── errors.md
-└── reference/                  # Reference documentation
+└── reference/                   # Reference documentation
     ├── configuration.md
     ├── environment-variables.md
     ├── database-schema.md
@@ -184,6 +201,8 @@ docs/
 ---
 
 ## 🚀 Getting Started
+
+**Quick start:** To run the stack: [QUICK-START.md](../QUICK-START.md). To load demo data: [demo/QUICK-START.md](../demo/QUICK-START.md).
 
 New to NeuronIP? Start here:
 
@@ -211,6 +230,7 @@ Understand how NeuronIP is built:
 - **[Frontend Architecture](architecture/frontend.md)** - Next.js components and structure
 - **[Database Design](architecture/database.md)** - Schema and data modeling
 - **[Data Flow](architecture/data-flow.md)** - How data moves through the system
+- **[Request Flow](architecture/request-flow.md)** - Request/response lifecycle and middleware order
 
 ---
 
@@ -298,6 +318,17 @@ Build and execute complex workflows with AI agents and long-term memory.
 - Workflow templates and reuse
 - Scheduled execution
 - Monitoring and observability
+
+### Additional feature guides
+
+- **[Clustering](features/clustering.md)** - Multi-node clustering, Raft, sharding, task queue
+- **[Streaming & CDC](features/streaming-and-cdc.md)** - Real-time streaming and change data capture
+- **[ML Lifecycle & Models](features/ml-lifecycle-and-models.md)** - Model registry, governance, prompts
+- **[Notion UI: Blocks & Databases](features/notion-ui-blocks-databases.md)** - Notion-like blocks and databases
+- **[Workload & Data Products](features/workload-and-data-products.md)** - Workload management and data products
+- **[Decision Dashboards & ITSM](features/decision-dashboards-and-itsm.md)** - Decision dashboards and ITSM integration
+- **[Notebooks](features/notebooks.md)** - Collaborative notebooks
+- **[Onboarding & Partners](features/onboarding-and-partners.md)** - Onboarding flows and partner ecosystem
 
 ### 📊 Data Governance & Lineage
 
@@ -476,6 +507,8 @@ Security documentation:
 - **[Authorization](security/authorization.md)** - RBAC and permissions
 - **[Data Protection](security/data-protection.md)** - Encryption and privacy
 
+**Authentication docs (by topic):** [API key & login flow](authentication.md) | [Session details](authentication-session.md) | [API auth & tokens](api/authentication.md) | [Security auth](security/authentication.md)
+
 > 🔒 **Security Note**: Always use HTTPS in production and keep your API keys secure.
 
 ---
@@ -515,7 +548,7 @@ Reference documentation:
 
 ## 🤝 Contributing
 
-We welcome contributions! See our [Contributing Guide](development/contributing.md) for details.
+We welcome contributions! See our [Contributing Guide](development/contributing.md) for details. For repo-wide guidelines, see [CONTRIBUTING.md](../CONTRIBUTING.md).
 
 ### Quick Contribution Checklist
 
@@ -534,6 +567,7 @@ Need help?
 - 📖 Check the [Troubleshooting Guide](troubleshooting/common-issues.md)
 - 💬 Open an issue on GitHub
 - 📧 Contact support: support@neurondb.ai
+- 🔒 For security issues, see [SECURITY.md](../SECURITY.md)
 
 ---
 

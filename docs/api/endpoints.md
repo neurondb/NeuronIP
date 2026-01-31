@@ -29,6 +29,29 @@
 - [Billing](#billing)
 - [Versioning](#versioning)
 - [Catalog](#catalog)
+- [Ingestion](#-ingestion)
+- [Data Quality](#-data-quality)
+- [Data Profiling](#-data-profiling)
+- [Data Classification](#-data-classification)
+- [Column Lineage](#-column-lineage)
+- [SSO (Single Sign-On)](#-sso-single-sign-on)
+- [Comments](#-comments)
+- [Ownership](#-ownership)
+- [Connectors](#-connectors)
+- [Backup & Recovery](#-backup--recovery)
+- [Multi-Region](#-multi-region)
+- [Privacy & Compliance](#-privacy--compliance)
+- [Auth](#-auth)
+- [API Keys](#-api-keys)
+- [Blocks](#-blocks)
+- [Databases (Notion UI)](#-databases-notion-ui)
+- [Quotas](#-quotas)
+- [Governance RLS](#-governance-rls)
+- [Webhooks](#-webhooks)
+- [Alerts](#-alerts)
+- [Models & Prompts (Governance)](#-models--prompts-governance)
+- [Integrations](#-integrations)
+- [Policies](#-policies)
 
 ---
 
@@ -1109,6 +1132,348 @@ List masking policies.
 ### POST `/api/v1/masking/apply`
 
 Apply masking to data.
+
+---
+
+## 🔐 Auth
+
+Authentication and session management. **Authentication required** (except login/register).
+
+### POST `/api/v1/auth/login`
+
+Authenticate with credentials and receive a token.
+
+### POST `/api/v1/auth/register`
+
+Register a new user.
+
+### GET `/api/v1/auth/me`
+
+Get current authenticated user.
+
+### POST `/api/v1/auth/logout`
+
+Invalidate current session.
+
+### POST `/api/v1/auth/refresh`
+
+Refresh access token.
+
+### GET `/api/v1/auth/oidc/{provider}/initiate`
+
+Initiate OIDC login flow for a provider.
+
+### GET `/api/v1/auth/oidc/{provider}/callback`
+
+OIDC callback after provider authentication.
+
+### POST `/api/v1/auth/2fa/generate`
+
+Generate two-factor authentication secret.
+
+### GET `/api/v1/auth/sessions`
+
+List active sessions for the current user.
+
+---
+
+## 🔑 API Keys
+
+Create and manage API keys for programmatic access. **Authentication required.**
+
+### POST `/api/v1/api-keys`
+
+Create a new API key.
+
+### GET `/api/v1/api-keys/{id}`
+
+Get API key metadata (key value is only returned on create).
+
+### POST `/api/v1/api-keys/{id}/rotate`
+
+Rotate an existing API key.
+
+### GET `/api/v1/api-keys/{id}/usage`
+
+Get usage statistics for an API key.
+
+### POST `/api/v1/api-keys/{id}/revoke`
+
+Revoke an API key.
+
+---
+
+## 📦 Blocks
+
+Notion-like content blocks. **Authentication required.**
+
+### POST `/api/v1/blocks`
+
+Create a block.
+
+### GET `/api/v1/blocks/{id}`
+
+Get a block by ID.
+
+### PUT `/api/v1/blocks/{id}`
+
+Update a block.
+
+### DELETE `/api/v1/blocks/{id}`
+
+Delete a block.
+
+### POST `/api/v1/blocks/reorder`
+
+Reorder blocks (e.g. within a page).
+
+---
+
+## 🗄️ Databases (Notion UI)
+
+Notion-style databases (tables with views). **Authentication required.**
+
+### POST `/api/v1/databases`
+
+Create a database.
+
+### GET `/api/v1/databases`
+
+List databases.
+
+### GET `/api/v1/databases/{id}`
+
+Get a database by ID.
+
+### PUT `/api/v1/databases/{id}`
+
+Update a database.
+
+### DELETE `/api/v1/databases/{id}`
+
+Delete a database.
+
+### GET `/api/v1/databases/{id}/rows`
+
+Get rows in a database.
+
+### POST `/api/v1/databases/{id}/rows`
+
+Create a row.
+
+### GET `/api/v1/databases/view-preferences`
+
+Get view preferences for databases.
+
+---
+
+## 📊 Quotas
+
+Tenancy and usage quotas. **Authentication required.**
+
+### POST `/api/v1/quotas/set`
+
+Set quota for a resource or tenant.
+
+### GET `/api/v1/quotas/list`
+
+List quotas.
+
+### POST `/api/v1/quotas/check`
+
+Check quota usage/availability.
+
+---
+
+## 🛡️ Governance RLS
+
+Row-level security policies. **Authentication required.**
+
+### GET `/api/v1/governance/rls/policies`
+
+List RLS policies.
+
+### POST `/api/v1/governance/rls/policies`
+
+Create an RLS policy.
+
+---
+
+## 🔔 Webhooks
+
+Event-driven webhooks. **Authentication required.**
+
+### POST `/api/v1/webhooks`
+
+Create a webhook.
+
+### GET `/api/v1/webhooks`
+
+List webhooks.
+
+### GET `/api/v1/webhooks/{id}`
+
+Get a webhook.
+
+### PUT `/api/v1/webhooks/{id}`
+
+Update a webhook.
+
+### DELETE `/api/v1/webhooks/{id}`
+
+Delete a webhook.
+
+### POST `/api/v1/webhooks/trigger`
+
+Trigger a webhook (e.g. for testing).
+
+---
+
+## 🚨 Alerts
+
+Alerts and alert rules. **Authentication required.**
+
+### POST `/api/v1/alerts/check`
+
+Run alert checks.
+
+### GET `/api/v1/alerts`
+
+List alerts.
+
+### POST `/api/v1/alerts/{id}/resolve`
+
+Resolve an alert.
+
+### POST `/api/v1/alerts/rules`
+
+Create an alert rule.
+
+### GET `/api/v1/alerts/rules`
+
+List alert rules.
+
+### PUT `/api/v1/alerts/rules/{id}`
+
+Update an alert rule.
+
+### DELETE `/api/v1/alerts/rules/{id}`
+
+Delete an alert rule.
+
+---
+
+## 🤖 Models & Prompts (Governance)
+
+Model and prompt registry with governance (approve, rollback). **Authentication required.**
+
+### GET `/api/v1/models`
+
+List registered models (governance).
+
+### GET `/api/v1/models/{id}`
+
+Get model metadata and versions.
+
+### GET `/api/v1/models/{id}/versions`
+
+List model versions.
+
+### POST `/api/v1/models/{id}/approve`
+
+Approve a model version.
+
+### POST `/api/v1/models/{id}/rollback`
+
+Rollback to a previous version.
+
+### GET `/api/v1/prompts`
+
+List prompts.
+
+### GET `/api/v1/prompts/{id}`
+
+Get prompt and versions.
+
+### GET `/api/v1/prompts/{id}/versions`
+
+List prompt versions.
+
+### POST `/api/v1/prompts/{id}/approve`
+
+Approve a prompt version.
+
+### POST `/api/v1/prompts/{id}/rollback`
+
+Rollback a prompt.
+
+---
+
+## 🔌 Integrations
+
+External integrations (Slack, Teams, BI, helpdesk). **Authentication required.**
+
+### POST `/api/v1/integrations`
+
+Create an integration.
+
+### GET `/api/v1/integrations`
+
+List integrations.
+
+### GET `/api/v1/integrations/{id}`
+
+Get an integration.
+
+### PUT `/api/v1/integrations/{id}`
+
+Update an integration.
+
+### DELETE `/api/v1/integrations/{id}`
+
+Delete an integration.
+
+### POST `/api/v1/integrations/{id}/test`
+
+Test an integration connection.
+
+### GET `/api/v1/integrations/{id}/health`
+
+Check integration health.
+
+### POST `/api/v1/integrations/helpdesk/sync`
+
+Sync helpdesk data.
+
+### POST `/api/v1/integrations/slack/command`
+
+Handle Slack command.
+
+### POST `/api/v1/integrations/teams/message`
+
+Send/handle Teams message.
+
+### POST `/api/v1/integrations/bi/export`
+
+Export to BI tool.
+
+---
+
+## 📜 Policies
+
+Governance policies (create, evaluate). **Authentication required.**
+
+### POST `/api/v1/policies`
+
+Create a policy.
+
+### GET `/api/v1/policies/{id}`
+
+Get a policy.
+
+### POST `/api/v1/policies/{id}/evaluate`
+
+Evaluate a policy against context.
 
 ---
 

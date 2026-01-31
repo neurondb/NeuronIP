@@ -24,6 +24,10 @@
 
 ---
 
+**Quick links:** To run the stack: [QUICK-START.md](../QUICK-START.md). To load demo data: [demo/QUICK-START.md](../demo/QUICK-START.md).
+
+---
+
 ## ✅ Prerequisites
 
 Before you begin, ensure you have the following installed:

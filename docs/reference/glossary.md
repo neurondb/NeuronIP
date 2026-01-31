@@ -22,23 +22,37 @@
 
 **Backend** - Go-based API server
 
+**Block** - Notion-style content unit (paragraph, list, table, etc.) in the Notion UI
+
 ### C
 
-**Collection** - Group of related documents
+**CDC** - Change Data Capture; streaming of database changes to downstream systems
 
 **Chunk** - Segment of a document for semantic search
 
+**Cluster** - Multi-node NeuronIP deployment for HA and distributed execution
+
+**Collection** - Group of related documents
+
 ### D
+
+**Data product** - Curated dataset or asset exposed for discovery and consumption
+
+**Decision dashboard** - Governance dashboard for decisions, approvals, and metrics
 
 **Document** - Knowledge base entry
 
 ### E
 
-**Embedding** - Vector representation of text
+**Embedding** - Vector representation of text (or image) for semantic similarity
 
 ### F
 
 **Frontend** - Next.js web application
+
+### I
+
+**ITSM** - IT Service Management; integration with ticketing and helpdesk systems
 
 ### K
 
@@ -52,9 +66,13 @@
 
 **NeuronMCP** - Model Context Protocol
 
+**Notebook** - Interactive analysis/documentation artifact (cells, execution)
+
 ### R
 
 **RAG** - Retrieval-Augmented Generation
+
+**RLS** - Row-Level Security; PostgreSQL policy restricting row access
 
 ### S
 
@@ -64,11 +82,13 @@
 
 ### V
 
-**Vector** - Numerical representation of text
+**Vector** - Numerical representation of text (embedding)
 
 ### W
 
 **Workflow** - Multi-step automated process
+
+**Workload** - Execution load and prioritization (e.g. query workload, task queue)
 
 ---
 

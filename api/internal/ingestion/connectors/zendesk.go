@@ -13,25 +13,25 @@ import (
 /* ZendeskConnector implements the Connector interface for Zendesk */
 type ZendeskConnector struct {
 	*ingestion.BaseConnector
-	client     *http.Client
-	baseURL    string
-	apiToken   string
-	apiEmail   string
-	subdomain  string
+	client    *http.Client
+	baseURL   string
+	apiToken  string
+	apiEmail  string
+	subdomain string
 }
 
 /* NewZendeskConnector creates a new Zendesk connector */
 func NewZendeskConnector() *ZendeskConnector {
 	metadata := ingestion.ConnectorMetadata{
-		Type:        "zendesk",
-		Name:        "Zendesk",
-		Description: "Zendesk API connector for tickets, users, and organizations",
-		Version:     "1.0.0",
+		Type:         "zendesk",
+		Name:         "Zendesk",
+		Description:  "Zendesk API connector for tickets, users, and organizations",
+		Version:      "1.0.0",
 		Capabilities: []string{"incremental", "schema_discovery"},
 	}
-	
+
 	base := ingestion.NewBaseConnector("zendesk", metadata)
-	
+
 	return &ZendeskConnector{
 		BaseConnector: base,
 		client: &http.Client{
@@ -46,27 +46,27 @@ func (z *ZendeskConnector) Connect(ctx context.Context, config map[string]interf
 	if !ok {
 		return fmt.Errorf("subdomain is required")
 	}
-	
+
 	apiEmail, ok := config["api_email"].(string)
 	if !ok {
 		return fmt.Errorf("api_email is required")
 	}
-	
+
 	apiToken, ok := config["api_token"].(string)
 	if !ok {
 		return fmt.Errorf("api_token is required")
 	}
-	
+
 	z.subdomain = subdomain
 	z.apiEmail = apiEmail
 	z.apiToken = apiToken
 	z.baseURL = fmt.Sprintf("https://%s.zendesk.com/api/v2", subdomain)
-	
+
 	// Test connection
 	if err := z.TestConnection(ctx); err != nil {
 		return fmt.Errorf("connection test failed: %w", err)
 	}
-	
+
 	z.BaseConnector.SetConnected(true)
 	return nil
 }
@@ -83,19 +83,19 @@ func (z *ZendeskConnector) TestConnection(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	
+
 	z.setAuth(req)
-	
+
 	resp, err := z.client.Do(req)
 	if err != nil {
 		return err
 	}
 	defer resp.Body.Close()
-	
+
 	if resp.StatusCode != http.StatusOK {
 		return fmt.Errorf("authentication failed: status %d", resp.StatusCode)
 	}
-	
+
 	return nil
 }
 
@@ -160,7 +160,7 @@ func (z *ZendeskConnector) DiscoverSchema(ctx context.Context) (*ingestion.Schem
 		},
 		LastUpdated: time.Now(),
 	}
-	
+
 	return schema, nil
 }
 
@@ -171,12 +171,12 @@ func (z *ZendeskConnector) Sync(ctx context.Context, options ingestion.SyncOptio
 		TablesSynced: []string{},
 		Errors:       []ingestion.SyncError{},
 	}
-	
+
 	tables := options.Tables
 	if len(tables) == 0 {
 		tables = []string{"tickets", "users", "organizations"}
 	}
-	
+
 	for _, table := range tables {
 		rows, err := z.syncTable(ctx, table, options)
 		if err != nil {
@@ -186,19 +186,17 @@ func (z *ZendeskConnector) Sync(ctx context.Context, options ingestion.SyncOptio
 			})
 			continue
 		}
-		
+
 		result.RowsSynced += rows
 		result.TablesSynced = append(result.TablesSynced, table)
 	}
-	
+
 	result.Duration = time.Since(startTime)
 	return result, nil
 }
 
 /* syncTable syncs a specific table */
 func (z *ZendeskConnector) syncTable(ctx context.Context, table string, options ingestion.SyncOptions) (int64, error) {
-	var rows int64
-	
 	switch table {
 	case "tickets":
 		return z.syncTickets(ctx, options)
@@ -209,8 +207,6 @@ func (z *ZendeskConnector) syncTable(ctx context.Context, table string, options 
 	default:
 		return 0, fmt.Errorf("unknown table: %s", table)
 	}
-	
-	return rows, nil
 }
 
 /* syncTickets syncs tickets from Zendesk */
@@ -219,96 +215,96 @@ func (z *ZendeskConnector) syncTickets(ctx context.Context, options ingestion.Sy
 	if options.Since != nil {
 		url += fmt.Sprintf("?start_time=%d", options.Since.Unix())
 	}
-	
+
 	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
 	if err != nil {
 		return 0, err
 	}
-	
+
 	z.setAuth(req)
-	
+
 	resp, err := z.client.Do(req)
 	if err != nil {
 		return 0, err
 	}
 	defer resp.Body.Close()
-	
+
 	if resp.StatusCode != http.StatusOK {
 		return 0, fmt.Errorf("API request failed: status %d", resp.StatusCode)
 	}
-	
+
 	var data struct {
 		Tickets []map[string]interface{} `json:"tickets"`
 	}
-	
+
 	if err := json.NewDecoder(resp.Body).Decode(&data); err != nil {
 		return 0, err
 	}
-	
+
 	return int64(len(data.Tickets)), nil
 }
 
 /* syncUsers syncs users from Zendesk */
 func (z *ZendeskConnector) syncUsers(ctx context.Context, options ingestion.SyncOptions) (int64, error) {
 	url := z.baseURL + "/users.json"
-	
+
 	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
 	if err != nil {
 		return 0, err
 	}
-	
+
 	z.setAuth(req)
-	
+
 	resp, err := z.client.Do(req)
 	if err != nil {
 		return 0, err
 	}
 	defer resp.Body.Close()
-	
+
 	if resp.StatusCode != http.StatusOK {
 		return 0, fmt.Errorf("API request failed: status %d", resp.StatusCode)
 	}
-	
+
 	var data struct {
 		Users []map[string]interface{} `json:"users"`
 	}
-	
+
 	if err := json.NewDecoder(resp.Body).Decode(&data); err != nil {
 		return 0, err
 	}
-	
+
 	return int64(len(data.Users)), nil
 }
 
 /* syncOrganizations syncs organizations from Zendesk */
 func (z *ZendeskConnector) syncOrganizations(ctx context.Context, options ingestion.SyncOptions) (int64, error) {
 	url := z.baseURL + "/organizations.json"
-	
+
 	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
 	if err != nil {
 		return 0, err
 	}
-	
+
 	z.setAuth(req)
-	
+
 	resp, err := z.client.Do(req)
 	if err != nil {
 		return 0, err
 	}
 	defer resp.Body.Close()
-	
+
 	if resp.StatusCode != http.StatusOK {
 		return 0, fmt.Errorf("API request failed: status %d", resp.StatusCode)
 	}
-	
+
 	var data struct {
 		Organizations []map[string]interface{} `json:"organizations"`
 	}
-	
+
 	if err := json.NewDecoder(resp.Body).Decode(&data); err != nil {
 		return 0, err
 	}
-	
+
 	return int64(len(data.Organizations)), nil
 }
 

@@ -1,5 +1,7 @@
 # 🔒 API Authentication
 
+This document describes **API authentication** (API keys, JWT, creating and using tokens in requests). For UI login and API key flow, see [../authentication.md](../authentication.md); for session details, see [../authentication-session.md](../authentication-session.md); for security mechanisms, see [../security/authentication.md](../security/authentication.md).
+
 <div align="center">
 
 **Authentication and Authorization Guide**

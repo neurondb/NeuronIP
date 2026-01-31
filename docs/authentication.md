@@ -1,5 +1,7 @@
 # Authentication System
 
+This document describes the **API key and login flow** for the NeuronIP UI (login page, auth guard, token in localStorage). For session-based auth and cookies, see [authentication-session.md](authentication-session.md); for API token usage and JWT, see [api/authentication.md](api/authentication.md); for security mechanisms, see [security/authentication.md](security/authentication.md).
+
 NeuronIP uses API key-based authentication for accessing the platform. This document describes the authentication flow and how to use it.
 
 ## Overview

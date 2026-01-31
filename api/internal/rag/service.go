@@ -27,13 +27,13 @@ func NewUnifiedRAGService(neurondbClient *neurondb.Client, mcpClient *mcp.Client
 
 /* RAGRequest represents a RAG pipeline request */
 type RAGRequest struct {
-	Query        string
-	CollectionID *string
-	Limit        int
-	UseReranking bool
-	RerankMethod string // "cross_encoder", "llm", "cohere", "ensemble"
+	Query          string
+	CollectionID   *string
+	Limit          int
+	UseReranking   bool
+	RerankMethod   string // "cross_encoder", "llm", "cohere", "ensemble"
 	DistanceMetric string // "cosine", "l2", "inner_product"
-	Threshold   float64
+	Threshold      float64
 }
 
 /* RAGResult represents a RAG pipeline result */
@@ -198,9 +198,9 @@ func (s *UnifiedRAGService) ExecuteRAGPipeline(ctx context.Context, req RAGReque
 						citations = append(citations, citeStr)
 					}
 				}
-			} else if answer, ok := citationResult["answer"].(string); ok {
-				// If citations not in expected format, extract from answer
-				answer = answer // Could parse citations from answer text
+			} else if citationAnswer, ok := citationResult["answer"].(string); ok {
+				// If citations not in expected format, use answer from citation result
+				answer = citationAnswer
 			}
 		}
 	}
@@ -217,8 +217,6 @@ func (s *UnifiedRAGService) ExecuteRAGPipeline(ctx context.Context, req RAGReque
 /* convertToStringMaps converts []map[string]interface{} to format expected by agent */
 func convertToStringMaps(sources []map[string]interface{}) []map[string]interface{} {
 	result := make([]map[string]interface{}, len(sources))
-	for i, source := range sources {
-		result[i] = source
-	}
+	copy(result, sources)
 	return result
 }

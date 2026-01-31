@@ -1,5 +1,7 @@
 # Session-Based Authentication System
 
+This document describes **session-based auth** (cookies, refresh tokens, session manager). For UI login flow and API key, see [authentication.md](authentication.md); for API tokens and JWT, see [api/authentication.md](api/authentication.md); for security overview, see [security/authentication.md](security/authentication.md).
+
 ## Overview
 
 NeuronIP now supports a complete session-based authentication system with cookie-based sessions, refresh token rotation, and database selection. This system is production-ready, secure, and backward compatible with API key authentication.

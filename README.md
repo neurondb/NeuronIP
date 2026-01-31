@@ -530,11 +530,13 @@ curl -X POST http://localhost:8082/api/v1/workflows/{id}/execute \
 
 ## Documentation
 
+- **Full documentation index**: [docs/README.md](docs/README.md) - Architecture, API, features, deployment, tutorials
 - **Getting Started**: This README provides a quick start guide
 - **API Reference**: See [API Documentation](#api-documentation) section above
 - **Configuration**: See `api/internal/config/config.go` for all configuration options
 - **Database Schema**: See `neuronip.sql` for database schema
 - **Contributing**: See [CONTRIBUTING.md](CONTRIBUTING.md) for contribution guidelines
+- **For contributors**: [FEATURE_MAP](docs/FEATURE_MAP.md) (module → UI → API → migrations), [UX_MAP](docs/UX_MAP.md) (dashboard routes and page archetypes)
 
 ### Component Documentation
 

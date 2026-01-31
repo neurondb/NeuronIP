@@ -21,10 +21,10 @@ type TeradataConnector struct {
 /* NewTeradataConnector creates a new Teradata connector */
 func NewTeradataConnector() *TeradataConnector {
 	metadata := ingestion.ConnectorMetadata{
-		Type:        "teradata",
-		Name:        "Teradata",
-		Description: "Teradata data warehouse connector for schema discovery and data sync",
-		Version:     "1.0.0",
+		Type:         "teradata",
+		Name:         "Teradata",
+		Description:  "Teradata data warehouse connector for schema discovery and data sync",
+		Version:      "1.0.0",
 		Capabilities: []string{"incremental", "schema_discovery", "full_sync"},
 	}
 
@@ -68,7 +68,7 @@ func (t *TeradataConnector) Connect(ctx context.Context, config map[string]inter
 	var db *sql.DB
 	var err error
 	var lastErr error
-	
+
 	// Try teradata driver first
 	db, err = sql.Open("teradata", dsn)
 	if err == nil {
@@ -83,14 +83,14 @@ func (t *TeradataConnector) Connect(ctx context.Context, config map[string]inter
 	} else {
 		lastErr = err
 	}
-	
+
 	// If teradata driver not available, try ODBC
 	// ODBC DSN format may differ
 	odbcDSN := fmt.Sprintf("DSN=Teradata;Host=%s;Port=%.0f;UID=%s;PWD=%s", host, port, user, password)
 	if database != "" {
 		odbcDSN += fmt.Sprintf(";Database=%s", database)
 	}
-	
+
 	db, err = sql.Open("odbc", odbcDSN)
 	if err == nil {
 		if pingErr := db.PingContext(ctx); pingErr == nil {
@@ -111,10 +111,6 @@ func (t *TeradataConnector) Connect(ctx context.Context, config map[string]inter
 		"1) Official Teradata driver: go get github.com/Teradata/teradata-driver, or "+
 		"2) Configure Teradata ODBC driver and: go get github.com/alexbrainman/odbc. "+
 		"Last error: %w", lastErr)
-
-	t.db = db
-	t.BaseConnector.SetConnected(true)
-	return nil
 }
 
 /* Disconnect closes the connection */

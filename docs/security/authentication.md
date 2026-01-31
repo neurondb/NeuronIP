@@ -1,5 +1,7 @@
 # 🔐 Authentication
 
+This document describes **security-side authentication mechanisms** (API keys, JWT, OAuth). For UI login flow, see [../authentication.md](../authentication.md); for session details, see [../authentication-session.md](../authentication-session.md); for API usage of tokens, see [../api/authentication.md](../api/authentication.md).
+
 <div align="center">
 
 **Authentication mechanisms**
