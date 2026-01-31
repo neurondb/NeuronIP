@@ -1,12 +1,13 @@
 'use client'
 
-import { ReactNode } from 'react'
-import { motion } from 'framer-motion'
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/Card'
-import Button from '@/components/ui/Button'
 import { CpuChipIcon, PlayIcon } from '@heroicons/react/24/outline'
-import { cn } from '@/lib/utils/cn'
+import { motion } from 'framer-motion'
+import { ReactNode } from 'react'
+
+import Button from '@/components/ui/Button'
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/Card'
 import { slideUp, transition } from '@/lib/animations/variants'
+import { cn } from '@/lib/utils/cn'
 
 interface ModelCardProps {
   id: string

@@ -13,12 +13,12 @@ require (
 	github.com/databricks/databricks-sql-go v1.5.0
 	github.com/denisenkom/go-mssqldb v0.12.3
 	github.com/elastic/go-elasticsearch/v8 v8.13.0
-	github.com/go-mysql-org/go-mysql v1.7.0
 	github.com/go-playground/validator/v10 v10.30.1
 	// github.com/gen2brain/go-fitz v0.0.0-20220330160453-2c1c2dfb3bf4 // Optional - PDF parsing uses fallback method
 	github.com/go-sql-driver/mysql v1.8.1
 	github.com/gocql/gocql v1.6.0
 	github.com/godror/godror v0.41.0
+	github.com/golang-jwt/jwt v3.2.1+incompatible
 	github.com/google/uuid v1.6.0
 	github.com/gorilla/mux v1.8.1
 	github.com/jackc/pgx/v5 v5.5.5
@@ -31,6 +31,15 @@ require (
 	golang.org/x/crypto v0.47.0
 	golang.org/x/oauth2 v0.28.0
 	google.golang.org/api v0.180.0
+)
+
+require (
+	github.com/gorilla/websocket v1.5.3
+	go.opentelemetry.io/otel v1.24.0
+	go.opentelemetry.io/otel/exporters/jaeger v1.17.0
+	go.opentelemetry.io/otel/sdk v1.22.0
+	go.opentelemetry.io/otel/trace v1.24.0
+	golang.org/x/net v0.48.0
 )
 
 require (
@@ -133,7 +142,6 @@ require (
 	github.com/mtibben/percent v0.2.1 // indirect
 	github.com/munnerz/goautoneg v0.0.0-20191010083416-a7dc8b61c822 // indirect
 	github.com/pierrec/lz4/v4 v4.1.21 // indirect
-	github.com/pingcap/errors v0.11.5-0.20210425183316-da1aaba5fb63 // indirect
 	github.com/pkg/browser v0.0.0-20210911075715-681adbf594b8 // indirect
 	github.com/pkg/errors v0.9.1 // indirect
 	github.com/prometheus/client_model v0.6.1 // indirect
@@ -141,10 +149,8 @@ require (
 	github.com/prometheus/procfs v0.15.1 // indirect
 	github.com/rcrowley/go-metrics v0.0.0-20201227073835-cf1acfcdf475 // indirect
 	github.com/rs/zerolog v1.28.0 // indirect
-	github.com/shopspring/decimal v0.0.0-20180709203117-cd690d0c9e24 // indirect
-	github.com/siddontang/go v0.0.0-20180604090527-bdc77568d726 // indirect
-	github.com/siddontang/go-log v0.0.0-20180807004314-8d05993dda07 // indirect
 	github.com/sirupsen/logrus v1.9.0 // indirect
+	github.com/stretchr/testify v1.11.1 // indirect
 	github.com/xdg-go/pbkdf2 v1.0.0 // indirect
 	github.com/xdg-go/scram v1.1.2 // indirect
 	github.com/xdg-go/stringprep v1.0.4 // indirect
@@ -153,13 +159,9 @@ require (
 	go.opencensus.io v0.24.0 // indirect
 	go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc v0.49.0 // indirect
 	go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp v0.49.0 // indirect
-	go.opentelemetry.io/otel v1.24.0 // indirect
 	go.opentelemetry.io/otel/metric v1.24.0 // indirect
-	go.opentelemetry.io/otel/trace v1.24.0 // indirect
-	go.uber.org/atomic v1.7.0 // indirect
 	golang.org/x/exp v0.0.0-20231006140011-7918f672742d // indirect
 	golang.org/x/mod v0.31.0 // indirect
-	golang.org/x/net v0.48.0 // indirect
 	golang.org/x/sync v0.19.0 // indirect
 	golang.org/x/sys v0.40.0 // indirect
 	golang.org/x/telemetry v0.0.0-20251203150158-8fff8a5912fc // indirect

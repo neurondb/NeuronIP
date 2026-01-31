@@ -147,7 +147,7 @@ export function formatError(error: ApiError | Error | unknown): FormattedError {
           {
             action: 'Contact support',
             description: 'If the problem persists, contact support',
-            link: '/dashboard/support',
+            link: '/support',
           },
         ]
         break

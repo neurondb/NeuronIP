@@ -1,8 +1,9 @@
 'use client'
 
 import { motion } from 'framer-motion'
-import { staggerContainer, slideUp } from '@/lib/animations/variants'
+
 import BillingDashboard from '@/components/billing/BillingDashboard'
+import { staggerContainer, slideUp } from '@/lib/animations/variants'
 
 export default function BillingPage() {
   return (

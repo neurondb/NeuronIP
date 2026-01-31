@@ -7,9 +7,11 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+	"time"
 
 	"encoding/json"
 
+	"github.com/neurondb/NeuronIP/api/internal/cache"
 	"github.com/neurondb/NeuronIP/api/internal/db"
 	"github.com/neurondb/NeuronIP/api/internal/errors"
 	"golang.org/x/crypto/bcrypt"
@@ -21,7 +23,7 @@ const apiKeyContextKey contextKey = "api_key"
 const userIDContextKey contextKey = "user_id"
 
 /* Middleware provides API key authentication middleware */
-func Middleware(queries *db.Queries) func(http.Handler) http.Handler {
+func Middleware(queries *db.Queries, cacheService cache.CacheInterface) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			// Skip auth for health endpoints
@@ -42,7 +44,7 @@ func Middleware(queries *db.Queries) func(http.Handler) http.Handler {
 				return
 			}
 
-			apiKey, err := ValidateAPIKey(r.Context(), queries, key)
+			apiKey, err := ValidateAPIKeyWithCache(r.Context(), queries, cacheService, key)
 			if err != nil {
 				writeErrorResponse(w, errors.Unauthorized("Invalid API key"))
 				return
@@ -69,8 +71,32 @@ func ExtractAPIKey(authHeader string) (string, error) {
 
 /* ValidateAPIKey validates an API key and returns the API key record */
 func ValidateAPIKey(ctx context.Context, queries *db.Queries, key string) (*db.APIKey, error) {
+	return ValidateAPIKeyWithCache(ctx, queries, nil, key)
+}
+
+/* ValidateAPIKeyWithCache validates an API key with caching support */
+func ValidateAPIKeyWithCache(ctx context.Context, queries *db.Queries, cacheService cache.CacheInterface, key string) (*db.APIKey, error) {
 	if len(key) < 8 {
 		return nil, fmt.Errorf("API key too short")
+	}
+
+	// Generate cache key
+	hasher := sha256.New()
+	hasher.Write([]byte(key))
+	keyHash := hex.EncodeToString(hasher.Sum(nil))
+	cacheKey := "api_key:" + keyHash
+
+	// Try to get from cache first
+	if cacheService != nil {
+		if cached, found := cacheService.Get(ctx, cacheKey); found {
+			if apiKey, ok := cached.(*db.APIKey); ok {
+				// Update last used timestamp asynchronously
+				go func() {
+					queries.UpdateAPIKeyLastUsed(context.Background(), apiKey.ID)
+				}()
+				return apiKey, nil
+			}
+		}
 	}
 
 	prefix := key[:8]
@@ -80,18 +106,33 @@ func ValidateAPIKey(ctx context.Context, queries *db.Queries, key string) (*db.A
 	}
 
 	// Hash the provided key and compare
-	hasher := sha256.New()
-	hasher.Write([]byte(key))
-	keyHash := hex.EncodeToString(hasher.Sum(nil))
-
 	if err := bcrypt.CompareHashAndPassword([]byte(apiKey.KeyHash), []byte(keyHash)); err != nil {
 		return nil, fmt.Errorf("invalid API key: %w", err)
+	}
+
+	// Cache the validated API key (10 minute TTL)
+	if cacheService != nil {
+		cacheService.Set(ctx, cacheKey, apiKey, 10*time.Minute)
 	}
 
 	// Update last used timestamp
 	queries.UpdateAPIKeyLastUsed(ctx, apiKey.ID)
 
 	return apiKey, nil
+}
+
+/* InvalidateAPIKeyCache invalidates cached API key */
+func InvalidateAPIKeyCache(cacheService cache.CacheInterface, key string) error {
+	if cacheService == nil {
+		return nil
+	}
+
+	hasher := sha256.New()
+	hasher.Write([]byte(key))
+	keyHash := hex.EncodeToString(hasher.Sum(nil))
+	cacheKey := "api_key:" + keyHash
+
+	return cacheService.Delete(context.Background(), cacheKey)
 }
 
 /* SetAPIKey sets the API key in the context */
@@ -120,7 +161,7 @@ func GetUserIDFromContext(ctx context.Context) (string, bool) {
 func writeErrorResponse(w http.ResponseWriter, apiErr *errors.APIError) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(apiErr.HTTPStatus())
-	
+
 	response := map[string]interface{}{
 		"error": apiErr,
 	}

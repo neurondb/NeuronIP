@@ -9,8 +9,18 @@ try {
     disable: process.env.NODE_ENV === 'development',
   })
 } catch (e) {
-  // PWA not installed, skip it
   console.warn('next-pwa not found, skipping PWA configuration')
+}
+
+// Bundle analyzer (run with ANALYZE=true next build or npm run build:analyze)
+let withBundleAnalyzer = (config) => config
+if (process.env.ANALYZE === 'true') {
+  try {
+    const withBundleAnalyzerPkg = require('@next/bundle-analyzer')
+    withBundleAnalyzer = withBundleAnalyzerPkg({ enabled: true })
+  } catch (e) {
+    console.warn('@next/bundle-analyzer not found')
+  }
 }
 
 /** @type {import('next').NextConfig} */
@@ -18,14 +28,17 @@ const nextConfig = {
   reactStrictMode: true,
   // output: 'standalone', // Only use in production builds, not dev
   
-  // Temporarily disable ESLint during build
-  eslint: {
-    ignoreDuringBuilds: true,
-  },
-  
   // Performance optimizations
   swcMinify: true,
   compress: true,
+  
+  // Enable standalone output for Docker
+  output: process.env.NODE_ENV === 'production' ? 'standalone' : undefined,
+  
+  // Note: optimizeCss requires critters package which may not be available
+  // experimental: {
+  //   optimizeCss: true,
+  // },
   
   // Image optimization
   images: {
@@ -40,22 +53,49 @@ const nextConfig = {
   //   optimizeCss: true,
   // },
   
-  // Webpack optimizations
-  webpack: (config, { isServer }) => {
-    if (!isServer) {
+  // Webpack optimizations (only in production)
+  webpack: (config, { isServer, dev }) => {
+    // Only apply custom chunk splitting in production
+    if (!isServer && !dev) {
       config.optimization = {
         ...config.optimization,
         splitChunks: {
           chunks: 'all',
+          maxInitialRequests: 25,
+          minSize: 20000,
           cacheGroups: {
             default: false,
             vendors: false,
-            // Vendor chunk
+            // Vendor chunk for core libraries
             vendor: {
               name: 'vendor',
               chunks: 'all',
               test: /node_modules/,
               priority: 20,
+            },
+            // Chart libraries chunk (heavy)
+            charts: {
+              name: 'charts',
+              test: /[\\/]node_modules[\\/](recharts|@nivo|react-plotly|d3)[\\/]/,
+              chunks: 'all',
+              priority: 25,
+              reuseExistingChunk: true,
+            },
+            // Monaco editor chunk (very heavy)
+            monaco: {
+              name: 'monaco',
+              test: /[\\/]node_modules[\\/]@monaco-editor[\\/]/,
+              chunks: 'all',
+              priority: 30,
+              reuseExistingChunk: true,
+            },
+            // React and React DOM
+            react: {
+              name: 'react',
+              test: /[\\/]node_modules[\\/](react|react-dom|scheduler)[\\/]/,
+              chunks: 'all',
+              priority: 15,
+              reuseExistingChunk: true,
             },
             // Common chunk
             common: {
@@ -74,4 +114,5 @@ const nextConfig = {
   },
 }
 
-module.exports = withPWA(nextConfig)
+const applied = withPWA(nextConfig)
+module.exports = withBundleAnalyzer(applied)

@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"strings"
 	"time"
 
 	_ "github.com/lib/pq"
@@ -13,17 +14,18 @@ import (
 /* RedshiftConnector implements the Connector interface for Amazon Redshift */
 type RedshiftConnector struct {
 	*ingestion.BaseConnector
-	db *sql.DB
+	db     *sql.DB
+	config map[string]interface{}
 }
 
 /* NewRedshiftConnector creates a new Redshift connector */
 func NewRedshiftConnector() *RedshiftConnector {
 	metadata := ingestion.ConnectorMetadata{
-		Type:        "redshift",
-		Name:        "Amazon Redshift",
-		Description: "Amazon Redshift data warehouse connector for schema discovery and data sync",
-		Version:     "1.0.0",
-		Capabilities: []string{"incremental", "schema_discovery", "full_sync", "query_log_analysis"},
+		Type:         "redshift",
+		Name:         "Amazon Redshift",
+		Description:  "Amazon Redshift data warehouse connector",
+		Version:      "1.0.0",
+		Capabilities: []string{"incremental", "schema_discovery", "query", "copy"},
 	}
 
 	base := ingestion.NewBaseConnector("redshift", metadata)
@@ -35,42 +37,50 @@ func NewRedshiftConnector() *RedshiftConnector {
 
 /* Connect establishes connection to Redshift */
 func (r *RedshiftConnector) Connect(ctx context.Context, config map[string]interface{}) error {
+	r.config = config
+
 	host, _ := config["host"].(string)
 	port, _ := config["port"].(float64)
-	if port == 0 {
-		port = 5439
-	}
 	user, _ := config["user"].(string)
 	password, _ := config["password"].(string)
 	database, _ := config["database"].(string)
 
-	if host == "" || user == "" || database == "" {
-		return fmt.Errorf("host, user, and database are required")
+	if host == "" || user == "" || password == "" || database == "" {
+		return fmt.Errorf("host, user, password, and database are required for Redshift")
 	}
 
-	dsn := fmt.Sprintf("host=%s port=%.0f user=%s password=%s dbname=%s sslmode=require",
-		host, port, user, password, database)
+	if port == 0 {
+		port = 5439 // Default Redshift port
+	}
+
+	dsn := fmt.Sprintf("postgres://%s:%s@%s:%d/%s?sslmode=require",
+		user, password, host, int(port), database)
 
 	db, err := sql.Open("postgres", dsn)
 	if err != nil {
-		return fmt.Errorf("failed to open Redshift connection: %w", err)
-	}
-
-	if err := db.PingContext(ctx); err != nil {
-		return fmt.Errorf("failed to ping Redshift: %w", err)
+		return fmt.Errorf("failed to connect to Redshift: %w", err)
 	}
 
 	r.db = db
 	r.BaseConnector.SetConnected(true)
+
+	// Test connection
+	if err := r.TestConnection(ctx); err != nil {
+		db.Close()
+		return fmt.Errorf("connection test failed: %w", err)
+	}
+
 	return nil
 }
 
 /* Disconnect closes the connection */
 func (r *RedshiftConnector) Disconnect(ctx context.Context) error {
 	if r.db != nil {
-		r.db.Close()
+		err := r.db.Close()
+		r.db = nil
+		r.BaseConnector.SetConnected(false)
+		return err
 	}
-	r.BaseConnector.SetConnected(false)
 	return nil
 }
 
@@ -79,24 +89,30 @@ func (r *RedshiftConnector) TestConnection(ctx context.Context) error {
 	if r.db == nil {
 		return fmt.Errorf("not connected")
 	}
-	return r.db.PingContext(ctx)
+
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+
+	_, err := r.db.ExecContext(ctx, "SELECT 1")
+	return err
 }
 
-/* DiscoverSchema discovers Redshift schema */
+/* DiscoverSchema discovers the schema of the Redshift database */
 func (r *RedshiftConnector) DiscoverSchema(ctx context.Context) (*ingestion.Schema, error) {
 	if r.db == nil {
 		return nil, fmt.Errorf("not connected")
 	}
 
-	// Get all tables and views
+	schema := &ingestion.Schema{
+		Tables:      []ingestion.TableSchema{},
+		LastUpdated: time.Now(),
+	}
+
+	// Query information schema for tables
 	query := `
-		SELECT schemaname, tablename, 'BASE TABLE' as table_type
+		SELECT schemaname, tablename
 		FROM pg_tables
-		WHERE schemaname NOT IN ('pg_catalog', 'information_schema')
-		UNION ALL
-		SELECT schemaname, viewname as tablename, 'VIEW' as table_type
-		FROM pg_views
-		WHERE schemaname NOT IN ('pg_catalog', 'information_schema')
+		WHERE schemaname NOT IN ('information_schema', 'pg_catalog')
 		ORDER BY schemaname, tablename`
 
 	rows, err := r.db.QueryContext(ctx, query)
@@ -105,12 +121,9 @@ func (r *RedshiftConnector) DiscoverSchema(ctx context.Context) (*ingestion.Sche
 	}
 	defer rows.Close()
 
-	tables := []ingestion.TableSchema{}
-	views := []ingestion.ViewSchema{}
-
 	for rows.Next() {
-		var schemaName, tableName, tableType string
-		if err := rows.Scan(&schemaName, &tableName, &tableType); err != nil {
+		var schemaName, tableName string
+		if err := rows.Scan(&schemaName, &tableName); err != nil {
 			continue
 		}
 
@@ -120,73 +133,57 @@ func (r *RedshiftConnector) DiscoverSchema(ctx context.Context) (*ingestion.Sche
 			continue
 		}
 
-		if tableType == "VIEW" {
-			views = append(views, ingestion.ViewSchema{
-				Name:    tableName,
-				Columns: columns,
-			})
-		} else {
-			tables = append(tables, ingestion.TableSchema{
-				Name:    tableName,
-				Columns: columns,
-			})
+		table := ingestion.TableSchema{
+			Name:    fmt.Sprintf("%s.%s", schemaName, tableName),
+			Columns: columns,
+			Metadata: map[string]interface{}{
+				"schema": schemaName,
+				"table":  tableName,
+			},
 		}
+
+		schema.Tables = append(schema.Tables, table)
 	}
 
-	return &ingestion.Schema{
-		Tables:      tables,
-		Views:       views,
-		LastUpdated: time.Now(),
-	}, nil
+	return schema, nil
 }
 
 /* getColumns gets columns for a table */
-func (r *RedshiftConnector) getColumns(ctx context.Context, schemaName, tableName string) ([]ingestion.ColumnSchema, error) {
+func (r *RedshiftConnector) getColumns(ctx context.Context, schema, table string) ([]ingestion.ColumnSchema, error) {
 	query := `
 		SELECT column_name, data_type, is_nullable, column_default, character_maximum_length
 		FROM information_schema.columns
 		WHERE table_schema = $1 AND table_name = $2
 		ORDER BY ordinal_position`
 
-	rows, err := r.db.QueryContext(ctx, query, schemaName, tableName)
+	rows, err := r.db.QueryContext(ctx, query, schema, table)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
 
-	columns := []ingestion.ColumnSchema{}
+	var columns []ingestion.ColumnSchema
 	for rows.Next() {
-		var colName, dataType, isNullable, defaultValue sql.NullString
-		var maxLength sql.NullInt64
+		var col ingestion.ColumnSchema
+		var nullable, maxLength sql.NullString
+		var defaultVal sql.NullString
 
-		if err := rows.Scan(&colName, &dataType, &isNullable, &defaultValue, &maxLength); err != nil {
+		if err := rows.Scan(&col.Name, &col.DataType, &nullable, &defaultVal, &maxLength); err != nil {
 			continue
 		}
 
-		var maxLen *int
-		if maxLength.Valid {
-			ml := int(maxLength.Int64)
-			maxLen = &ml
+		col.Nullable = nullable.String == "YES"
+		if defaultVal.Valid {
+			col.DefaultValue = &defaultVal.String
 		}
 
-		var defVal *string
-		if defaultValue.Valid {
-			defVal = &defaultValue.String
-		}
-
-		columns = append(columns, ingestion.ColumnSchema{
-			Name:         colName.String,
-			DataType:     dataType.String,
-			Nullable:     isNullable.String == "YES",
-			DefaultValue: defVal,
-			MaxLength:    maxLen,
-		})
+		columns = append(columns, col)
 	}
 
 	return columns, nil
 }
 
-/* Sync performs a sync operation */
+/* Sync performs a full or incremental sync, counting rows for each table */
 func (r *RedshiftConnector) Sync(ctx context.Context, options ingestion.SyncOptions) (*ingestion.SyncResult, error) {
 	if r.db == nil {
 		return nil, fmt.Errorf("not connected")
@@ -198,7 +195,6 @@ func (r *RedshiftConnector) Sync(ctx context.Context, options ingestion.SyncOpti
 		Errors:       []ingestion.SyncError{},
 	}
 
-	// Get schema to determine tables
 	schema, err := r.DiscoverSchema(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("failed to discover schema: %w", err)
@@ -212,23 +208,32 @@ func (r *RedshiftConnector) Sync(ctx context.Context, options ingestion.SyncOpti
 	}
 
 	for _, tableName := range tables {
-		countQuery := fmt.Sprintf("SELECT COUNT(*) FROM %s", tableName)
-		if options.Since != nil {
-			// Try to find a timestamp column for incremental sync
-			countQuery = fmt.Sprintf("SELECT COUNT(*) FROM %s WHERE updated_at >= $1", tableName)
+		parts := strings.SplitN(tableName, ".", 2)
+		var countQuery string
+		if len(parts) == 2 {
+			countQuery = fmt.Sprintf(`SELECT COUNT(*) FROM "%s"."%s"`, parts[0], parts[1])
+			if options.Since != nil {
+				countQuery = fmt.Sprintf(`SELECT COUNT(*) FROM "%s"."%s" WHERE updated_at >= $1`, parts[0], parts[1])
+			}
+		} else {
+			countQuery = fmt.Sprintf(`SELECT COUNT(*) FROM "%s"`, tableName)
+			if options.Since != nil {
+				countQuery = fmt.Sprintf(`SELECT COUNT(*) FROM "%s" WHERE updated_at >= $1`, tableName)
+			}
 		}
 
 		var count int64
+		var scanErr error
 		if options.Since != nil {
-			err = r.db.QueryRowContext(ctx, countQuery, options.Since).Scan(&count)
+			scanErr = r.db.QueryRowContext(ctx, countQuery, options.Since).Scan(&count)
 		} else {
-			err = r.db.QueryRowContext(ctx, countQuery).Scan(&count)
+			scanErr = r.db.QueryRowContext(ctx, countQuery).Scan(&count)
 		}
 
-		if err != nil {
+		if scanErr != nil {
 			result.Errors = append(result.Errors, ingestion.SyncError{
 				Table:   tableName,
-				Message: err.Error(),
+				Message: scanErr.Error(),
 			})
 			continue
 		}
@@ -239,4 +244,14 @@ func (r *RedshiftConnector) Sync(ctx context.Context, options ingestion.SyncOpti
 
 	result.Duration = time.Since(startTime)
 	return result, nil
+}
+
+/* GetConnectorType returns the type identifier */
+func (r *RedshiftConnector) GetConnectorType() string {
+	return "redshift"
+}
+
+/* GetMetadata returns connector-specific metadata */
+func (r *RedshiftConnector) GetMetadata() ingestion.ConnectorMetadata {
+	return r.BaseConnector.GetMetadata()
 }

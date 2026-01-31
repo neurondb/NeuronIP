@@ -1,7 +1,8 @@
 'use client'
 
-import Link from 'next/link'
 import { motion } from 'framer-motion'
+import Link from 'next/link'
+
 import { cn } from '@/lib/utils/cn'
 
 interface SimpleFooterProps {
@@ -14,7 +15,7 @@ export default function SimpleFooter({ className, showLinks = true }: SimpleFoot
 
   const links = [
     { name: 'Documentation', href: '/docs' },
-    { name: 'Support', href: '/dashboard/support' },
+    { name: 'Support', href: '/support' },
     { name: 'Privacy', href: '/privacy' },
     { name: 'Terms', href: '/terms' },
   ]

@@ -42,22 +42,22 @@ func NewServiceWithMCPAndAgent(pool *pgxpool.Pool, neurondbClient *neurondb.Clie
 
 /* QualityRule represents a data quality rule */
 type QualityRule struct {
-	ID           uuid.UUID              `json:"id"`
-	Name         string                 `json:"name"`
-	Description  *string                `json:"description,omitempty"`
-	RuleType     string                 `json:"rule_type"`
-	ConnectorID  *uuid.UUID             `json:"connector_id,omitempty"`
-	SchemaName   *string                `json:"schema_name,omitempty"`
-	TableName    *string                `json:"table_name,omitempty"`
-	ColumnName   *string                `json:"column_name,omitempty"`
-	RuleExpression string               `json:"rule_expression"`
-	Threshold    *float64               `json:"threshold,omitempty"`
-	Enabled      bool                   `json:"enabled"`
-	ScheduleCron *string                `json:"schedule_cron,omitempty"`
-	Metadata     map[string]interface{} `json:"metadata,omitempty"`
-	CreatedBy    *string                `json:"created_by,omitempty"`
-	CreatedAt    time.Time              `json:"created_at"`
-	UpdatedAt    time.Time              `json:"updated_at"`
+	ID             uuid.UUID              `json:"id"`
+	Name           string                 `json:"name"`
+	Description    *string                `json:"description,omitempty"`
+	RuleType       string                 `json:"rule_type"`
+	ConnectorID    *uuid.UUID             `json:"connector_id,omitempty"`
+	SchemaName     *string                `json:"schema_name,omitempty"`
+	TableName      *string                `json:"table_name,omitempty"`
+	ColumnName     *string                `json:"column_name,omitempty"`
+	RuleExpression string                 `json:"rule_expression"`
+	Threshold      *float64               `json:"threshold,omitempty"`
+	Enabled        bool                   `json:"enabled"`
+	ScheduleCron   *string                `json:"schedule_cron,omitempty"`
+	Metadata       map[string]interface{} `json:"metadata,omitempty"`
+	CreatedBy      *string                `json:"created_by,omitempty"`
+	CreatedAt      time.Time              `json:"created_at"`
+	UpdatedAt      time.Time              `json:"updated_at"`
 }
 
 /* CreateRule creates a new quality rule */
@@ -204,33 +204,33 @@ func (s *Service) ExecuteRule(ctx context.Context, ruleID uuid.UUID) (*QualityCh
 	s.updateQualityScore(ctx, rule)
 
 	return &QualityCheck{
-		ID:            checkID,
-		RuleID:        ruleID,
-		Status:        status,
-		Score:         score,
-		PassedCount:   result.PassedCount,
-		FailedCount:   result.FailedCount,
-		TotalCount:    result.TotalCount,
+		ID:              checkID,
+		RuleID:          ruleID,
+		Status:          status,
+		Score:           score,
+		PassedCount:     result.PassedCount,
+		FailedCount:     result.FailedCount,
+		TotalCount:      result.TotalCount,
 		ExecutionTimeMs: executionTime,
-		ExecutedAt:    time.Now(),
+		ExecutedAt:      time.Now(),
 	}, nil
 }
 
 /* RuleExecutionResult represents rule execution result */
 type RuleExecutionResult struct {
-	PassedCount  int64
-	FailedCount  int64
-	TotalCount   int64
-	Violations   []QualityViolation
+	PassedCount int64
+	FailedCount int64
+	TotalCount  int64
+	Violations  []QualityViolation
 }
 
 /* QualityViolation represents a quality violation */
 type QualityViolation struct {
-	RowIdentifier  string
-	ColumnValue    string
-	ViolationType  string
+	RowIdentifier    string
+	ColumnValue      string
+	ViolationType    string
 	ViolationMessage string
-	Severity       string
+	Severity         string
 }
 
 /* executeRuleByType executes rule based on rule type */
@@ -368,9 +368,9 @@ func (s *Service) executeAccuracyRule(ctx context.Context, rule *QualityRule) (*
 		} else {
 			failedCount++
 			violations = append(violations, QualityViolation{
-				ViolationType:     "anomaly",
-				ViolationMessage:  fmt.Sprintf("Anomaly score %.4f exceeds threshold %.4f", anomalyScore, threshold),
-				Severity:          "high",
+				ViolationType:    "anomaly",
+				ViolationMessage: fmt.Sprintf("Anomaly score %.4f exceeds threshold %.4f", anomalyScore, threshold),
+				Severity:         "high",
 			})
 		}
 	}
@@ -415,9 +415,9 @@ func (s *Service) executeValidityRule(ctx context.Context, rule *QualityRule) (*
 	if modelPath != "" && s.neurondbClient != nil {
 		// Use ML classification for validation
 		// Sample values from the column
-		sampleQuery := fmt.Sprintf(`SELECT %s FROM %s.%s WHERE %s IS NOT NULL LIMIT 100`, 
+		sampleQuery := fmt.Sprintf(`SELECT %s FROM %s.%s WHERE %s IS NOT NULL LIMIT 100`,
 			*rule.ColumnName, schema, *rule.TableName, *rule.ColumnName)
-		
+
 		rows, err := s.pool.Query(ctx, sampleQuery)
 		if err != nil {
 			return nil, fmt.Errorf("failed to sample values: %w", err)
@@ -452,10 +452,10 @@ func (s *Service) executeValidityRule(ctx context.Context, rule *QualityRule) (*
 			} else {
 				failedCount++
 				violations = append(violations, QualityViolation{
-					ColumnValue:       value,
-					ViolationType:     "invalid_value",
-					ViolationMessage:  fmt.Sprintf("Value failed ML classification: %v", classification),
-					Severity:          "medium",
+					ColumnValue:      value,
+					ViolationType:    "invalid_value",
+					ViolationMessage: fmt.Sprintf("Value failed ML classification: %v", classification),
+					Severity:         "medium",
 				})
 			}
 		}
@@ -535,16 +535,16 @@ func (s *Service) executeCustomRule(ctx context.Context, rule *QualityRule) (*Ru
 	// 1. A boolean result (pass/fail)
 	// 2. A count of violations
 	// 3. A result set with violation details
-	
+
 	// Build the query from rule expression
 	// The expression should be a SQL query that can be executed
 	// Examples:
 	// - "SELECT COUNT(*) FROM table WHERE condition" (returns violation count)
 	// - "SELECT * FROM table WHERE condition" (returns violation rows)
 	// - "SELECT CASE WHEN condition THEN 1 ELSE 0 END" (returns pass/fail)
-	
+
 	var result RuleExecutionResult
-	
+
 	// Try to execute as a count query first
 	countQuery := fmt.Sprintf("SELECT COUNT(*) FROM (%s) AS violations", rule.RuleExpression)
 	var violationCount int64
@@ -557,7 +557,7 @@ func (s *Service) executeCustomRule(ctx context.Context, rule *QualityRule) (*Ru
 			return nil, fmt.Errorf("failed to execute custom rule expression: %w", err)
 		}
 		defer rows.Close()
-		
+
 		// Count rows and collect violations
 		var violations []QualityViolation
 		rowNum := 0
@@ -569,13 +569,13 @@ func (s *Service) executeCustomRule(ctx context.Context, rule *QualityRule) (*Ru
 			if err != nil {
 				continue
 			}
-			
+
 			// Build row data map
 			rowData := make(map[string]interface{})
 			for i, desc := range fieldDescriptions {
 				rowData[desc.Name] = values[i]
 			}
-			
+
 			// Create violation from row data
 			violation := QualityViolation{
 				RowIdentifier:    fmt.Sprintf("row_%d", rowNum),
@@ -583,7 +583,7 @@ func (s *Service) executeCustomRule(ctx context.Context, rule *QualityRule) (*Ru
 				ViolationMessage: fmt.Sprintf("Custom rule violation in row %d", rowNum),
 				Severity:         "medium",
 			}
-			
+
 			// Extract column values if available
 			if len(values) > 0 {
 				if val, ok := values[0].(string); ok {
@@ -592,14 +592,14 @@ func (s *Service) executeCustomRule(ctx context.Context, rule *QualityRule) (*Ru
 					violation.ColumnValue = val.String()
 				}
 			}
-			
+
 			violations = append(violations, violation)
 		}
-		
+
 		violationCount = int64(len(violations))
 		result.Violations = violations
 	}
-	
+
 	// Get total count if table/schema info available
 	var totalCount int64 = 0
 	if rule.ConnectorID != nil && rule.TableName != nil {
@@ -613,11 +613,11 @@ func (s *Service) executeCustomRule(ctx context.Context, rule *QualityRule) (*Ru
 		// If we can't determine total, use violation count as total
 		totalCount = violationCount
 	}
-	
+
 	result.TotalCount = totalCount
 	result.FailedCount = violationCount
 	result.PassedCount = totalCount - violationCount
-	
+
 	return &result, nil
 }
 
@@ -773,28 +773,28 @@ func (s *Service) GetRule(ctx context.Context, id uuid.UUID) (*QualityRule, erro
 
 /* QualityCheck represents a quality check execution */
 type QualityCheck struct {
-	ID              uuid.UUID  `json:"id"`
-	RuleID          uuid.UUID  `json:"rule_id"`
-	Status          string     `json:"status"`
-	Score           float64    `json:"score"`
-	PassedCount     int64      `json:"passed_count"`
-	FailedCount     int64      `json:"failed_count"`
-	TotalCount      int64      `json:"total_count"`
-	ExecutionTimeMs int        `json:"execution_time_ms"`
-	ExecutedAt      time.Time  `json:"executed_at"`
+	ID              uuid.UUID `json:"id"`
+	RuleID          uuid.UUID `json:"rule_id"`
+	Status          string    `json:"status"`
+	Score           float64   `json:"score"`
+	PassedCount     int64     `json:"passed_count"`
+	FailedCount     int64     `json:"failed_count"`
+	TotalCount      int64     `json:"total_count"`
+	ExecutionTimeMs int       `json:"execution_time_ms"`
+	ExecutedAt      time.Time `json:"executed_at"`
 }
 
 /* QualityDashboard represents aggregated quality metrics */
 type QualityDashboard struct {
-	OverallScore      float64                `json:"overall_score"`
-	DatasetScores     []DatasetQualityScore  `json:"dataset_scores"`
-	ConnectorScores   []ConnectorQualityScore `json:"connector_scores"`
-	RuleViolations    []RuleViolationSummary `json:"rule_violations"`
-	QualityTrends     []QualityTrendPoint    `json:"quality_trends"`
-	TotalRules        int                    `json:"total_rules"`
-	ActiveRules       int                    `json:"active_rules"`
-	PassingRules      int                    `json:"passing_rules"`
-	FailingRules      int                    `json:"failing_rules"`
+	OverallScore    float64                 `json:"overall_score"`
+	DatasetScores   []DatasetQualityScore   `json:"dataset_scores"`
+	ConnectorScores []ConnectorQualityScore `json:"connector_scores"`
+	RuleViolations  []RuleViolationSummary  `json:"rule_violations"`
+	QualityTrends   []QualityTrendPoint     `json:"quality_trends"`
+	TotalRules      int                     `json:"total_rules"`
+	ActiveRules     int                     `json:"active_rules"`
+	PassingRules    int                     `json:"passing_rules"`
+	FailingRules    int                     `json:"failing_rules"`
 }
 
 /* DatasetQualityScore represents quality score for a dataset */
@@ -817,10 +817,10 @@ type ConnectorQualityScore struct {
 
 /* RuleViolationSummary represents summary of rule violations */
 type RuleViolationSummary struct {
-	RuleID    uuid.UUID `json:"rule_id"`
-	RuleName  string    `json:"rule_name"`
-	Violations int      `json:"violations"`
-	Severity  string    `json:"severity"`
+	RuleID     uuid.UUID `json:"rule_id"`
+	RuleName   string    `json:"rule_name"`
+	Violations int       `json:"violations"`
+	Severity   string    `json:"severity"`
 }
 
 /* QualityTrendPoint represents a point in quality trend */
@@ -1054,26 +1054,46 @@ func (s *Service) AnalyzeDataQualityWithML(ctx context.Context, tableName string
 	return result, nil
 }
 
-/* DetectDataDriftWithML detects data drift using MCP and generates recommendations via NeuronAgent */
+/* DetectDataDriftWithML detects data drift using NeuronDB (when available), MCP, and generates recommendations via NeuronAgent */
 func (s *Service) DetectDataDriftWithML(ctx context.Context, tableName string, referenceTable string, featureColumns []string) (map[string]interface{}, error) {
 	result := make(map[string]interface{})
+
+	// Step 0: Use NeuronDB drift detection when available (vector column required)
+	if s.neurondbClient != nil && len(featureColumns) >= 1 {
+		vecCol := featureColumns[0]
+		centroid, err := s.neurondbClient.DetectCentroidDrift(ctx, referenceTable, vecCol, tableName, vecCol)
+		if err == nil && centroid != nil {
+			result["neurondb_centroid_drift"] = map[string]interface{}{
+				"distance":    centroid.Distance,
+				"normalized":  centroid.Normalized,
+				"significant": centroid.Significant,
+			}
+		}
+		divergence, err := s.neurondbClient.ComputeDistributionDivergence(ctx, referenceTable, vecCol, tableName, vecCol)
+		if err == nil {
+			result["neurondb_distribution_divergence"] = divergence
+		}
+	}
 
 	// Step 1: Use MCP DetectDrift (via ExecuteTool since DetectDrift may not be directly implemented)
 	if s.mcpClient != nil {
 		// Try to use ExecuteTool for drift detection
 		driftResult, err := s.mcpClient.ExecuteTool(ctx, "detect_drift", map[string]interface{}{
-			"table":            tableName,
+			"table":           tableName,
 			"reference_table": referenceTable,
 			"feature_columns": featureColumns,
 		})
 		if err == nil {
 			result["drift_detection"] = driftResult
 		} else {
-			// Fallback: Use NeuronDB to compare distributions
-			// This is a simplified drift detection
-			result["drift_detection"] = map[string]interface{}{
-				"method": "statistical_comparison",
-				"status": "completed",
+			// Fallback: Use NeuronDB result or simplified status
+			if result["neurondb_centroid_drift"] == nil {
+				result["drift_detection"] = map[string]interface{}{
+					"method": "statistical_comparison",
+					"status": "completed",
+				}
+			} else {
+				result["drift_detection"] = result["neurondb_centroid_drift"]
 			}
 		}
 	}
@@ -1149,10 +1169,10 @@ func (s *Service) ValidateDataQualityWithML(ctx context.Context, tableName strin
 								if label, ok := resultMap["label"].(string); ok && label == "anomaly" {
 									violations = append(violations, QualityViolation{
 										RowIdentifier:    fmt.Sprintf("row_%d", i),
-										ColumnValue:       fmt.Sprintf("%v", values[i]),
-										ViolationType:     "ml_anomaly",
-										ViolationMessage:  "ML model detected anomaly",
-										Severity:          "high",
+										ColumnValue:      fmt.Sprintf("%v", values[i]),
+										ViolationType:    "ml_anomaly",
+										ViolationMessage: "ML model detected anomaly",
+										Severity:         "high",
 									})
 								}
 							}
@@ -1171,11 +1191,11 @@ func (s *Service) ValidateDataQualityWithML(ctx context.Context, tableName strin
 				for _, outlier := range outlierList {
 					if outlierMap, ok := outlier.(map[string]interface{}); ok {
 						violations = append(violations, QualityViolation{
-							RuleID:     uuid.New(),
-							Value:      fmt.Sprintf("%v", outlierMap["value"]),
-							Severity:   "medium",
-							Message:    "MCP outlier detection identified anomaly",
-							DetectedAt: time.Now(),
+							RowIdentifier:    fmt.Sprintf("%v", outlierMap["row_id"]),
+							ColumnValue:      fmt.Sprintf("%v", outlierMap["value"]),
+							ViolationType:    "outlier",
+							ViolationMessage: "MCP outlier detection identified anomaly",
+							Severity:         "medium",
 						})
 					}
 				}
@@ -1184,6 +1204,56 @@ func (s *Service) ValidateDataQualityWithML(ctx context.Context, tableName strin
 	}
 
 	return violations, nil
+}
+
+/* getScoresForRule returns recent quality check results for a rule from data_quality_checks */
+func (s *Service) getScoresForRule(ctx context.Context, ruleID uuid.UUID, limit int) ([]map[string]interface{}, error) {
+	if limit <= 0 {
+		limit = 20
+	}
+	query := `
+		SELECT id, rule_id, score, status, passed_count, failed_count, total_count, executed_at, error_message
+		FROM neuronip.data_quality_checks
+		WHERE rule_id = $1
+		ORDER BY executed_at DESC
+		LIMIT $2`
+	rows, err := s.pool.Query(ctx, query, ruleID, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var scores []map[string]interface{}
+	for rows.Next() {
+		var id, rid uuid.UUID
+		var score float64
+		var status string
+		var passedCount, failedCount, totalCount *int64
+		var executedAt time.Time
+		var errorMsg *string
+		if err := rows.Scan(&id, &rid, &score, &status, &passedCount, &failedCount, &totalCount, &executedAt, &errorMsg); err != nil {
+			continue
+		}
+		m := map[string]interface{}{
+			"check_id":    id,
+			"score":       score,
+			"status":      status,
+			"executed_at": executedAt,
+		}
+		if passedCount != nil {
+			m["passed_count"] = *passedCount
+		}
+		if failedCount != nil {
+			m["failed_count"] = *failedCount
+		}
+		if totalCount != nil {
+			m["total_count"] = *totalCount
+		}
+		if errorMsg != nil {
+			m["error_message"] = *errorMsg
+		}
+		scores = append(scores, m)
+	}
+	return scores, rows.Err()
 }
 
 /* GenerateDataQualityReport generates a comprehensive data quality report using NeuronAgent */
@@ -1198,10 +1268,13 @@ func (s *Service) GenerateDataQualityReport(ctx context.Context, ruleID uuid.UUI
 		return "", fmt.Errorf("failed to get rule: %w", err)
 	}
 
-	// Get quality scores for the rule
-	scores, err := s.GetScores(ctx, ruleID, nil, nil, 100)
+	scores, err := s.getScoresForRule(ctx, ruleID, 20)
 	if err != nil {
-		return "", fmt.Errorf("failed to get scores: %w", err)
+		scores = nil
+	}
+	scoresSlice := make([]interface{}, len(scores))
+	for i, m := range scores {
+		scoresSlice[i] = m
 	}
 
 	// Build context for agent
@@ -1213,7 +1286,7 @@ func (s *Service) GenerateDataQualityReport(ctx context.Context, ruleID uuid.UUI
 				"description": rule.Description,
 				"type":        rule.RuleType,
 			},
-			"scores": scores,
+			"scores": scoresSlice,
 		},
 	}
 

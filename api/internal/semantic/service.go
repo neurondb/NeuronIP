@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -39,21 +40,21 @@ func NewService(queries *db.Queries, pool *pgxpool.Pool, neurondbClient *neurond
 
 /* SearchRequest represents a semantic search request */
 type SearchRequest struct {
-	Query        string
-	CollectionID *uuid.UUID
-	Limit        int
-	Threshold    float64
+	Query          string
+	CollectionID   *uuid.UUID
+	Limit          int
+	Threshold      float64
 	DistanceMetric string // "cosine" (default), "l2", "inner_product"
 }
 
 /* SearchResult represents a search result */
 type SearchResult struct {
-	DocumentID   uuid.UUID              `json:"document_id"`
-	Title        string                 `json:"title"`
-	Content      string                 `json:"content"`
-	ContentType  string                 `json:"content_type"`
-	Similarity   float64                `json:"similarity"`
-	Metadata     map[string]interface{} `json:"metadata,omitempty"`
+	DocumentID  uuid.UUID              `json:"document_id"`
+	Title       string                 `json:"title"`
+	Content     string                 `json:"content"`
+	ContentType string                 `json:"content_type"`
+	Similarity  float64                `json:"similarity"`
+	Metadata    map[string]interface{} `json:"metadata,omitempty"`
 }
 
 /* Search performs semantic search on knowledge documents */
@@ -87,6 +88,15 @@ func (s *Service) Search(ctx context.Context, req SearchRequest) ([]SearchResult
 
 /* searchWithCosine performs cosine similarity search */
 func (s *Service) searchWithCosine(ctx context.Context, req SearchRequest, queryEmbedding string) ([]SearchResult, error) {
+	// Enforce maximum limit to prevent excessive memory usage
+	if req.Limit > 1000 {
+		req.Limit = 1000
+	}
+
+	// Add timeout for vector search operations
+	searchCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+
 	var searchQuery string
 	var args []interface{}
 
@@ -123,7 +133,7 @@ func (s *Service) searchWithCosine(ctx context.Context, req SearchRequest, query
 		args = []interface{}{queryEmbedding, req.Threshold, req.Limit}
 	}
 
-	rows, err := s.pool.Query(ctx, searchQuery, args...)
+	rows, err := s.pool.Query(searchCtx, searchQuery, args...)
 	if err != nil {
 		return nil, fmt.Errorf("failed to perform cosine search: %w", err)
 	}
@@ -141,7 +151,7 @@ func (s *Service) searchWithL2(ctx context.Context, req SearchRequest, queryEmbe
 	}
 
 	// Use NeuronDB VectorSearchL2 method
-	results, err := s.neurondbClient.VectorSearchL2(ctx, queryEmbedding, 
+	results, err := s.neurondbClient.VectorSearchL2(ctx, queryEmbedding,
 		"neuronip.knowledge_embeddings", "embedding", req.Limit)
 	if err != nil {
 		return nil, fmt.Errorf("failed to perform L2 search: %w", err)
@@ -286,17 +296,17 @@ func (s *Service) CalculateVectorSimilarity(ctx context.Context, embedding1Str, 
 	return 0, fmt.Errorf("similarity score not found in MCP result")
 }
 
-/* parseEmbeddingString parses an embedding string to float64 slice */
-func parseEmbeddingString(embeddingStr string) ([]float64, error) {
+/* parseEmbeddingStringV2 parses an embedding string to float64 slice (alternative implementation) */
+func parseEmbeddingStringV2(embeddingStr string) ([]float64, error) {
 	// Remove brackets and whitespace
 	embeddingStr = strings.TrimSpace(embeddingStr)
 	embeddingStr = strings.TrimPrefix(embeddingStr, "[")
 	embeddingStr = strings.TrimSuffix(embeddingStr, "]")
-	
+
 	// Split by comma
 	parts := strings.Split(embeddingStr, ",")
 	result := make([]float64, 0, len(parts))
-	
+
 	for _, part := range parts {
 		part = strings.TrimSpace(part)
 		if part == "" {
@@ -308,7 +318,7 @@ func parseEmbeddingString(embeddingStr string) ([]float64, error) {
 		}
 		result = append(result, val)
 	}
-	
+
 	return result, nil
 }
 
@@ -367,7 +377,7 @@ func (s *Service) searchWithInnerProduct(ctx context.Context, req SearchRequest,
 }
 
 /* filterAndConvertResults filters results by collection and threshold, then converts to SearchResult */
-func (s *Service) filterAndConvertResults(ctx context.Context, results []map[string]interface{}, 
+func (s *Service) filterAndConvertResults(ctx context.Context, results []map[string]interface{},
 	collectionID *uuid.UUID, threshold float64, scoreKey string) ([]SearchResult, error) {
 	var searchResults []SearchResult
 
@@ -490,6 +500,44 @@ func (s *Service) HybridSearch(ctx context.Context, req SearchRequest, keywordQu
 		return nil, fmt.Errorf("failed to generate query embedding: %w", err)
 	}
 
+	semanticWeight := 0.7
+	// When keyword query is present and NeuronDB fusion is available, use hybrid_search_fusion for better ranking
+	if keywordQuery != "" && s.neurondbClient.UseNeuronDBHybridFusion(ctx) {
+		semQuery := `SELECT ke.document_id AS id, (1 - (ke.embedding <=> $1::vector)) AS score FROM neuronip.knowledge_embeddings ke WHERE ke.embedding IS NOT NULL ORDER BY ke.embedding <=> $1::vector LIMIT $2`
+		lexQuery := `SELECT kd.id AS id, ts_rank(to_tsvector('english', kd.content), plainto_tsquery('english', $1)) AS score FROM neuronip.knowledge_documents kd WHERE to_tsvector('english', kd.content) @@ plainto_tsquery('english', $1) ORDER BY score DESC LIMIT $2`
+		fusionResults, fusionErr := s.neurondbClient.HybridSearchFusionFromQueries(ctx, semQuery, []interface{}{queryEmbedding, req.Limit}, lexQuery, []interface{}{keywordQuery, req.Limit}, semanticWeight, req.Limit)
+		if fusionErr == nil && len(fusionResults) > 0 {
+			docIDs := make([]uuid.UUID, 0, len(fusionResults))
+			scoreByID := make(map[uuid.UUID]float64)
+			for _, row := range fusionResults {
+				if id, ok := row["id"].(uuid.UUID); ok {
+					docIDs = append(docIDs, id)
+					if sc, ok := row["combined_score"].(float64); ok {
+						scoreByID[id] = sc
+					}
+				}
+			}
+			if len(docIDs) > 0 {
+				docs, docErr := s.fetchDocumentsByIDs(ctx, docIDs)
+				if docErr == nil {
+					searchResults := make([]SearchResult, 0, len(docs))
+					for _, id := range docIDs {
+						if d, ok := docs[id]; ok {
+							searchResults = append(searchResults, SearchResult{
+								DocumentID: id,
+								Title:      d.Title,
+								Content:    d.Content,
+								Similarity: scoreByID[id],
+							})
+						}
+					}
+					return searchResults, nil
+				}
+			}
+		}
+		// Fall through to manual hybrid when fusion unavailable or fetch failed
+	}
+
 	// Determine table and column names based on collection
 	tableName := "neuronip.knowledge_documents kd JOIN neuronip.knowledge_embeddings ke ON ke.document_id = kd.id"
 	embeddingColumn := "ke.embedding"
@@ -503,7 +551,7 @@ func (s *Service) HybridSearch(ctx context.Context, req SearchRequest, keywordQu
 		}
 	}
 
-	// Use NeuronDB HybridSearch
+	// Use NeuronDB HybridSearch (manual CTE fusion)
 	results, err := s.neurondbClient.HybridSearch(ctx, queryEmbedding, keywordQuery, tableName, embeddingColumn, textColumn, req.Limit, weights)
 	if err != nil {
 		// Fallback to regular semantic search if hybrid fails
@@ -533,6 +581,35 @@ func (s *Service) HybridSearch(ctx context.Context, req SearchRequest, keywordQu
 	return searchResults, nil
 }
 
+/* docInfo holds minimal document fields for fusion result hydration */
+type docInfo struct {
+	Title   string
+	Content string
+}
+
+/* fetchDocumentsByIDs loads title and content for the given document IDs */
+func (s *Service) fetchDocumentsByIDs(ctx context.Context, ids []uuid.UUID) (map[uuid.UUID]docInfo, error) {
+	if len(ids) == 0 {
+		return nil, nil
+	}
+	query := `SELECT id, title, content FROM neuronip.knowledge_documents WHERE id = ANY($1)`
+	rows, err := s.pool.Query(ctx, query, ids)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := make(map[uuid.UUID]docInfo)
+	for rows.Next() {
+		var id uuid.UUID
+		var title, content string
+		if err := rows.Scan(&id, &title, &content); err != nil {
+			continue
+		}
+		out[id] = docInfo{Title: title, Content: content}
+	}
+	return out, rows.Err()
+}
+
 /* CompareDocuments compares two documents using vector similarity */
 func (s *Service) CompareDocuments(ctx context.Context, docID1, docID2 uuid.UUID, metric string) (float64, error) {
 	if metric == "" {
@@ -547,7 +624,7 @@ func (s *Service) CompareDocuments(ctx context.Context, docID1, docID2 uuid.UUID
 		WHERE document_id = $1
 		ORDER BY chunk_index
 		LIMIT 1`
-	
+
 	err := s.pool.QueryRow(ctx, query, docID1).Scan(&embedding1)
 	if err != nil {
 		return 0, fmt.Errorf("failed to get embedding for document 1: %w", err)
@@ -578,7 +655,7 @@ func (s *Service) CompareDocuments(ctx context.Context, docID1, docID2 uuid.UUID
 	default: // cosine
 		similarityQuery = `SELECT 1 - ($1::vector <=> $2::vector) as similarity`
 	}
-	
+
 	err = s.pool.QueryRow(ctx, similarityQuery, embedding1, embedding2).Scan(&similarity)
 	if err != nil {
 		return 0, fmt.Errorf("failed to calculate similarity: %w", err)
@@ -593,7 +670,7 @@ func (s *Service) ensureVectorIndex(ctx context.Context, tableName string, colum
 	checkQuery := `
 		SELECT COUNT(*) FROM pg_indexes 
 		WHERE indexname = $1 AND tablename = $2`
-	
+
 	var count int
 	err := s.pool.QueryRow(ctx, checkQuery, indexName, tableName).Scan(&count)
 	if err == nil && count > 0 {
@@ -611,7 +688,7 @@ func (s *Service) ensureVectorIndex(ctx context.Context, tableName string, colum
 	// Choose index type and parameters based on data size
 	var indexType string
 	var options map[string]interface{}
-	
+
 	if rowCount < 10000 {
 		// Small dataset - use IVF
 		indexType = "ivf"
@@ -622,7 +699,7 @@ func (s *Service) ensureVectorIndex(ctx context.Context, tableName string, colum
 		// Large dataset - use HNSW
 		indexType = "hnsw"
 		options = map[string]interface{}{
-			"m":              16,
+			"m":               16,
 			"ef_construction": 64,
 		}
 	}
@@ -671,7 +748,7 @@ func (s *Service) TuneVectorIndex(ctx context.Context, indexName string, tableNa
 	var options map[string]interface{}
 	if indexType == "hnsw" {
 		options = map[string]interface{}{
-			"m":              32, // Increase for better recall
+			"m":               32,  // Increase for better recall
 			"ef_construction": 128, // Increase for better quality
 		}
 		_, err := s.mcpClient.CreateHNSWIndex(ctx, indexName, tableName, columnName, options)
@@ -779,7 +856,7 @@ func (s *Service) AnswerWithRAG(ctx context.Context, query string, collectionID 
 		Limit:        5,
 		Threshold:    0.5,
 	}
-	
+
 	searchResults, err := s.Search(ctx, searchReq)
 	if err != nil {
 		return nil, fmt.Errorf("failed to retrieve context: %w", err)
@@ -789,8 +866,8 @@ func (s *Service) AnswerWithRAG(ctx context.Context, query string, collectionID 
 	context := make([]map[string]interface{}, 0, len(searchResults))
 	for _, result := range searchResults {
 		context = append(context, map[string]interface{}{
-			"content":  result.Content,
-			"title":    result.Title,
+			"content":     result.Content,
+			"title":       result.Title,
 			"document_id": result.DocumentID.String(),
 		})
 	}
@@ -929,7 +1006,7 @@ func (s *Service) CreateDocumentWithImage(ctx context.Context, doc *db.Knowledge
 		(collection_id, title, content, content_type, source, source_url, metadata)
 		VALUES ($1, $2, $3, $4, $5, $6, $7)
 		RETURNING id, created_at, updated_at`
-	
+
 	metadataJSON, _ := json.Marshal(doc.Metadata)
 	err := s.pool.QueryRow(ctx, insertQuery,
 		doc.CollectionID, doc.Title, doc.Content, doc.ContentType,
@@ -942,23 +1019,15 @@ func (s *Service) CreateDocumentWithImage(ctx context.Context, doc *db.Knowledge
 	// Generate multimodal embedding (text + image)
 	modelName := "sentence-transformers/all-MiniLM-L6-v2"
 	var multimodalEmbedding string
-	var err error
+	var embeddingErr error
 
-	// Try MCP EmbedMultimodal first if available
-	if s.mcpClient != nil && imageData != nil {
-		// MCP expects file path, so we'll save to temp file
-		// For now, fallback to NeuronDB which accepts byte data
-		// In production, you might want to save to temp file and pass path
-		multimodalEmbedding, err = s.neurondbClient.GenerateMultimodalEmbedding(ctx, doc.Content, imageData, modelName)
-	} else {
-		multimodalEmbedding, err = s.neurondbClient.GenerateMultimodalEmbedding(ctx, doc.Content, imageData, modelName)
+	if len(imageData) > 0 && s.neurondbClient.UseMultimodalEmbedding(ctx) {
+		multimodalEmbedding, embeddingErr = s.neurondbClient.GenerateMultimodalEmbedding(ctx, doc.Content, imageData, modelName)
 	}
-
-	if err != nil {
-		// Fallback to text-only embedding if multimodal fails
-		multimodalEmbedding, err = s.neurondbClient.GenerateEmbedding(ctx, doc.Content, modelName)
-		if err != nil {
-			return fmt.Errorf("failed to generate embedding: %w", err)
+	if embeddingErr != nil || multimodalEmbedding == "" {
+		multimodalEmbedding, embeddingErr = s.neurondbClient.GenerateEmbedding(ctx, doc.Content, modelName)
+		if embeddingErr != nil {
+			return fmt.Errorf("failed to generate embedding: %w", embeddingErr)
 		}
 	}
 
@@ -967,18 +1036,18 @@ func (s *Service) CreateDocumentWithImage(ctx context.Context, doc *db.Knowledge
 		INSERT INTO neuronip.knowledge_embeddings 
 		(document_id, embedding, model_name, chunk_index, chunk_text)
 		VALUES ($1, $2::vector, $3, $4, $5)`
-	
-	_, err = s.pool.Exec(ctx, embedInsertQuery, doc.ID, multimodalEmbedding, modelName, 0, doc.Content)
-	if err != nil {
-		return fmt.Errorf("failed to insert multimodal embedding: %w", err)
+
+	_, embeddingErr = s.pool.Exec(ctx, embedInsertQuery, doc.ID, multimodalEmbedding, modelName, 0, doc.Content)
+	if embeddingErr != nil {
+		return fmt.Errorf("failed to insert multimodal embedding: %w", embeddingErr)
 	}
 
 	// Log audit event
 	s.auditService.LogDocumentEvent(ctx, "create", doc.ID, userID, map[string]interface{}{
-		"title":       doc.Title,
+		"title":        doc.Title,
 		"content_type": doc.ContentType,
-		"version":     1,
-		"has_image":   true,
+		"version":      1,
+		"has_image":    true,
 	})
 
 	return nil
@@ -1009,7 +1078,7 @@ func (s *Service) CreateDocumentWithCachedEmbedding(ctx context.Context, doc *db
 		(collection_id, title, content, content_type, source, source_url, metadata)
 		VALUES ($1, $2, $3, $4, $5, $6, $7)
 		RETURNING id, created_at, updated_at`
-	
+
 	metadataJSON, _ := json.Marshal(doc.Metadata)
 	err := s.pool.QueryRow(ctx, insertQuery,
 		doc.CollectionID, doc.Title, doc.Content, doc.ContentType,
@@ -1055,11 +1124,11 @@ func (s *Service) CreateDocumentWithCachedEmbedding(ctx context.Context, doc *db
 
 	// Log audit event
 	s.auditService.LogDocumentEvent(ctx, "create", doc.ID, userID, map[string]interface{}{
-		"title":       doc.Title,
+		"title":        doc.Title,
 		"content_type": doc.ContentType,
-		"version":     1,
+		"version":      1,
 		"chunks_count": len(chunks),
-		"used_cached": true,
+		"used_cached":  true,
 	})
 
 	return nil
@@ -1081,7 +1150,7 @@ func (s *Service) CreateDocumentWithImageOnly(ctx context.Context, doc *db.Knowl
 		(collection_id, title, content, content_type, source, source_url, metadata)
 		VALUES ($1, $2, $3, $4, $5, $6, $7)
 		RETURNING id, created_at, updated_at`
-	
+
 	metadataJSON, _ := json.Marshal(doc.Metadata)
 	err := s.pool.QueryRow(ctx, insertQuery,
 		doc.CollectionID, doc.Title, doc.Content, doc.ContentType,
@@ -1091,22 +1160,18 @@ func (s *Service) CreateDocumentWithImageOnly(ctx context.Context, doc *db.Knowl
 		return fmt.Errorf("failed to create document: %w", err)
 	}
 
-	// Generate image-only embedding
+	// Generate image-only embedding when available; fall back to text embedding when not configured or on error
 	modelName := "sentence-transformers/all-MiniLM-L6-v2"
 	var imageEmbedding string
-	var err error
-
-	// Try MCP EmbedImage first if available
-	if s.mcpClient != nil && imageData != nil {
-		// MCP expects file path, so we'll save to temp file
-		// For now, fallback to NeuronDB which accepts byte data
-		imageEmbedding, err = s.neurondbClient.GenerateImageEmbedding(ctx, imageData, modelName)
-	} else {
-		imageEmbedding, err = s.neurondbClient.GenerateImageEmbedding(ctx, imageData, modelName)
+	var imageErr error
+	if s.neurondbClient.UseImageEmbedding(ctx) && imageData != nil && len(imageData) > 0 {
+		imageEmbedding, imageErr = s.neurondbClient.GenerateImageEmbedding(ctx, imageData, modelName)
 	}
-
-	if err != nil {
-		return fmt.Errorf("failed to generate image embedding: %w", err)
+	if imageErr != nil || imageEmbedding == "" {
+		imageEmbedding, imageErr = s.neurondbClient.GenerateEmbedding(ctx, doc.Title+" "+doc.Content, modelName)
+		if imageErr != nil {
+			return fmt.Errorf("failed to generate embedding: %w", imageErr)
+		}
 	}
 
 	// Store image embedding
@@ -1114,19 +1179,19 @@ func (s *Service) CreateDocumentWithImageOnly(ctx context.Context, doc *db.Knowl
 		INSERT INTO neuronip.knowledge_embeddings 
 		(document_id, embedding, model_name, chunk_index, chunk_text)
 		VALUES ($1, $2::vector, $3, $4, $5)`
-	
-	_, err = s.pool.Exec(ctx, embedInsertQuery, doc.ID, imageEmbedding, modelName, 0, "[IMAGE]")
-	if err != nil {
-		return fmt.Errorf("failed to insert image embedding: %w", err)
+
+	_, imageErr = s.pool.Exec(ctx, embedInsertQuery, doc.ID, imageEmbedding, modelName, 0, "[IMAGE]")
+	if imageErr != nil {
+		return fmt.Errorf("failed to insert image embedding: %w", imageErr)
 	}
 
 	// Log audit event
 	s.auditService.LogDocumentEvent(ctx, "create", doc.ID, userID, map[string]interface{}{
-		"title":       doc.Title,
+		"title":        doc.Title,
 		"content_type": doc.ContentType,
-		"version":     1,
-		"has_image":   true,
-		"image_only":  true,
+		"version":      1,
+		"has_image":    true,
+		"image_only":   true,
 	})
 
 	return nil
@@ -1142,9 +1207,9 @@ type ChunkingConfig struct {
 /* DefaultChunkingConfig returns default chunking configuration */
 func DefaultChunkingConfig() ChunkingConfig {
 	return ChunkingConfig{
-		ChunkSize:      1000,  // Default 1000 characters
-		ChunkOverlap:   200,   // Default 200 character overlap
-		EnableChunking: true,  // Enable by default for long documents
+		ChunkSize:      1000, // Default 1000 characters
+		ChunkOverlap:   200,  // Default 200 character overlap
+		EnableChunking: true, // Enable by default for long documents
 	}
 }
 
@@ -1156,21 +1221,21 @@ func ChunkText(text string, config ChunkingConfig) []string {
 
 	var chunks []string
 	start := 0
-	
+
 	for start < len(text) {
 		end := start + config.ChunkSize
 		if end > len(text) {
 			end = len(text)
 		}
-		
+
 		chunk := text[start:end]
-		
+
 		// Try to break at word boundaries
 		if end < len(text) && end > start+config.ChunkSize*3/4 {
 			// Look for sentence or paragraph boundaries near the end
 			lastPeriod := strings.LastIndex(chunk, ". ")
 			lastNewline := strings.LastIndex(chunk, "\n\n")
-			
+
 			if lastNewline > config.ChunkSize/2 {
 				chunk = chunk[:lastNewline+2]
 				end = start + lastNewline + 2
@@ -1179,9 +1244,9 @@ func ChunkText(text string, config ChunkingConfig) []string {
 				end = start + lastPeriod + 2
 			}
 		}
-		
+
 		chunks = append(chunks, strings.TrimSpace(chunk))
-		
+
 		// Move start position with overlap
 		if end >= len(text) {
 			break
@@ -1191,7 +1256,7 @@ func ChunkText(text string, config ChunkingConfig) []string {
 			start = 0
 		}
 	}
-	
+
 	return chunks
 }
 
@@ -1216,7 +1281,7 @@ func (s *Service) CreateDocument(ctx context.Context, doc *db.KnowledgeDocument,
 		(collection_id, title, content, content_type, source, source_url, metadata)
 		VALUES ($1, $2, $3, $4, $5, $6, $7)
 		RETURNING id, created_at, updated_at`
-	
+
 	metadataJSON, _ := json.Marshal(doc.Metadata)
 	err := s.pool.QueryRow(ctx, insertQuery,
 		doc.CollectionID, doc.Title, doc.Content, doc.ContentType,
@@ -1228,9 +1293,9 @@ func (s *Service) CreateDocument(ctx context.Context, doc *db.KnowledgeDocument,
 
 	// Log audit event for document creation
 	s.auditService.LogDocumentEvent(ctx, "create", doc.ID, userID, map[string]interface{}{
-		"title":       doc.Title,
+		"title":        doc.Title,
 		"content_type": doc.ContentType,
-		"version":     1,
+		"version":      1,
 		"chunks_count": 0, // Will update after chunks are created
 	})
 
@@ -1320,7 +1385,7 @@ func (s *Service) UpdateDocument(ctx context.Context, docID uuid.UUID, updates *
 		SELECT id, collection_id, title, content, content_type, source, source_url, metadata, created_at, updated_at
 		FROM neuronip.knowledge_documents
 		WHERE id = $1`
-	
+
 	err := s.pool.QueryRow(ctx, selectQuery, docID).Scan(
 		&currentDoc.ID, &currentDoc.CollectionID, &currentDoc.Title, &currentDoc.Content,
 		&currentDoc.ContentType, &currentDoc.Source, &currentDoc.SourceURL,
@@ -1388,7 +1453,7 @@ func (s *Service) UpdateDocument(ctx context.Context, docID uuid.UUID, updates *
 		SET title = $1, content = $2, content_type = $3, source = $4, source_url = $5, metadata = $6, updated_at = NOW()
 		WHERE id = $7
 		RETURNING updated_at`
-	
+
 	err = s.pool.QueryRow(ctx, updateQuery,
 		currentDoc.Title, currentDoc.Content, currentDoc.ContentType,
 		currentDoc.Source, currentDoc.SourceURL, metadataJSON, docID,
@@ -1399,8 +1464,7 @@ func (s *Service) UpdateDocument(ctx context.Context, docID uuid.UUID, updates *
 
 	// Chunk the updated document using NeuronDB ProcessDocument if available
 	var chunks []string
-	var chunkData []map[string]interface{}
-	
+
 	if config.EnableChunking {
 		// Try using NeuronDB ProcessDocument first
 		processedChunks, err := s.neurondbClient.ProcessDocument(ctx, currentDoc.Content, config.ChunkSize, config.ChunkOverlap)
@@ -1411,7 +1475,7 @@ func (s *Service) UpdateDocument(ctx context.Context, docID uuid.UUID, updates *
 					chunks = append(chunks, text)
 				}
 			}
-			chunkData = processedChunks
+			_ = processedChunks // Store processed chunks for potential future use
 		} else {
 			// Fallback to local chunking
 			chunks = ChunkText(currentDoc.Content, *config)
@@ -1458,11 +1522,11 @@ func (s *Service) UpdateDocument(ctx context.Context, docID uuid.UUID, updates *
 
 	// Log audit event for document update
 	s.auditService.LogDocumentEvent(ctx, "update", docID, userID, map[string]interface{}{
-		"title":       currentDoc.Title,
-		"content_type": currentDoc.ContentType,
+		"title":            currentDoc.Title,
+		"content_type":     currentDoc.ContentType,
 		"previous_version": currentVersion,
-		"new_version": newVersion,
-		"chunks_count": len(chunks),
+		"new_version":      newVersion,
+		"chunks_count":     len(chunks),
 	})
 
 	return nil
@@ -1484,10 +1548,10 @@ type RAGRequest struct {
 
 /* RAGResult represents a RAG pipeline result with context */
 type RAGResult struct {
-	Query      string       `json:"query"`
-	Context    []string     `json:"context"`    // Retrieved context chunks
-	Sources    []RAGSource  `json:"sources"`    // Source documents for context
-	Results    []SearchResult `json:"results"`  // Original search results
+	Query   string         `json:"query"`
+	Context []string       `json:"context"` // Retrieved context chunks
+	Sources []RAGSource    `json:"sources"` // Source documents for context
+	Results []SearchResult `json:"results"` // Original search results
 }
 
 /* RAGSource represents a source document in RAG context */
@@ -1543,7 +1607,7 @@ func (s *Service) RAG(ctx context.Context, req RAGRequest) (*RAGResult, error) {
 			WHERE document_id = $1
 			ORDER BY chunk_index
 			LIMIT 1`
-		
+
 		err := s.pool.QueryRow(ctx, chunkQuery, result.DocumentID).Scan(&chunkIndex, &chunkText)
 		if err != nil || chunkText == "" {
 			// Fallback to using full content if chunk not found
@@ -1632,17 +1696,17 @@ func (s *Service) DeleteMetricTimeGrain(ctx context.Context, metricID uuid.UUID,
 		DELETE FROM neuronip.metric_time_grains
 		WHERE metric_id = $1 AND time_grain_id = $2
 	`
-	
+
 	result, err := s.pool.Exec(ctx, query, metricID, timeGrainID)
 	if err != nil {
 		return fmt.Errorf("failed to delete metric time grain: %w", err)
 	}
-	
+
 	// Check if any rows were deleted
 	if result.RowsAffected() == 0 {
 		return fmt.Errorf("metric time grain not found")
 	}
-	
+
 	return nil
 }
 
@@ -1676,11 +1740,11 @@ func (s *Service) GetMetricTimeGrains(ctx context.Context, metricID uuid.UUID) (
 
 /* MetricFilter represents a metric filter */
 type MetricFilter struct {
-	ID              uuid.UUID `json:"id"`
-	MetricID        uuid.UUID `json:"metric_id"`
+	ID               uuid.UUID `json:"id"`
+	MetricID         uuid.UUID `json:"metric_id"`
 	FilterExpression string    `json:"filter_expression"`
-	FilterName      *string   `json:"filter_name,omitempty"`
-	IsDefault       bool      `json:"is_default"`
+	FilterName       *string   `json:"filter_name,omitempty"`
+	IsDefault        bool      `json:"is_default"`
 }
 
 /* AddMetricFilter adds a default filter to a metric */

@@ -1,9 +1,5 @@
 'use client'
 
-import { useState } from 'react'
-import { motion, AnimatePresence } from 'framer-motion'
-import Link from 'next/link'
-import { useRouter } from 'next/navigation'
 import {
   UserCircleIcon,
   SunIcon,
@@ -12,12 +8,18 @@ import {
   ArrowRightOnRectangleIcon,
   UserIcon,
 } from '@heroicons/react/24/outline'
-import { useAppStore } from '@/lib/store/useAppStore'
-import GlobalSearch from '@/components/search/GlobalSearch'
+import { motion, AnimatePresence } from 'framer-motion'
+import Link from 'next/link'
+import { useRouter } from 'next/navigation'
+import { useState } from 'react'
+
+import Breadcrumbs from '@/components/layout/Breadcrumbs'
 import NotificationCenter from '@/components/layout/NotificationCenter'
-import { useKeyboardShortcuts } from '@/lib/hooks/useKeyboardShortcuts'
+import GlobalSearch from '@/components/search/GlobalSearch'
 import { Card, CardContent } from '@/components/ui/Card'
 import { slideUp, transition } from '@/lib/animations/variants'
+import { useKeyboardShortcuts } from '@/lib/hooks/useKeyboardShortcuts'
+import { useAppStore } from '@/lib/store/useAppStore'
 import { cn } from '@/lib/utils/cn'
 
 export default function Header() {
@@ -50,25 +52,30 @@ export default function Header() {
     router.refresh()
   }
 
-  // Global keyboard shortcuts
-  useKeyboardShortcuts({
-    onShortcut: (shortcut) => {
-      if (shortcut.key === 'B' && shortcut.modifier === 'cmd') {
-        toggleSidebar()
-      } else if (shortcut.key === 'K' && shortcut.modifier === 'cmd') {
-        // Focus search input - handled by GlobalSearch
-        const searchInput = document.querySelector('input[placeholder="Search..."]') as HTMLInputElement | null
-        searchInput?.focus()
-      }
-    },
-  })
+  useKeyboardShortcuts([
+    { key: 'b', metaKey: true, action: () => toggleSidebar() },
+    { key: 'g', metaKey: true, action: () => router.push('/') },
+  ])
 
   return (
     <header className="sticky top-0 z-40 h-16 border-b border-border bg-card/95 backdrop-blur supports-[backdrop-filter]:bg-card/80">
       <div className="flex h-full items-center justify-between px-4 lg:px-6">
-        {/* Left side - Search */}
-        <div className="flex flex-1 items-center gap-4">
-          <GlobalSearch placeholder="Search... (⌘K)" />
+        {/* Left side - Logo + Search */}
+        <div className="flex flex-1 items-center gap-4 min-w-0">
+          <Link href="/" className="flex items-center gap-2 flex-shrink-0">
+            <div className="w-8 h-8 rounded-lg flex items-center justify-center overflow-hidden bg-white dark:bg-slate-800">
+              <img 
+                src="/logo.png" 
+                alt="NeuronIP" 
+                className="w-full h-full object-contain p-0.5"
+              />
+            </div>
+            <span className="hidden sm:inline-block text-lg font-semibold bg-gradient-to-r from-purple-600 to-indigo-600 bg-clip-text text-transparent">
+              NeuronIP
+            </span>
+          </Link>
+          <Breadcrumbs />
+          <GlobalSearch placeholder="Search... (⌘K)" className="flex-1 max-w-md" />
         </div>
 
         {/* Right side - Actions */}
@@ -123,7 +130,7 @@ export default function Header() {
                     <Card>
                       <CardContent className="p-2">
                         <Link
-                          href="/dashboard/users"
+                          href="/users"
                           onClick={() => setIsUserMenuOpen(false)}
                           className={cn(
                             'flex items-center gap-3 rounded-lg px-3 py-2 text-sm transition-colors',
@@ -134,7 +141,7 @@ export default function Header() {
                           <span>Profile</span>
                         </Link>
                         <Link
-                          href="/dashboard/settings"
+                          href="/settings"
                           onClick={() => setIsUserMenuOpen(false)}
                           className={cn(
                             'flex items-center gap-3 rounded-lg px-3 py-2 text-sm transition-colors',

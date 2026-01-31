@@ -2,11 +2,24 @@ package handlers
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 
 	"github.com/neurondb/NeuronIP/api/internal/errors"
 	"github.com/neurondb/NeuronIP/api/internal/logging"
 )
+
+/* WriteJSON encodes v as JSON, sets Content-Type and status, and writes to w. On encode failure, writes an error response. */
+func WriteJSON(w http.ResponseWriter, status int, v interface{}) {
+	b, err := json.Marshal(v)
+	if err != nil {
+		WriteError(w, fmt.Errorf("json encode: %w", err))
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+	_, _ = w.Write(b)
+}
 
 /* ErrorResponse represents an error response */
 type ErrorResponse struct {

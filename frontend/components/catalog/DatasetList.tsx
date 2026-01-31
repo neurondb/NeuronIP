@@ -1,11 +1,13 @@
 'use client'
 
-import { useState } from 'react'
-import { motion } from 'framer-motion'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card'
-import Button from '@/components/ui/Button'
-import { useCatalogDatasets, useCatalogSearch } from '@/lib/api/queries'
 import { MagnifyingGlassIcon, CubeIcon } from '@heroicons/react/24/outline'
+import { motion } from 'framer-motion'
+import { useState, useMemo } from 'react'
+
+import DatabaseView from '@/components/database/DatabaseView'
+import Button from '@/components/ui/Button'
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card'
+import { useCatalogDatasets, useCatalogSearch } from '@/lib/api/queries'
 import { cn } from '@/lib/utils/cn'
 
 interface DatasetListProps {
@@ -15,11 +17,50 @@ interface DatasetListProps {
 
 export default function DatasetList({ onSelectDataset, onCreateNew }: DatasetListProps) {
   const [searchQuery, setSearchQuery] = useState('')
+  const [viewType, setViewType] = useState<'grid' | 'database'>('grid')
   const { data: datasetsData, isLoading } = useCatalogDatasets()
   const searchMutation = useCatalogSearch()
 
   const datasets = datasetsData?.datasets || []
   const displayDatasets = searchQuery ? [] : datasets
+
+  // Transform datasets for DatabaseView
+  const databaseData = useMemo(() => {
+    return datasets.map((dataset: any) => ({
+      id: dataset.id,
+      name: dataset.name || dataset.id,
+      description: dataset.description || '',
+      owner: dataset.owner || 'Unknown',
+      fields: dataset.fields?.length || 0,
+      tags: dataset.tags?.length || 0,
+      status: dataset.status || 'active',
+      created: dataset.created_at || new Date().toISOString(),
+    }))
+  }, [datasets])
+
+  const databaseColumns = [
+    { id: 'name', name: 'Name', type: 'text' as const },
+    { id: 'description', name: 'Description', type: 'text' as const },
+    { id: 'owner', name: 'Owner', type: 'person' as const },
+    { id: 'fields', name: 'Fields', type: 'number' as const },
+    { id: 'tags', name: 'Tags', type: 'number' as const },
+    { id: 'status', name: 'Status', type: 'select' as const, options: ['active', 'archived', 'draft'] },
+    { id: 'created', name: 'Created', type: 'date' as const },
+  ]
+
+  const handleDatabaseUpdate = (rowId: string, columnId: string, value: any) => {
+    // Handle updates if needed
+    console.log('Update dataset:', rowId, columnId, value)
+  }
+
+  const handleDatabaseDelete = (rowId: string) => {
+    // Handle delete if needed
+    console.log('Delete dataset:', rowId)
+  }
+
+  const handleDatabaseCreate = (data: Record<string, any>) => {
+    onCreateNew?.()
+  }
 
   const handleSearch = async () => {
     if (!searchQuery.trim()) return
@@ -64,10 +105,41 @@ export default function DatasetList({ onSelectDataset, onCreateNew }: DatasetLis
 
       <Card>
         <CardHeader>
-          <CardTitle>Datasets ({datasets.length})</CardTitle>
+          <div className="flex items-center justify-between">
+            <CardTitle>Datasets ({datasets.length})</CardTitle>
+            <div className="flex gap-2">
+              <Button
+                variant={viewType === 'grid' ? 'primary' : 'outline'}
+                size="sm"
+                onClick={() => setViewType('grid')}
+              >
+                Grid
+              </Button>
+              <Button
+                variant={viewType === 'database' ? 'primary' : 'outline'}
+                size="sm"
+                onClick={() => setViewType('database')}
+              >
+                Database
+              </Button>
+            </div>
+          </div>
         </CardHeader>
         <CardContent>
-          {displayDatasets.length === 0 ? (
+          {viewType === 'database' && datasets.length > 0 ? (
+            <div className="h-[600px]">
+              <DatabaseView
+                data={databaseData}
+                columns={databaseColumns}
+                onUpdate={handleDatabaseUpdate}
+                onDelete={handleDatabaseDelete}
+                onCreate={handleDatabaseCreate}
+                onRowClick={(rowId) => onSelectDataset?.(rowId)}
+                defaultView="table"
+                className="h-full"
+              />
+            </div>
+          ) : displayDatasets.length === 0 ? (
             <div className="text-center py-12">
               <CubeIcon className="h-12 w-12 text-muted-foreground mx-auto mb-4 opacity-50" />
               <p className="text-muted-foreground mb-4">No datasets found. Create one to get started.</p>

@@ -1,45 +1,87 @@
 'use client'
 
-import { useState } from 'react'
+import { PlusIcon } from '@heroicons/react/24/outline'
 import { motion } from 'framer-motion'
-import { staggerContainer, slideUp } from '@/lib/animations/variants'
-import ConnectorList from '@/components/data-sources/ConnectorList'
+import { useState } from 'react'
+
 import ConnectorForm from '@/components/data-sources/ConnectorForm'
+import ConnectorList from '@/components/data-sources/ConnectorList'
+import CredentialsVault from '@/components/data-sources/CredentialsVault'
 import DataSourceSetupWizard from '@/components/data-sources/DataSourceSetupWizard'
 import ScheduleEditor from '@/components/data-sources/ScheduleEditor'
-import CredentialsVault from '@/components/data-sources/CredentialsVault'
 import Button from '@/components/ui/Button'
 import Modal from '@/components/ui/Modal'
-import { PlusIcon } from '@heroicons/react/24/outline'
+import { staggerContainer, slideUp } from '@/lib/animations/variants'
+import apiClient from '@/lib/api/client'
+
 
 type ViewMode = 'list' | 'add' | 'edit' | 'schedule' | 'credentials' | 'wizard'
 
+interface Connector {
+  id?: string
+  schedule?: string
+  metadata?: Record<string, unknown>
+  configuration?: Record<string, unknown>
+  credentials?: Record<string, unknown>
+  [key: string]: unknown
+}
+
 export default function DataSourcesPage() {
   const [viewMode, setViewMode] = useState<ViewMode>('list')
-  const [selectedConnector, setSelectedConnector] = useState<any>(null)
+  const [selectedConnector, setSelectedConnector] = useState<Connector | null>(null)
+  const [listRefresh, setListRefresh] = useState(0)
 
-  const handleAddConnector = (data: any) => {
-    // API call to create connector
-    console.log('Creating connector:', data)
-    setViewMode('list')
+  const handleAddConnector = async (data: Record<string, unknown>) => {
+    try {
+      await apiClient.post('/connectors', data)
+      setListRefresh((n) => n + 1)
+      setViewMode('list')
+    } catch (err: unknown) {
+      const message = err && typeof err === 'object' && 'message' in err ? String((err as { message: string }).message) : 'Failed to create connector'
+      console.error(message)
+    }
   }
 
-  const handleEditConnector = (data: any) => {
-    // API call to update connector
-    console.log('Updating connector:', data)
-    setViewMode('list')
+  const handleEditConnector = async (data: Record<string, unknown>) => {
+    if (!selectedConnector?.id) return
+    try {
+      await apiClient.put(`/connectors/${selectedConnector.id}`, { ...selectedConnector, ...data })
+      setListRefresh((n) => n + 1)
+      setViewMode('list')
+      setSelectedConnector(null)
+    } catch (err: unknown) {
+      const message = err && typeof err === 'object' && 'message' in err ? String((err as { message: string }).message) : 'Failed to update connector'
+      console.error(message)
+    }
   }
 
-  const handleSaveSchedule = (schedule: string) => {
-    // API call to save schedule
-    console.log('Saving schedule:', schedule)
-    setViewMode('list')
+  const handleSaveSchedule = async (schedule: string) => {
+    if (!selectedConnector?.id) return
+    try {
+      const { data: connector } = await apiClient.get<Connector>(`/connectors/${selectedConnector.id}`)
+      const metadata = { ...(connector.metadata || {}), schedule }
+      await apiClient.put(`/connectors/${selectedConnector.id}`, { ...connector, metadata })
+      setListRefresh((n) => n + 1)
+      setViewMode('list')
+      setSelectedConnector(null)
+    } catch (err: unknown) {
+      const message = err && typeof err === 'object' && 'message' in err ? String((err as { message: string }).message) : 'Failed to save schedule'
+      console.error(message)
+    }
   }
 
-  const handleSaveCredentials = (credentials: any) => {
-    // API call to save credentials
-    console.log('Saving credentials:', credentials)
-    setViewMode('list')
+  const handleSaveCredentials = async (credentials: Record<string, unknown>) => {
+    if (!selectedConnector?.id) return
+    try {
+      const { data: connector } = await apiClient.get<Connector>(`/connectors/${selectedConnector.id}`)
+      await apiClient.put(`/connectors/${selectedConnector.id}`, { ...connector, credentials })
+      setListRefresh((n) => n + 1)
+      setViewMode('list')
+      setSelectedConnector(null)
+    } catch (err: unknown) {
+      const message = err && typeof err === 'object' && 'message' in err ? String((err as { message: string }).message) : 'Failed to save credentials'
+      console.error(message)
+    }
   }
 
   return (
@@ -67,7 +109,23 @@ export default function DataSourcesPage() {
       </motion.div>
 
       <motion.div variants={slideUp} className="flex-1 min-h-0 overflow-y-auto">
-        {viewMode === 'list' && <ConnectorList />}
+        {viewMode === 'list' && (
+          <ConnectorList
+            key={listRefresh}
+            onEdit={(c) => {
+              setSelectedConnector(c as Connector)
+              setViewMode('edit')
+            }}
+            onSchedule={(c) => {
+              setSelectedConnector(c as Connector)
+              setViewMode('schedule')
+            }}
+            onCredentials={(c) => {
+              setSelectedConnector(c as Connector)
+              setViewMode('credentials')
+            }}
+          />
+        )}
         {viewMode === 'wizard' && (
           <Modal
             open={viewMode === 'wizard'}
@@ -101,9 +159,9 @@ export default function DataSourcesPage() {
             onCancel={() => setViewMode('list')}
           />
         )}
-        {viewMode === 'credentials' && (
+        {viewMode === 'credentials' && selectedConnector?.id && (
           <CredentialsVault
-            connectorId={selectedConnector?.id}
+            connectorId={selectedConnector.id}
             onSave={handleSaveCredentials}
           />
         )}

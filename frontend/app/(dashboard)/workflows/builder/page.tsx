@@ -1,26 +1,30 @@
 'use client'
 
-import { motion } from 'framer-motion'
-import WorkflowBuilder from '@/components/workflows/WorkflowBuilder'
-import { staggerContainer, slideUp } from '@/lib/animations/variants'
+import dynamic from 'next/dynamic'
+
+import PageTemplate from '@/components/layout/PageTemplate'
+import Loading from '@/components/ui/Loading'
+
+const WorkflowBuilder = dynamic(
+  () => import('@/components/workflows/WorkflowBuilder').then((mod) => ({ default: mod.default })),
+  {
+    ssr: false,
+    loading: () => (
+      <div className="flex h-[400px] items-center justify-center rounded-lg border border-border bg-muted/30">
+        <Loading size="lg" variant="spinner" />
+      </div>
+    ),
+  }
+)
 
 export default function WorkflowBuilderPage() {
   return (
-    <motion.div
-      variants={staggerContainer}
-      initial="hidden"
-      animate="visible"
-      className="h-full flex flex-col"
+    <PageTemplate
+      title="Workflow Builder"
+      description="Create and edit workflows with a visual drag-and-drop interface"
+      archetype="builder"
     >
-      <motion.div variants={slideUp} className="flex-shrink-0 pb-2">
-        <h1 className="text-2xl sm:text-3xl font-bold text-foreground">Workflow Builder</h1>
-        <p className="text-sm text-muted-foreground mt-1">
-          Create and edit workflows with a visual drag-and-drop interface
-        </p>
-      </motion.div>
-      <motion.div variants={slideUp} className="flex-1 min-h-0">
-        <WorkflowBuilder />
-      </motion.div>
-    </motion.div>
+      <WorkflowBuilder />
+    </PageTemplate>
   )
 }

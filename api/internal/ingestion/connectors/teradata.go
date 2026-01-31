@@ -76,9 +76,10 @@ func (t *TeradataConnector) Connect(ctx context.Context, config map[string]inter
 			t.db = db
 			t.BaseConnector.SetConnected(true)
 			return nil
+		} else {
+			lastErr = fmt.Errorf("teradata driver ping failed: %w", pingErr)
+			db.Close()
 		}
-		lastErr = fmt.Errorf("teradata driver ping failed: %w", pingErr)
-		db.Close()
 	} else {
 		lastErr = err
 	}
@@ -96,9 +97,10 @@ func (t *TeradataConnector) Connect(ctx context.Context, config map[string]inter
 			t.db = db
 			t.BaseConnector.SetConnected(true)
 			return nil
+		} else {
+			lastErr = fmt.Errorf("odbc driver ping failed: %w", pingErr)
+			db.Close()
 		}
-		lastErr = fmt.Errorf("odbc driver ping failed: %w", pingErr)
-		db.Close()
 	} else if lastErr == nil {
 		lastErr = err
 	}

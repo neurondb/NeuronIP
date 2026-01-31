@@ -1,6 +1,7 @@
 'use client'
 
 import dynamic from 'next/dynamic'
+
 import { cn } from '@/lib/utils/cn'
 
 const MonacoEditor = dynamic(() => import('@monaco-editor/react'), { ssr: false })

@@ -409,6 +409,7 @@ Build and execute complex workflows with AI agents and long-term memory.
 Resources for developers:
 
 - **[Development Setup](development/setup.md)** - Set up your environment
+- **[NeuronDB Local Dev](development/neurondb-local-dev.md)** - Run NeuronIP with a local NeuronDB build
 - **[Contributing Guide](development/contributing.md)** - How to contribute
 - **[Coding Standards](development/coding-standards.md)** - Code style guide
 - **[Testing Guide](development/testing.md)** - Testing best practices

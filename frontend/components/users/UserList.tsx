@@ -1,15 +1,16 @@
 'use client'
 
-import { useState } from 'react'
-import { motion } from 'framer-motion'
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/Card'
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/Table'
-import Button from '@/components/ui/Button'
-import Loading from '@/components/ui/Loading'
 import { MagnifyingGlassIcon, UserCircleIcon } from '@heroicons/react/24/outline'
+import { motion } from 'framer-motion'
+import { useState } from 'react'
+
+import Button from '@/components/ui/Button'
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/Card'
+import Loading from '@/components/ui/Loading'
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/Table'
+import { slideUp, transition } from '@/lib/animations/variants'
 import { useUsers } from '@/lib/api/queries'
 import { cn } from '@/lib/utils/cn'
-import { slideUp, transition } from '@/lib/animations/variants'
 
 interface User {
   id: string

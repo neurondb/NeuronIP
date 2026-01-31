@@ -21,12 +21,19 @@ func NewPool(ctx context.Context, cfg config.DatabaseConfig) (*Pool, error) {
 		return nil, fmt.Errorf("failed to parse database config: %w", err)
 	}
 
-	// Configure pool settings
+	// Configure pool settings with optimizations
 	poolConfig.MaxConns = int32(cfg.MaxOpenConns)
 	poolConfig.MinConns = int32(cfg.MaxIdleConns)
 	poolConfig.MaxConnLifetime = cfg.ConnMaxLifetime
-	poolConfig.MaxConnIdleTime = 30 * time.Minute
+	if cfg.ConnMaxIdleTime > 0 {
+		poolConfig.MaxConnIdleTime = cfg.ConnMaxIdleTime
+	} else {
+		poolConfig.MaxConnIdleTime = 30 * time.Minute
+	}
 	poolConfig.HealthCheckPeriod = 1 * time.Minute
+
+	// Note: pgxpool automatically uses prepared statements for repeated queries
+	// No additional configuration needed for prepared statements
 
 	pool, err := pgxpool.NewWithConfig(ctx, poolConfig)
 	if err != nil {

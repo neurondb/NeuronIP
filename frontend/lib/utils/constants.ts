@@ -41,6 +41,7 @@ export const API_ENDPOINTS = {
   compliancePolicies: '/compliance/policies',
   compliancePolicy: (id: string) => `/compliance/policies/${id}`,
   complianceReport: '/compliance/report',
+  complianceReportExport: '/compliance/report/export',
 
   // Analytics
   analyticsSearch: '/analytics/search',
@@ -153,6 +154,7 @@ export const API_ENDPOINTS = {
   auditActivity: '/audit/activity',
   auditComplianceTrail: '/audit/compliance-trail',
   auditSearch: '/audit/search',
+  auditExport: '/audit/export',
 
   // Billing
   billingUsage: '/billing/usage',
@@ -165,6 +167,9 @@ export const API_ENDPOINTS = {
   agent: (id: string) => `/agents/${id}`,
   agentPerformance: (id: string) => `/agents/${id}/performance`,
   agentDeploy: (id: string) => `/agents/${id}/deploy`,
+  agentRuns: (id: string) => `/agents/${id}/runs`,
+  agentMemory: (id: string) => `/agents/${id}/memory`,
+  agentEvaluations: (id: string) => `/agents/${id}/evaluations`,
 } as const
 
 export const QUERY_KEYS = {
@@ -256,6 +261,7 @@ export const QUERY_KEYS = {
   auditEvents: 'audit-events',
   auditActivity: 'audit-activity',
   auditComplianceTrail: 'audit-compliance-trail',
+  auditExport: 'audit-export',
 
   // Billing
   billingUsage: 'billing-usage',
@@ -266,6 +272,9 @@ export const QUERY_KEYS = {
   agents: 'agents',
   agent: (id: string) => ['agent', id],
   agentPerformance: (id: string) => ['agent-performance', id],
+  agentRuns: (id: string) => ['agent-runs', id],
+  agentMemory: (id: string) => ['agent-memory', id],
+  agentEvaluations: (id: string) => ['agent-evaluations', id],
 } as const
 
 export const STORAGE_KEYS = {

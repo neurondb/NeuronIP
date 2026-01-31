@@ -1,13 +1,14 @@
 'use client'
 
-import { useState } from 'react'
 import { motion } from 'framer-motion'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card'
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/Table'
+import { useState } from 'react'
+
 import Button from '@/components/ui/Button'
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card'
 import Loading from '@/components/ui/Loading'
-import { useCreateDocument } from '@/lib/api/queries'
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/Table'
 import { slideUp, transition } from '@/lib/animations/variants'
+import { useCreateDocument } from '@/lib/api/queries'
 import { cn } from '@/lib/utils/cn'
 
 interface Document {

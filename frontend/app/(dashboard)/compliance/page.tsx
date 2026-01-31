@@ -1,17 +1,18 @@
 'use client'
 
-import { useState } from 'react'
 import { motion } from 'framer-motion'
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/Card'
-import Button from '@/components/ui/Button'
+import { useState } from 'react'
+
 import AnomalyChart from '@/components/compliance/AnomalyChart'
+import ComplianceDashboard from '@/components/compliance/ComplianceDashboard'
 import ComplianceTable from '@/components/compliance/ComplianceTable'
 import PolicyManager from '@/components/compliance/PolicyManager'
 import RuleBuilder from '@/components/compliance/RuleBuilder'
-import ComplianceDashboard from '@/components/compliance/ComplianceDashboard'
-import { useComplianceCheck, useComplianceAnomalies } from '@/lib/api/queries'
+import Button from '@/components/ui/Button'
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/Card'
 import { showToast } from '@/components/ui/Toast'
 import { staggerContainer, slideUp } from '@/lib/animations/variants'
+import { useComplianceCheck, useComplianceAnomalies, getComplianceReportExportUrl } from '@/lib/api/queries'
 
 interface ComplianceCheck {
   id: string
@@ -30,7 +31,8 @@ export default function CompliancePage() {
   const [checks, setChecks] = useState<ComplianceCheck[]>([])
   
   const { mutate: checkCompliance, isPending } = useComplianceCheck()
-  const { data: anomalies, isLoading: anomaliesLoading } = useComplianceAnomalies()
+  // Anomalies data can be used for future enhancements
+  useComplianceAnomalies()
 
   const handleCheck = () => {
     if (!entityType || !entityId || !entityContent) {
@@ -83,11 +85,33 @@ export default function CompliancePage() {
       className="space-y-3 sm:space-y-4 flex flex-col h-full"
     >
       {/* Page Header */}
-      <motion.div variants={slideUp} className="flex-shrink-0 pb-2">
-        <h1 className="text-2xl sm:text-3xl font-bold text-foreground">Governance & Compliance</h1>
-        <p className="text-sm text-muted-foreground mt-1">
-          Monitor compliance, manage policies, and detect anomalies
-        </p>
+      <motion.div variants={slideUp} className="flex-shrink-0 pb-2 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+        <div>
+          <h1 className="text-2xl sm:text-3xl font-bold text-foreground">Governance & Compliance</h1>
+          <p className="text-sm text-muted-foreground mt-1">
+            Monitor compliance, manage policies, and detect anomalies
+          </p>
+        </div>
+        <div className="flex gap-2">
+          <a
+            href={getComplianceReportExportUrl({ format: 'csv' })}
+            download
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex items-center justify-center rounded-lg border border-border bg-background px-3 py-2 text-sm font-medium hover:bg-muted"
+          >
+            Export report CSV
+          </a>
+          <a
+            href={getComplianceReportExportUrl({ format: 'json' })}
+            download
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex items-center justify-center rounded-lg border border-border bg-background px-3 py-2 text-sm font-medium hover:bg-muted"
+          >
+            Export report JSON
+          </a>
+        </div>
       </motion.div>
 
       {/* Tabs */}

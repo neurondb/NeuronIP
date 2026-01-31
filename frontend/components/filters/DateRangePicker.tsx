@@ -1,11 +1,13 @@
 'use client'
 
-import { useState } from 'react'
-import { motion, AnimatePresence } from 'framer-motion'
 import { CalendarIcon } from '@heroicons/react/24/outline'
+import { format } from 'date-fns'
+import { motion, AnimatePresence } from 'framer-motion'
+import { useState } from 'react'
+
 import { Card } from '@/components/ui/Card'
 import { cn } from '@/lib/utils/cn'
-import { format } from 'date-fns'
+
 
 interface DateRange {
   start: Date | null

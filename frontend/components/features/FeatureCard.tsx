@@ -1,11 +1,12 @@
 'use client'
 
-import Link from 'next/link'
 import { motion } from 'framer-motion'
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/Card'
+import Link from 'next/link'
 import { ReactNode } from 'react'
-import { cn } from '@/lib/utils/cn'
+
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/Card'
 import { slideUp, transition } from '@/lib/animations/variants'
+import { cn } from '@/lib/utils/cn'
 
 interface FeatureCardProps {
   title: string

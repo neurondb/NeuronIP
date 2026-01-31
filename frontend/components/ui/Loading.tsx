@@ -1,7 +1,8 @@
 'use client'
 
-import { HTMLAttributes } from 'react'
 import { motion } from 'framer-motion'
+import { HTMLAttributes } from 'react'
+
 import { cn } from '@/lib/utils/cn'
 
 interface LoadingProps extends HTMLAttributes<HTMLDivElement> {

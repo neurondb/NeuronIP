@@ -1,11 +1,20 @@
 'use client'
 
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card'
-import Button from '@/components/ui/Button'
-import { useAgent, useAgentPerformance, useDeployAgent } from '@/lib/api/queries'
-import { showToast } from '@/components/ui/Toast'
 import { PlayIcon, ChartBarIcon } from '@heroicons/react/24/outline'
 import { format } from 'date-fns'
+
+import Button from '@/components/ui/Button'
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card'
+import { showToast } from '@/components/ui/Toast'
+import {
+  useAgent,
+  useAgentPerformance,
+  useAgentRuns,
+  useAgentMemory,
+  useAgentEvaluations,
+  useDeployAgent,
+} from '@/lib/api/queries'
+
 
 interface AgentDetailProps {
   agentId: string
@@ -14,6 +23,9 @@ interface AgentDetailProps {
 export default function AgentDetail({ agentId }: AgentDetailProps) {
   const { data: agent, isLoading } = useAgent(agentId)
   const { data: performance, isLoading: perfLoading } = useAgentPerformance(agentId)
+  const { data: runs } = useAgentRuns(agentId, 20)
+  const { data: memory } = useAgentMemory(agentId, 50)
+  const { data: evaluations } = useAgentEvaluations(agentId, 20)
   const deployMutation = useDeployAgent()
 
   const handleDeploy = async () => {
@@ -141,6 +153,65 @@ export default function AgentDetail({ agentId }: AgentDetailProps) {
                 </div>
               )}
             </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {Array.isArray(runs) && runs.length > 0 && (
+        <Card>
+          <CardHeader>
+            <CardTitle>Recent Runs</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <ul className="space-y-2 text-sm">
+              {runs.slice(0, 10).map((run: { id: string; task?: string; status?: string; start_time?: string }) => (
+                <li key={run.id} className="flex justify-between border-b border-border pb-2 last:border-0">
+                  <span className="truncate">{run.task || run.id}</span>
+                  <span className="text-muted-foreground">{run.status}</span>
+                  {run.start_time && (
+                    <span className="text-muted-foreground text-xs">{format(new Date(run.start_time), 'PP')}</span>
+                  )}
+                </li>
+              ))}
+            </ul>
+          </CardContent>
+        </Card>
+      )}
+
+      {Array.isArray(memory) && memory.length > 0 && (
+        <Card>
+          <CardHeader>
+            <CardTitle>Memory</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <ul className="space-y-2 text-sm">
+              {memory.slice(0, 10).map((entry: { id: string; memory_key: string }) => (
+                <li key={entry.id} className="border-b border-border pb-2 last:border-0">
+                  <span className="font-medium">{entry.memory_key}</span>
+                </li>
+              ))}
+            </ul>
+          </CardContent>
+        </Card>
+      )}
+
+      {Array.isArray(evaluations) && evaluations.length > 0 && (
+        <Card>
+          <CardHeader>
+            <CardTitle>Evaluations</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <ul className="space-y-2 text-sm">
+              {evaluations.slice(0, 10).map((ev: { id: string; status?: string; score?: number; started_at?: string }) => (
+                <li key={ev.id} className="flex justify-between border-b border-border pb-2 last:border-0">
+                  <span>{ev.status}</span>
+                  {ev.score != null && <span>Score: {ev.score}</span>}
+                  {ev.started_at && (
+                    <span className="text-muted-foreground text-xs">{format(new Date(ev.started_at), 'PP')}</span>
+                  )}
+                </li>
+              ))}
+            </ul>
           </CardContent>
         </Card>
       )}

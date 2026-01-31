@@ -23,11 +23,11 @@ func NewObservabilityService(pool *pgxpool.Pool) *ObservabilityService {
 
 /* QueryPerformance represents query performance metrics */
 type QueryPerformance struct {
-	QueryID      uuid.UUID  `json:"query_id"`
-	Duration     float64    `json:"duration"`
-	RowCount     int        `json:"row_count"`
-	Status       string     `json:"status"`
-	ExecutedAt   time.Time  `json:"executed_at"`
+	QueryID    uuid.UUID `json:"query_id"`
+	Duration   float64   `json:"duration"`
+	RowCount   int       `json:"row_count"`
+	Status     string    `json:"status"`
+	ExecutedAt time.Time `json:"executed_at"`
 }
 
 /* SystemLog represents a system log entry */
@@ -42,9 +42,9 @@ type SystemLog struct {
 
 /* SystemMetrics represents system-wide metrics */
 type SystemMetrics struct {
-	Latency    float64 `json:"latency"`
-	Throughput float64 `json:"throughput"`
-	Cost       float64 `json:"cost"`
+	Latency    float64   `json:"latency"`
+	Throughput float64   `json:"throughput"`
+	Cost       float64   `json:"cost"`
 	Timestamp  time.Time `json:"timestamp"`
 }
 
@@ -53,6 +53,13 @@ func (s *ObservabilityService) GetQueryPerformance(ctx context.Context, limit in
 	if limit <= 0 {
 		limit = 100
 	}
+	if limit > 1000 {
+		limit = 1000 // Maximum limit to prevent excessive memory usage
+	}
+
+	// Add timeout to prevent long-running queries
+	queryCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
 
 	query := `
 		SELECT id, executed_at, execution_time_ms, row_count, status
@@ -61,7 +68,7 @@ func (s *ObservabilityService) GetQueryPerformance(ctx context.Context, limit in
 		ORDER BY executed_at DESC
 		LIMIT $1`
 
-	rows, err := s.pool.Query(ctx, query, limit)
+	rows, err := s.pool.Query(queryCtx, query, limit)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get query performance: %w", err)
 	}
@@ -92,6 +99,13 @@ func (s *ObservabilityService) GetSystemLogs(ctx context.Context, logType, level
 	if limit <= 0 {
 		limit = 100
 	}
+	if limit > 1000 {
+		limit = 1000 // Maximum limit to prevent excessive memory usage
+	}
+
+	// Add timeout to prevent long-running queries
+	queryCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
 
 	query := `
 		SELECT id, log_type, level, message, context, timestamp
@@ -100,7 +114,7 @@ func (s *ObservabilityService) GetSystemLogs(ctx context.Context, logType, level
 		ORDER BY timestamp DESC
 		LIMIT $3`
 
-	rows, err := s.pool.Query(ctx, query, logType, level, limit)
+	rows, err := s.pool.Query(queryCtx, query, logType, level, limit)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get system logs: %w", err)
 	}
@@ -188,12 +202,12 @@ func (s *ObservabilityService) GetWorkflowLogs(ctx context.Context, limit int) (
 /* RecordUsageMetric records a usage metric */
 func (s *ObservabilityService) RecordUsageMetric(ctx context.Context, userID *string, resourceType string, resourceID *string, metricName string, metricValue float64, unit *string, metadata map[string]interface{}) error {
 	metadataJSON, _ := json.Marshal(metadata)
-	
+
 	query := `
 		INSERT INTO neuronip.usage_metrics 
 		(id, user_id, resource_type, resource_id, metric_name, metric_value, unit, metadata, timestamp)
 		VALUES (gen_random_uuid(), $1, $2, $3, $4, $5, $6, $7, NOW())`
-	
+
 	_, err := s.pool.Exec(ctx, query, userID, resourceType, resourceID, metricName, metricValue, unit, metadataJSON)
 	return err
 }
@@ -204,83 +218,83 @@ func (s *ObservabilityService) GetUsageMetrics(ctx context.Context, filters Usag
 		SELECT id, user_id, resource_type, resource_id, metric_name, metric_value, unit, metadata, timestamp
 		FROM neuronip.usage_metrics
 		WHERE 1=1`
-	
+
 	args := []interface{}{}
 	argIndex := 1
-	
+
 	if filters.UserID != nil {
 		query += fmt.Sprintf(" AND user_id = $%d", argIndex)
 		args = append(args, *filters.UserID)
 		argIndex++
 	}
-	
+
 	if filters.ResourceType != nil {
 		query += fmt.Sprintf(" AND resource_type = $%d", argIndex)
 		args = append(args, *filters.ResourceType)
 		argIndex++
 	}
-	
+
 	if filters.MetricName != nil {
 		query += fmt.Sprintf(" AND metric_name = $%d", argIndex)
 		args = append(args, *filters.MetricName)
 		argIndex++
 	}
-	
+
 	if filters.StartTime != nil {
 		query += fmt.Sprintf(" AND timestamp >= $%d", argIndex)
 		args = append(args, *filters.StartTime)
 		argIndex++
 	}
-	
+
 	if filters.EndTime != nil {
 		query += fmt.Sprintf(" AND timestamp <= $%d", argIndex)
 		args = append(args, *filters.EndTime)
 		argIndex++
 	}
-	
+
 	query += " ORDER BY timestamp DESC"
-	
+
 	if limit > 0 {
 		query += fmt.Sprintf(" LIMIT $%d", argIndex)
 		args = append(args, limit)
 	}
-	
+
 	rows, err := s.pool.Query(ctx, query, args...)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get usage metrics: %w", err)
 	}
 	defer rows.Close()
-	
+
 	metrics := make([]UsageMetric, 0)
 	for rows.Next() {
 		var m UsageMetric
 		var metadataJSON json.RawMessage
-		
+
 		err := rows.Scan(&m.ID, &m.UserID, &m.ResourceType, &m.ResourceID, &m.MetricName, &m.MetricValue, &m.Unit, &metadataJSON, &m.Timestamp)
 		if err != nil {
 			continue
 		}
-		
+
 		if metadataJSON != nil {
 			json.Unmarshal(metadataJSON, &m.Metadata)
 		}
-		
+
 		metrics = append(metrics, m)
 	}
-	
+
 	return metrics, nil
 }
 
 /* RecordCost records a cost */
 func (s *ObservabilityService) RecordCost(ctx context.Context, userID *string, resourceType string, resourceID *string, costAmount float64, currency string, costCategory string, periodStart, periodEnd time.Time, metadata map[string]interface{}) error {
 	metadataJSON, _ := json.Marshal(metadata)
-	
+
 	query := `
 		INSERT INTO neuronip.cost_tracking 
 		(id, user_id, resource_type, resource_id, cost_amount, currency, cost_category,
 		 billing_period_start, billing_period_end, metadata, created_at)
 		VALUES (gen_random_uuid(), $1, $2, $3, $4, $5, $6, $7, $8, $9, NOW())`
-	
+
 	_, err := s.pool.Exec(ctx, query, userID, resourceType, resourceID, costAmount, currency, costCategory, periodStart, periodEnd, metadataJSON)
 	return err
 }
@@ -294,45 +308,45 @@ func (s *ObservabilityService) GetCostSummary(ctx context.Context, userID *strin
 			COUNT(*) as record_count
 		FROM neuronip.cost_tracking
 		WHERE billing_period_start >= $1 AND billing_period_end <= $2`
-	
+
 	args := []interface{}{startTime, endTime}
 	argIndex := 3
-	
+
 	if userID != nil {
 		query += fmt.Sprintf(" AND user_id = $%d", argIndex)
 		args = append(args, *userID)
 		argIndex++
 	}
-	
+
 	query += " GROUP BY cost_category"
-	
+
 	rows, err := s.pool.Query(ctx, query, args...)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get cost summary: %w", err)
 	}
 	defer rows.Close()
-	
+
 	summary := &CostSummary{
-		TotalCost: 0,
-		ByCategory: make(map[string]float64),
+		TotalCost:   0,
+		ByCategory:  make(map[string]float64),
 		PeriodStart: startTime,
-		PeriodEnd: endTime,
+		PeriodEnd:   endTime,
 	}
-	
+
 	for rows.Next() {
 		var category string
 		var cost float64
 		var count int
-		
+
 		err := rows.Scan(&cost, &category, &count)
 		if err != nil {
 			continue
 		}
-		
+
 		summary.TotalCost += cost
 		summary.ByCategory[category] = cost
 	}
-	
+
 	return summary, nil
 }
 
@@ -360,10 +374,10 @@ type UsageFilters struct {
 
 /* CostSummary represents a cost summary */
 type CostSummary struct {
-	TotalCost   float64             `json:"total_cost"`
-	ByCategory  map[string]float64  `json:"by_category"`
-	PeriodStart time.Time           `json:"period_start"`
-	PeriodEnd   time.Time           `json:"period_end"`
+	TotalCost   float64            `json:"total_cost"`
+	ByCategory  map[string]float64 `json:"by_category"`
+	PeriodStart time.Time          `json:"period_start"`
+	PeriodEnd   time.Time          `json:"period_end"`
 }
 
 /* GetRealTimeMetrics retrieves real-time aggregated metrics */
@@ -697,20 +711,20 @@ type CostBreakdown struct {
 
 /* AgentExecutionLog represents an agent execution log entry */
 type AgentExecutionLog struct {
-	ID              uuid.UUID              `json:"id"`
-	AgentID          string                 `json:"agent_id"`
-	AgentRunID       uuid.UUID              `json:"agent_run_id"`
-	StepID           *string                `json:"step_id,omitempty"`
-	StepType         string                 `json:"step_type"` // tool_call, reasoning, decision, etc.
-	ToolName         *string                `json:"tool_name,omitempty"`
-	Input            map[string]interface{} `json:"input,omitempty"`
-	Output           map[string]interface{} `json:"output,omitempty"`
-	Decision         *string                `json:"decision,omitempty"`
-	LatencyMs        int64                  `json:"latency_ms"`
-	TokensUsed       *int64                 `json:"tokens_used,omitempty"`
-	Cost             *float64               `json:"cost,omitempty"`
-	Metadata         map[string]interface{} `json:"metadata,omitempty"`
-	Timestamp        time.Time              `json:"timestamp"`
+	ID         uuid.UUID              `json:"id"`
+	AgentID    string                 `json:"agent_id"`
+	AgentRunID uuid.UUID              `json:"agent_run_id"`
+	StepID     *string                `json:"step_id,omitempty"`
+	StepType   string                 `json:"step_type"` // tool_call, reasoning, decision, etc.
+	ToolName   *string                `json:"tool_name,omitempty"`
+	Input      map[string]interface{} `json:"input,omitempty"`
+	Output     map[string]interface{} `json:"output,omitempty"`
+	Decision   *string                `json:"decision,omitempty"`
+	LatencyMs  int64                  `json:"latency_ms"`
+	TokensUsed *int64                 `json:"tokens_used,omitempty"`
+	Cost       *float64               `json:"cost,omitempty"`
+	Metadata   map[string]interface{} `json:"metadata,omitempty"`
+	Timestamp  time.Time              `json:"timestamp"`
 }
 
 /* GetAgentExecutionLogs retrieves agent execution logs */
@@ -914,10 +928,10 @@ func (s *ObservabilityService) GetAgentRunCost(ctx context.Context, agentRunID u
 
 /* QueryCost represents cost for a query */
 type QueryCost struct {
-	QueryID    uuid.UUID `json:"query_id"`
-	TotalCost  float64   `json:"total_cost"`
-	AvgCost    float64   `json:"avg_cost"`
-	RecordCount int      `json:"record_count"`
+	QueryID     uuid.UUID `json:"query_id"`
+	TotalCost   float64   `json:"total_cost"`
+	AvgCost     float64   `json:"avg_cost"`
+	RecordCount int       `json:"record_count"`
 }
 
 /* AgentRunCost represents cost for an agent run */

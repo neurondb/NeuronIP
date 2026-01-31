@@ -1,6 +1,6 @@
-import React, { ReactElement } from 'react'
-import { render, RenderOptions } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { render, RenderOptions } from '@testing-library/react'
+import React, { ReactElement } from 'react'
 
 // Create a test query client
 const createTestQueryClient = () =>
@@ -8,7 +8,7 @@ const createTestQueryClient = () =>
     defaultOptions: {
       queries: {
         retry: false,
-        cacheTime: 0,
+        gcTime: 0, // gcTime replaces cacheTime in React Query v5
       },
     },
   })

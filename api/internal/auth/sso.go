@@ -24,24 +24,25 @@ func truncateString(s string, maxLen int) string {
 		return s
 	}
 	return s[:maxLen] + "..."
+}
 
 /* SSOProvider represents an SSO identity provider */
 type SSOProvider struct {
-	ID           uuid.UUID              `json:"id"`
-	Name         string                 `json:"name"`
-	ProviderType string                 `json:"provider_type"` // saml, oauth2, oidc
-	Enabled      bool                   `json:"enabled"`
+	ID            uuid.UUID              `json:"id"`
+	Name          string                 `json:"name"`
+	ProviderType  string                 `json:"provider_type"` // saml, oauth2, oidc
+	Enabled       bool                   `json:"enabled"`
 	Configuration map[string]interface{} `json:"configuration"`
-	MetadataURL  *string                `json:"metadata_url,omitempty"`
-	EntityID     *string                `json:"entity_id,omitempty"`
-	SSOURL       *string                `json:"sso_url,omitempty"`
-	SLOURL       *string                `json:"slo_url,omitempty"`
-	Certificate  *string                `json:"certificate,omitempty"`
-	ClientID     *string                `json:"client_id,omitempty"`
-	ClientSecret *string                `json:"client_secret,omitempty"`
-	Scopes       []string               `json:"scopes,omitempty"`
-	CreatedAt    time.Time              `json:"created_at"`
-	UpdatedAt    time.Time              `json:"updated_at"`
+	MetadataURL   *string                `json:"metadata_url,omitempty"`
+	EntityID      *string                `json:"entity_id,omitempty"`
+	SSOURL        *string                `json:"sso_url,omitempty"`
+	SLOURL        *string                `json:"slo_url,omitempty"`
+	Certificate   *string                `json:"certificate,omitempty"`
+	ClientID      *string                `json:"client_id,omitempty"`
+	ClientSecret  *string                `json:"client_secret,omitempty"`
+	Scopes        []string               `json:"scopes,omitempty"`
+	CreatedAt     time.Time              `json:"created_at"`
+	UpdatedAt     time.Time              `json:"updated_at"`
 }
 
 /* SSOService provides SSO authentication functionality */
@@ -80,7 +81,10 @@ func (s *SSOService) CreateProvider(ctx context.Context, provider SSOProvider) (
 	provider.CreatedAt = time.Now()
 	provider.UpdatedAt = time.Now()
 
-	configJSON, _ := json.Marshal(provider.Configuration)
+	configJSON, err := json.Marshal(provider.Configuration)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal provider configuration: %w", err)
+	}
 
 	query := `
 		INSERT INTO neuronip.sso_providers 
@@ -89,7 +93,7 @@ func (s *SSOService) CreateProvider(ctx context.Context, provider SSOProvider) (
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
 		RETURNING id, created_at, updated_at`
 
-	err := s.pool.QueryRow(ctx, query,
+	err = s.pool.QueryRow(ctx, query,
 		provider.ID, provider.Name, provider.ProviderType, provider.Enabled,
 		configJSON, provider.MetadataURL, provider.EntityID,
 		provider.SSOURL, provider.SLOURL, provider.Certificate,
@@ -127,12 +131,10 @@ func (s *SSOService) GetProvider(ctx context.Context, id uuid.UUID) (*SSOProvide
 		return nil, fmt.Errorf("failed to get SSO provider: %w", err)
 	}
 
-	if err != nil {
-		return nil, fmt.Errorf("failed to get SSO provider: %w", err)
-	}
-
 	if configJSON != nil {
-		json.Unmarshal(configJSON, &provider.Configuration)
+		if err := json.Unmarshal(configJSON, &provider.Configuration); err != nil {
+			return nil, fmt.Errorf("failed to unmarshal provider configuration: %w", err)
+		}
 	}
 	if metadataURL.Valid {
 		provider.MetadataURL = &metadataURL.String
@@ -166,7 +168,7 @@ func (s *SSOService) ListProviders(ctx context.Context, enabledOnly bool) ([]SSO
 		SELECT id, name, provider_type, enabled, configuration, metadata_url, entity_id,
 		       sso_url, slo_url, certificate, client_id, client_secret, scopes, created_at, updated_at
 		FROM neuronip.sso_providers`
-	
+
 	if enabledOnly {
 		query += " WHERE enabled = true"
 	}
@@ -196,7 +198,7 @@ func (s *SSOService) ListProviders(ctx context.Context, enabledOnly bool) ([]SSO
 		}
 
 		if configJSON != nil {
-			json.Unmarshal(configJSON, &provider.Configuration)
+			_ = json.Unmarshal(configJSON, &provider.Configuration)
 		}
 		if metadataURL.Valid {
 			provider.MetadataURL = &metadataURL.String
@@ -248,10 +250,10 @@ func (s *SSOService) InitiateSAML(ctx context.Context, providerID uuid.UUID, rel
 
 	// Generate SAML AuthnRequest
 	authnRequest := s.generateSAMLRequest(provider, relayState)
-	
+
 	// Encode and sign the request
 	encodedRequest := base64.StdEncoding.EncodeToString([]byte(authnRequest))
-	
+
 	// Build redirect URL
 	redirectURL := fmt.Sprintf("%s?SAMLRequest=%s", *provider.SSOURL, url.QueryEscape(encodedRequest))
 	if relayState != "" {
@@ -390,12 +392,12 @@ func (s *SSOService) ProcessOAuth2Callback(ctx context.Context, providerID uuid.
 
 /* SSOUser represents a user from SSO */
 type SSOUser struct {
-	UserID      string                 `json:"user_id"`
-	ExternalID  string                 `json:"external_id"`
-	Email       string                 `json:"email"`
-	Name        string                 `json:"name"`
-	Attributes  map[string]interface{} `json:"attributes"`
-	SessionToken *string               `json:"session_token,omitempty"`
+	UserID       string                 `json:"user_id"`
+	ExternalID   string                 `json:"external_id"`
+	Email        string                 `json:"email"`
+	Name         string                 `json:"name"`
+	Attributes   map[string]interface{} `json:"attributes"`
+	SessionToken *string                `json:"session_token,omitempty"`
 }
 
 /* mapSSOUser maps SSO user to NeuronIP user */
@@ -405,16 +407,16 @@ func (s *SSOService) mapSSOUser(ctx context.Context, providerID uuid.UUID, user 
 	query := `
 		SELECT user_id FROM neuronip.sso_user_mappings
 		WHERE provider_id = $1 AND external_id = $2`
-	
+
 	err := s.pool.QueryRow(ctx, query, providerID, user.ExternalID).Scan(&existingUserID)
 	if err == nil {
-		// Update last login
-		s.pool.Exec(ctx, `
+		// Update last login (best-effort; ignore error)
+		_, _ = s.pool.Exec(ctx, `
 			UPDATE neuronip.sso_user_mappings 
 			SET last_login_at = NOW(), updated_at = NOW()
 			WHERE provider_id = $1 AND external_id = $2`,
 			providerID, user.ExternalID)
-		
+
 		user.UserID = existingUserID
 		return user, nil
 	}
@@ -423,14 +425,17 @@ func (s *SSOService) mapSSOUser(ctx context.Context, providerID uuid.UUID, user 
 	if s.config.EnableAutoMapping {
 		// Create new user
 		userID := uuid.New().String()
-		
+
 		// Insert mapping
 		insertQuery := `
 			INSERT INTO neuronip.sso_user_mappings
 			(provider_id, user_id, external_id, email, attributes, first_login_at, last_login_at)
 			VALUES ($1, $2, $3, $4, $5, NOW(), NOW())`
-		
-		attrsJSON, _ := json.Marshal(user.Attributes)
+
+		attrsJSON, err := json.Marshal(user.Attributes)
+		if err != nil {
+			return nil, fmt.Errorf("failed to marshal user attributes: %w", err)
+		}
 		_, err = s.pool.Exec(ctx, insertQuery,
 			providerID, userID, user.ExternalID, user.Email, attrsJSON)
 		if err != nil {
@@ -448,7 +453,7 @@ func (s *SSOService) mapSSOUser(ctx context.Context, providerID uuid.UUID, user 
 func (s *SSOService) createSSOSession(ctx context.Context, providerID uuid.UUID, userID string, token *oauth2.Token) (string, error) {
 	sessionToken := generateSessionToken()
 	expiresAt := time.Now().Add(s.config.SessionTimeout)
-	
+
 	if token != nil && !token.Expiry.IsZero() {
 		expiresAt = token.Expiry
 	}
@@ -498,8 +503,8 @@ func (s *SSOService) ValidateSession(ctx context.Context, sessionToken string) (
 		return nil, fmt.Errorf("invalid or expired session")
 	}
 
-	// Update last accessed
-	s.pool.Exec(ctx, `
+	// Update last accessed (best-effort; ignore error)
+	_, _ = s.pool.Exec(ctx, `
 		UPDATE neuronip.sso_sessions 
 		SET last_accessed_at = NOW()
 		WHERE id = $1`, session.ID)
@@ -519,15 +524,15 @@ func (s *SSOService) ValidateSession(ctx context.Context, sessionToken string) (
 
 /* SSOSession represents an active SSO session */
 type SSOSession struct {
-	ID            uuid.UUID  `json:"id"`
-	ProviderID    uuid.UUID  `json:"provider_id"`
-	UserID        string     `json:"user_id"`
-	SessionToken  string     `json:"session_token"`
-	IDToken       *string    `json:"id_token,omitempty"`
-	AccessToken   *string    `json:"access_token,omitempty"`
-	RefreshToken  *string    `json:"refresh_token,omitempty"`
-	ExpiresAt     time.Time  `json:"expires_at"`
-	CreatedAt     time.Time  `json:"created_at"`
+	ID             uuid.UUID `json:"id"`
+	ProviderID     uuid.UUID `json:"provider_id"`
+	UserID         string    `json:"user_id"`
+	SessionToken   string    `json:"session_token"`
+	IDToken        *string   `json:"id_token,omitempty"`
+	AccessToken    *string   `json:"access_token,omitempty"`
+	RefreshToken   *string   `json:"refresh_token,omitempty"`
+	ExpiresAt      time.Time `json:"expires_at"`
+	CreatedAt      time.Time `json:"created_at"`
 	LastAccessedAt time.Time `json:"last_accessed_at"`
 }
 
@@ -537,20 +542,22 @@ func (s *SSOService) logSSOEvent(ctx context.Context, providerID uuid.UUID, exte
 		INSERT INTO neuronip.sso_audit_log
 		(provider_id, external_id, event_type, success, error_message, created_at)
 		VALUES ($1, $2, $3, $4, $5, NOW())`
-	
+
 	var errMsg sql.NullString
 	if errorMsg != nil {
 		errMsg = sql.NullString{String: *errorMsg, Valid: true}
 	}
 
-	s.pool.Exec(ctx, query, providerID, externalID, eventType, success, errMsg)
+	_, _ = s.pool.Exec(ctx, query, providerID, externalID, eventType, success, errMsg)
 }
 
 /* Helper functions */
 
 func generateSessionToken() string {
 	b := make([]byte, 32)
-	rand.Read(b)
+	if _, err := rand.Read(b); err != nil {
+		panic("crypto/rand.Read failed: " + err.Error())
+	}
 	return base64.URLEncoding.EncodeToString(b)
 }
 
@@ -559,7 +566,7 @@ func (s *SSOService) generateSAMLRequest(provider *SSOProvider, relayState strin
 	// In production, use a proper SAML library
 	requestID := uuid.New().String()
 	issueInstant := time.Now().UTC().Format(time.RFC3339)
-	
+
 	entityID := provider.EntityID
 	if entityID == nil {
 		defaultID := s.config.BaseURL
@@ -617,9 +624,9 @@ func (s *SSOService) parseSAMLResponse(response []byte, provider *SSOProvider) (
 	var samlResponse SAMLResponse
 	decoder := xml.NewDecoder(strings.NewReader(string(xmlData)))
 	decoder.Strict = false // Allow common XML variations
-	
+
 	if err := decoder.Decode(&samlResponse); err != nil {
-		return nil, fmt.Errorf("failed to parse SAML response XML: %w. Response preview: %s", 
+		return nil, fmt.Errorf("failed to parse SAML response XML: %w. Response preview: %s",
 			err, truncateString(string(xmlData), 200))
 	}
 
@@ -628,29 +635,34 @@ func (s *SSOService) parseSAMLResponse(response []byte, provider *SSOProvider) (
 		return nil, fmt.Errorf("SAML response contains no assertions")
 	}
 
-	// Validate response destination and issuer if configured
-	if provider.EntityID != nil && samlResponse.Issuer != "" {
-		if samlResponse.Issuer != *provider.EntityID {
-			// Log warning but don't fail - issuer mismatch might be acceptable
-			// In production, this should be configurable
+	// Validate assertion issuer against provider EntityID when configured
+	if provider.EntityID != nil && *provider.EntityID != "" {
+		assertion := samlResponse.Assertions[0]
+		issuer := strings.TrimSpace(assertion.Issuer)
+		if issuer == "" {
+			return nil, fmt.Errorf("SAML assertion missing Issuer")
+		}
+		expected := strings.TrimSpace(*provider.EntityID)
+		if issuer != expected {
+			return nil, fmt.Errorf("SAML assertion Issuer %q does not match provider EntityID %q", issuer, expected)
 		}
 	}
-	
+
 	// Extract user information from assertion
 	user := &SSOUser{
 		Attributes: make(map[string]interface{}),
 	}
-	
+
 	// Find the assertion (usually the first one)
 	if len(samlResponse.Assertions) > 0 {
 		assertion := samlResponse.Assertions[0]
-		
+
 		// Extract subject name ID
 		if assertion.Subject != nil && assertion.Subject.NameID != nil {
 			user.ExternalID = assertion.Subject.NameID.Value
 			user.Email = assertion.Subject.NameID.Value // Often email is the NameID
 		}
-		
+
 		// Extract attributes
 		if assertion.AttributeStatement != nil {
 			for _, attr := range assertion.AttributeStatement.Attributes {
@@ -658,7 +670,7 @@ func (s *SSOService) parseSAMLResponse(response []byte, provider *SSOProvider) (
 				if attr.FriendlyName != "" {
 					attrName = attr.FriendlyName
 				}
-				
+
 				// Extract attribute values
 				var values []string
 				for _, attrValue := range attr.AttributeValues {
@@ -666,14 +678,14 @@ func (s *SSOService) parseSAMLResponse(response []byte, provider *SSOProvider) (
 						values = append(values, attrValue.Value)
 					}
 				}
-				
+
 				if len(values) > 0 {
 					if len(values) == 1 {
 						user.Attributes[attrName] = values[0]
 					} else {
 						user.Attributes[attrName] = values
 					}
-					
+
 					// Map common attributes
 					switch strings.ToLower(attrName) {
 					case "email", "mail", "emailaddress":
@@ -694,7 +706,7 @@ func (s *SSOService) parseSAMLResponse(response []byte, provider *SSOProvider) (
 				}
 			}
 		}
-		
+
 		// Extract name from NameID if email not found
 		if user.Email == "" && user.ExternalID != "" {
 			// Check if ExternalID looks like an email
@@ -703,26 +715,27 @@ func (s *SSOService) parseSAMLResponse(response []byte, provider *SSOProvider) (
 			}
 		}
 	}
-	
+
 	// Ensure we have at least an external ID
 	if user.ExternalID == "" {
 		return nil, fmt.Errorf("no user identifier found in SAML response")
 	}
-	
+
 	return user, nil
 }
 
 /* SAMLResponse represents a SAML 2.0 response */
 type SAMLResponse struct {
-	XMLName   xml.Name    `xml:"Response"`
+	XMLName    xml.Name    `xml:"Response"`
 	Assertions []Assertion `xml:"Assertion"`
 }
 
 /* Assertion represents a SAML assertion */
 type Assertion struct {
 	XMLName            xml.Name            `xml:"Assertion"`
+	Issuer             string              `xml:"Issuer"`
 	Subject            *Subject            `xml:"Subject"`
-	AttributeStatement *AttributeStatement  `xml:"AttributeStatement"`
+	AttributeStatement *AttributeStatement `xml:"AttributeStatement"`
 }
 
 /* Subject represents a SAML subject */
@@ -745,9 +758,9 @@ type AttributeStatement struct {
 
 /* Attribute represents a SAML attribute */
 type Attribute struct {
-	XMLName       xml.Name        `xml:"Attribute"`
-	Name          string          `xml:"Name,attr"`
-	FriendlyName  string          `xml:"FriendlyName,attr"`
+	XMLName         xml.Name         `xml:"Attribute"`
+	Name            string           `xml:"Name,attr"`
+	FriendlyName    string           `xml:"FriendlyName,attr"`
 	AttributeValues []AttributeValue `xml:"AttributeValue"`
 }
 

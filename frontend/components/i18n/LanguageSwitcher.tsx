@@ -1,7 +1,9 @@
 'use client'
 
-import { useLocale } from 'next-intl'
+import { GlobeAltIcon } from '@heroicons/react/24/outline'
 import { useRouter, usePathname } from 'next/navigation'
+import { useLocale } from 'next-intl'
+
 import { Button } from '@/components/ui/Button'
 import {
   DropdownMenu,
@@ -9,7 +11,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@/components/ui/DropdownMenu'
-import { GlobeAltIcon } from '@heroicons/react/24/outline'
+
 
 const languages = [
   { code: 'en', name: 'English' },

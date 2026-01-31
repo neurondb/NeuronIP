@@ -1,13 +1,15 @@
 'use client'
 
-import { useState } from 'react'
-import { motion } from 'framer-motion'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card'
-import MetricCard from '@/components/dashboard/MetricCard'
-import LineChart from '@/components/charts/LineChart'
-import ChartContainer from '@/components/charts/ChartContainer'
-import { useQualityDashboard, useQualityTrends } from '@/lib/api/queries'
 import { CheckCircleIcon, XCircleIcon, ExclamationTriangleIcon } from '@heroicons/react/24/outline'
+import { motion } from 'framer-motion'
+import { useState } from 'react'
+
+import ChartContainer from '@/components/charts/ChartContainer'
+import LineChart from '@/components/charts/LineChart'
+import MetricCard from '@/components/dashboard/MetricCard'
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card'
+import { useQualityDashboard, useQualityTrends } from '@/lib/api/queries'
+
 
 export default function QualityDashboard() {
   const [trendLevel, setTrendLevel] = useState<'overall' | 'connector' | 'dataset' | 'column'>('overall')

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -27,14 +28,14 @@ func NewAgentsService(pool *pgxpool.Pool, agentClient *agent.Client) *AgentsServ
 
 /* Agent represents an agent */
 type Agent struct {
-	ID               uuid.UUID              `json:"id"`
-	Name             string                 `json:"name"`
-	AgentType        string                 `json:"agent_type"`
-	Config           map[string]interface{} `json:"config"`
-	Status           string                 `json:"status"`
+	ID                 uuid.UUID              `json:"id"`
+	Name               string                 `json:"name"`
+	AgentType          string                 `json:"agent_type"`
+	Config             map[string]interface{} `json:"config"`
+	Status             string                 `json:"status"`
 	PerformanceMetrics map[string]interface{} `json:"performance_metrics,omitempty"`
-	CreatedAt        time.Time              `json:"created_at"`
-	UpdatedAt        time.Time              `json:"updated_at"`
+	CreatedAt          time.Time              `json:"created_at"`
+	UpdatedAt          time.Time              `json:"updated_at"`
 }
 
 /* AgentPerformance represents agent performance metrics */
@@ -44,6 +45,44 @@ type AgentPerformance struct {
 	MetricName  string    `json:"metric_name"`
 	MetricValue float64   `json:"metric_value"`
 	Timestamp   time.Time `json:"timestamp"`
+}
+
+/* AgentRun represents a single agent execution run (trace) */
+type AgentRun struct {
+	ID         uuid.UUID              `json:"id"`
+	AgentID    string                 `json:"agent_id"`
+	SessionID  *string                `json:"session_id,omitempty"`
+	Task       string                 `json:"task"`
+	Status     string                 `json:"status"`
+	StartTime  time.Time              `json:"start_time"`
+	EndTime    *time.Time             `json:"end_time,omitempty"`
+	DurationMs *int64                 `json:"duration_ms,omitempty"`
+	Metadata   map[string]interface{} `json:"metadata,omitempty"`
+}
+
+/* AgentMemoryEntry represents a single agent memory entry */
+type AgentMemoryEntry struct {
+	ID              uuid.UUID              `json:"id"`
+	AgentID         string                 `json:"agent_id"`
+	MemoryKey       string                 `json:"memory_key"`
+	MemoryValue     map[string]interface{} `json:"memory_value"`
+	ImportanceScore float64                `json:"importance_score"`
+	LastAccessedAt  *time.Time             `json:"last_accessed_at,omitempty"`
+	CreatedAt       time.Time              `json:"created_at"`
+	UpdatedAt       time.Time              `json:"updated_at"`
+}
+
+/* AgentEvaluation represents an evaluation run for an agent */
+type AgentEvaluation struct {
+	ID             uuid.UUID              `json:"id"`
+	AgentID        uuid.UUID              `json:"agent_id"`
+	GoldenSetID    *uuid.UUID             `json:"golden_set_id,omitempty"`
+	EvaluationType string                 `json:"evaluation_type"`
+	Metrics        map[string]interface{} `json:"metrics"`
+	Score          *float64               `json:"score,omitempty"`
+	Status         string                 `json:"status"`
+	StartedAt      time.Time              `json:"started_at"`
+	CompletedAt    *time.Time             `json:"completed_at,omitempty"`
 }
 
 /* CreateAgent creates a new agent */
@@ -211,6 +250,51 @@ func (s *AgentsService) GetPerformance(ctx context.Context, id uuid.UUID) ([]Age
 	return perf, nil
 }
 
+/* PerformanceSummary is the response shape expected by the frontend (summary + raw metrics) */
+type PerformanceSummary struct {
+	TotalExecutions int                `json:"total_executions"`
+	SuccessRate     float64            `json:"success_rate"`
+	AvgResponseTime float64            `json:"avg_response_time"`
+	TotalTokens     int64              `json:"total_tokens"`
+	Metrics         []AgentPerformance `json:"metrics"`
+}
+
+/* GetPerformanceWithSummary returns metrics plus aggregated summary for UI */
+func (s *AgentsService) GetPerformanceWithSummary(ctx context.Context, id uuid.UUID) (*PerformanceSummary, error) {
+	perf, err := s.GetPerformance(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	out := &PerformanceSummary{Metrics: perf}
+	var responseSum float64
+	var responseCount int
+	for _, p := range perf {
+		switch p.MetricName {
+		case "total_executions", "executions":
+			if p.MetricValue > 0 {
+				out.TotalExecutions = int(p.MetricValue)
+			}
+		case "success_rate":
+			out.SuccessRate = p.MetricValue
+		case "avg_response_time_ms", "response_time_ms", "avg_response_time":
+			responseSum += p.MetricValue
+			responseCount++
+		case "total_tokens", "tokens":
+			out.TotalTokens += int64(p.MetricValue)
+		}
+	}
+	if out.TotalExecutions == 0 && len(perf) > 0 {
+		out.TotalExecutions = len(perf)
+	}
+	if responseCount > 0 {
+		out.AvgResponseTime = responseSum / float64(responseCount)
+		if out.AvgResponseTime > 0 && out.AvgResponseTime < 1000 {
+			out.AvgResponseTime = out.AvgResponseTime / 1000
+		}
+	}
+	return out, nil
+}
+
 /* RecordPerformance records a performance metric for an agent */
 func (s *AgentsService) RecordPerformance(ctx context.Context, agentID uuid.UUID, metricName string, metricValue float64) error {
 	query := `
@@ -225,6 +309,120 @@ func (s *AgentsService) DeployAgent(ctx context.Context, id uuid.UUID) error {
 	query := `UPDATE neuronip.agents SET status = 'active', updated_at = NOW() WHERE id = $1`
 	_, err := s.pool.Exec(ctx, query, id)
 	return err
+}
+
+/* ListAgentRuns returns recent execution runs (traces) for an agent */
+func (s *AgentsService) ListAgentRuns(ctx context.Context, agentID uuid.UUID, limit int) ([]AgentRun, error) {
+	if limit <= 0 {
+		limit = 50
+	}
+	query := `
+		SELECT id, agent_id, session_id, task, status, start_time, end_time, duration_ms, metadata
+		FROM neuronip.agent_traces
+		WHERE agent_id = $1
+		ORDER BY start_time DESC
+		LIMIT $2`
+	rows, err := s.pool.Query(ctx, query, agentID.String(), limit)
+	if err != nil {
+		if isRelationNotFound(err) {
+			return []AgentRun{}, nil
+		}
+		return nil, fmt.Errorf("failed to list agent runs: %w", err)
+	}
+	defer rows.Close()
+	var runs []AgentRun
+	for rows.Next() {
+		var r AgentRun
+		var meta json.RawMessage
+		err := rows.Scan(&r.ID, &r.AgentID, &r.SessionID, &r.Task, &r.Status, &r.StartTime, &r.EndTime, &r.DurationMs, &meta)
+		if err != nil {
+			continue
+		}
+		if meta != nil {
+			json.Unmarshal(meta, &r.Metadata)
+		}
+		runs = append(runs, r)
+	}
+	return runs, nil
+}
+
+/* ListAgentMemory returns memory entries for an agent (neuronip.agent_memory uses agent_id TEXT) */
+func (s *AgentsService) ListAgentMemory(ctx context.Context, agentID uuid.UUID, limit int) ([]AgentMemoryEntry, error) {
+	if limit <= 0 {
+		limit = 100
+	}
+	query := `
+		SELECT id, agent_id, memory_key, memory_value, importance_score, last_accessed_at, created_at, updated_at
+		FROM neuronip.agent_memory
+		WHERE agent_id = $1
+		ORDER BY updated_at DESC
+		LIMIT $2`
+	rows, err := s.pool.Query(ctx, query, agentID.String(), limit)
+	if err != nil {
+		if isRelationNotFound(err) {
+			return []AgentMemoryEntry{}, nil
+		}
+		return nil, fmt.Errorf("failed to list agent memory: %w", err)
+	}
+	defer rows.Close()
+	var entries []AgentMemoryEntry
+	for rows.Next() {
+		var e AgentMemoryEntry
+		var valueRaw json.RawMessage
+		err := rows.Scan(&e.ID, &e.AgentID, &e.MemoryKey, &valueRaw, &e.ImportanceScore, &e.LastAccessedAt, &e.CreatedAt, &e.UpdatedAt)
+		if err != nil {
+			continue
+		}
+		if valueRaw != nil {
+			json.Unmarshal(valueRaw, &e.MemoryValue)
+		}
+		entries = append(entries, e)
+	}
+	return entries, nil
+}
+
+/* ListAgentEvaluations returns evaluation runs for an agent */
+func (s *AgentsService) ListAgentEvaluations(ctx context.Context, agentID uuid.UUID, limit int) ([]AgentEvaluation, error) {
+	if limit <= 0 {
+		limit = 50
+	}
+	query := `
+		SELECT id, agent_id, golden_set_id, evaluation_type, metrics, score, status, started_at, completed_at
+		FROM neuronip.agent_evaluations
+		WHERE agent_id = $1
+		ORDER BY started_at DESC
+		LIMIT $2`
+	rows, err := s.pool.Query(ctx, query, agentID, limit)
+	if err != nil {
+		if isRelationNotFound(err) {
+			return []AgentEvaluation{}, nil
+		}
+		return nil, fmt.Errorf("failed to list agent evaluations: %w", err)
+	}
+	defer rows.Close()
+	var evals []AgentEvaluation
+	for rows.Next() {
+		var e AgentEvaluation
+		var metricsRaw json.RawMessage
+		err := rows.Scan(&e.ID, &e.AgentID, &e.GoldenSetID, &e.EvaluationType, &metricsRaw, &e.Score, &e.Status, &e.StartedAt, &e.CompletedAt)
+		if err != nil {
+			continue
+		}
+		if metricsRaw != nil {
+			json.Unmarshal(metricsRaw, &e.Metrics)
+		}
+		evals = append(evals, e)
+	}
+	return evals, nil
+}
+
+/* isRelationNotFound returns true if the error indicates a missing table/relation (e.g. migration not applied) */
+func isRelationNotFound(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := strings.ToLower(err.Error())
+	return strings.Contains(msg, "does not exist") || strings.Contains(msg, "relation") && strings.Contains(msg, "not exist")
 }
 
 /* CreateEvalTask creates an evaluation task using NeuronAgent evaluation framework */

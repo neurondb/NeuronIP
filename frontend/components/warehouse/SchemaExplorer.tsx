@@ -1,10 +1,10 @@
 'use client'
 
 import { motion } from 'framer-motion'
+
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/Card'
+import Loading, { Skeleton } from '@/components/ui/Loading'
 import { useWarehouseSchemas } from '@/lib/api/queries'
-import Loading from '@/components/ui/Loading'
-import { Skeleton } from '@/components/ui/Loading'
 
 export default function SchemaExplorer() {
   const { data: schemas, isLoading } = useWarehouseSchemas()

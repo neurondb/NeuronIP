@@ -1,9 +1,10 @@
 'use client'
 
+import { ExclamationTriangleIcon } from '@heroicons/react/24/outline'
 import React, { Component, ErrorInfo, ReactNode } from 'react'
+
 import Button from '@/components/ui/Button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/Card'
-import { ExclamationTriangleIcon } from '@heroicons/react/24/outline'
 
 interface Props {
   children: ReactNode

@@ -1,12 +1,13 @@
 'use client'
 
-import { motion } from 'framer-motion'
 import { ClockIcon, TrashIcon } from '@heroicons/react/24/outline'
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/Card'
+import { motion } from 'framer-motion'
+
 import Button from '@/components/ui/Button'
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/Card'
+import { slideUp, transition } from '@/lib/animations/variants'
 import { useSearchHistory } from '@/lib/hooks/useSearchHistory'
 import { cn } from '@/lib/utils/cn'
-import { slideUp, transition } from '@/lib/animations/variants'
 
 export default function SearchHistory() {
   const { history, removeFromHistory, clearHistory } = useSearchHistory()

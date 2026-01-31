@@ -1,13 +1,14 @@
 'use client'
 
-import { useState } from 'react'
-import { motion, AnimatePresence } from 'framer-motion'
 import { BellIcon, XMarkIcon } from '@heroicons/react/24/outline'
-import { Card, CardContent } from '@/components/ui/Card'
+import { motion, AnimatePresence } from 'framer-motion'
+import { useState } from 'react'
+
 import Button from '@/components/ui/Button'
+import { Card, CardContent } from '@/components/ui/Card'
+import { slideUp, transition } from '@/lib/animations/variants'
 import { useWebSocket } from '@/lib/hooks/useWebSocket'
 import { cn } from '@/lib/utils/cn'
-import { slideUp, transition } from '@/lib/animations/variants'
 
 interface Notification {
   id: string

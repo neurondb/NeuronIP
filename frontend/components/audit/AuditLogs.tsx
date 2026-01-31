@@ -1,11 +1,12 @@
 'use client'
 
-import { useState } from 'react'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card'
-import Button from '@/components/ui/Button'
-import { useAuditEvents, useAuditActivity, useSearchAuditEvents } from '@/lib/api/queries'
 import { MagnifyingGlassIcon, EyeIcon, ClockIcon } from '@heroicons/react/24/outline'
 import { format } from 'date-fns'
+import { useState } from 'react'
+
+import Button from '@/components/ui/Button'
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card'
+import { useAuditEvents, useAuditActivity, useSearchAuditEvents } from '@/lib/api/queries'
 
 export default function AuditLogs() {
   const [view, setView] = useState<'events' | 'activity' | 'search'>('events')

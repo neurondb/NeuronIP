@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+
 import { useLocalStorage } from './useLocalStorage'
 
 interface SearchHistoryItem {

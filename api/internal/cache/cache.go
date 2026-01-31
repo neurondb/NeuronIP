@@ -3,25 +3,26 @@ package cache
 import (
 	"context"
 	"fmt"
+	"path"
 	"sync"
 	"time"
 )
 
 /* Cache provides in-memory caching */
 type Cache struct {
-	items      map[string]*CacheItem
-	mu         sync.RWMutex
-	defaultTTL time.Duration
-	maxSize    int
+	items           map[string]*CacheItem
+	mu              sync.RWMutex
+	defaultTTL      time.Duration
+	maxSize         int
 	cleanupInterval time.Duration
 }
 
 /* CacheItem represents a cached item */
 type CacheItem struct {
-	Value      interface{}
-	ExpiresAt  time.Time
-	CreatedAt  time.Time
-	AccessCount int64
+	Value        interface{}
+	ExpiresAt    time.Time
+	CreatedAt    time.Time
+	AccessCount  int64
 	LastAccessed time.Time
 }
 
@@ -79,10 +80,10 @@ func (c *Cache) Set(key string, value interface{}, ttl ...time.Duration) error {
 	}
 
 	c.items[key] = &CacheItem{
-		Value:       value,
-		ExpiresAt:   time.Now().Add(ttlDuration),
-		CreatedAt:   time.Now(),
-		AccessCount: 0,
+		Value:        value,
+		ExpiresAt:    time.Now().Add(ttlDuration),
+		CreatedAt:    time.Now(),
+		AccessCount:  0,
 		LastAccessed: time.Now(),
 	}
 
@@ -94,6 +95,19 @@ func (c *Cache) Delete(key string) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	delete(c.items, key)
+}
+
+/* DeleteByPattern removes all keys matching the glob pattern (e.g. "user:*") */
+func (c *Cache) DeleteByPattern(pattern string) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	for key := range c.items {
+		matched, err := path.Match(pattern, key)
+		if err == nil && matched {
+			delete(c.items, key)
+		}
+	}
+	return nil
 }
 
 /* Clear clears all cache items */
@@ -162,10 +176,10 @@ func (c *Cache) GetStats() map[string]interface{} {
 
 	return map[string]interface{}{
 		"total_items":    totalItems,
-		"expired_items": expiredItems,
-		"active_items":  totalItems - expiredItems,
-		"max_size":      c.maxSize,
-		"usage_percent": float64(totalItems) / float64(c.maxSize) * 100,
+		"expired_items":  expiredItems,
+		"active_items":   totalItems - expiredItems,
+		"max_size":       c.maxSize,
+		"usage_percent":  float64(totalItems) / float64(c.maxSize) * 100,
 		"total_accesses": totalAccesses,
 	}
 }
@@ -197,7 +211,7 @@ func (s *PatternInvalidationStrategy) ShouldInvalidate(key string, value interfa
 }
 
 func contains(s, substr string) bool {
-	return len(s) >= len(substr) && (s == substr || len(substr) == 0 || 
+	return len(s) >= len(substr) && (s == substr || len(substr) == 0 ||
 		(len(s) > len(substr) && (s[:len(substr)] == substr || s[len(s)-len(substr):] == substr)))
 }
 

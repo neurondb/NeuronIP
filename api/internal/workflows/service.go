@@ -36,32 +36,32 @@ func NewService(pool *pgxpool.Pool, agentClient *agent.Client, neurondbClient *n
 
 /* WorkflowDefinition represents a workflow DAG structure */
 type WorkflowDefinition struct {
-	Steps      []WorkflowStep   `json:"steps"`
+	Steps      []WorkflowStep      `json:"steps"`
 	Conditions []WorkflowCondition `json:"conditions,omitempty"`
-	StartStep  string           `json:"start_step"`
+	StartStep  string              `json:"start_step"`
 }
 
 /* WorkflowStep represents a single workflow step */
 type WorkflowStep struct {
-	ID          string                 `json:"id"`
-	Name        string                 `json:"name"`
-	Type        string                 `json:"type"` // "agent", "script", "condition", "parallel"
-	Task        string                 `json:"task,omitempty"`
-	AgentID     *string                `json:"agent_id,omitempty"`
-	Tools       []string               `json:"tools,omitempty"`
-	Script      string                 `json:"script,omitempty"`
-	NextSteps   []string               `json:"next_steps,omitempty"`
-	Parallel    []string               `json:"parallel,omitempty"`
-	Condition   *WorkflowCondition     `json:"condition,omitempty"`
-	Config      map[string]interface{} `json:"config,omitempty"`
+	ID        string                 `json:"id"`
+	Name      string                 `json:"name"`
+	Type      string                 `json:"type"` // "agent", "script", "condition", "parallel"
+	Task      string                 `json:"task,omitempty"`
+	AgentID   *string                `json:"agent_id,omitempty"`
+	Tools     []string               `json:"tools,omitempty"`
+	Script    string                 `json:"script,omitempty"`
+	NextSteps []string               `json:"next_steps,omitempty"`
+	Parallel  []string               `json:"parallel,omitempty"`
+	Condition *WorkflowCondition     `json:"condition,omitempty"`
+	Config    map[string]interface{} `json:"config,omitempty"`
 }
 
 /* WorkflowCondition represents a conditional branch */
 type WorkflowCondition struct {
-	Type      string                 `json:"type"` // "if", "switch"
-	Expression string                `json:"expression,omitempty"`
-	Cases     []WorkflowConditionCase `json:"cases,omitempty"`
-	Default   string                 `json:"default,omitempty"`
+	Type       string                  `json:"type"` // "if", "switch"
+	Expression string                  `json:"expression,omitempty"`
+	Cases      []WorkflowConditionCase `json:"cases,omitempty"`
+	Default    string                  `json:"default,omitempty"`
 }
 
 /* WorkflowConditionCase represents a condition case */
@@ -72,12 +72,12 @@ type WorkflowConditionCase struct {
 
 /* ExecutionState tracks the state of workflow execution */
 type ExecutionState struct {
-	ExecutionID   uuid.UUID
-	WorkflowID    uuid.UUID
-	CurrentStep   string
+	ExecutionID    uuid.UUID
+	WorkflowID     uuid.UUID
+	CurrentStep    string
 	CompletedSteps map[string]bool
-	StepResults   map[string]interface{}
-	Status        string
+	StepResults    map[string]interface{}
+	Status         string
 }
 
 /* ExecuteWorkflow executes a workflow */
@@ -166,13 +166,13 @@ func (s *Service) ExecuteWorkflowViaNeuronAgent(ctx context.Context, workflowID 
 		return nil, fmt.Errorf("failed to get workflow: %w", err)
 	}
 
-	// Convert workflow definition to NeuronAgent format
-	definition := map[string]interface{}{
+	// Definition and config are prepared for when NeuronAgent API supports them.
+	// The agent client currently only accepts workflowID and input; definition/config are intentionally unused until the API is extended.
+	_ = map[string]interface{}{
 		"steps":      workflow.WorkflowDefinition,
 		"start_step": workflow.WorkflowDefinition["start_step"],
 	}
-
-	config := map[string]interface{}{
+	_ = map[string]interface{}{
 		"workflow_id": workflowID.String(),
 		"enabled":     workflow.Enabled,
 	}
@@ -233,11 +233,11 @@ func (s *Service) executeWorkflowSteps(ctx context.Context, def *WorkflowDefinit
 			if err != nil {
 				return nil, fmt.Errorf("failed to execute parallel steps for %s: %w", step.ID, err)
 			}
-			
+
 			// Store parallel results
 			state.StepResults[step.ID] = parallelResults
 			state.CompletedSteps[step.ID] = true
-			
+
 			// Merge all parallel step results into current data
 			if parallelResults != nil {
 				if resultMap, ok := parallelResults.(map[string]interface{}); ok {
@@ -248,7 +248,7 @@ func (s *Service) executeWorkflowSteps(ctx context.Context, def *WorkflowDefinit
 					currentData[step.ID+"_result"] = parallelResults
 				}
 			}
-			
+
 			// Get next step after parallel execution
 			currentStepID = s.getNextStep(step, currentData)
 			continue
@@ -380,7 +380,7 @@ func (s *Service) executeScriptStep(ctx context.Context, step *WorkflowStep, dat
 		if s.mcpClient == nil {
 			return nil, fmt.Errorf("MCP client not configured")
 		}
-		
+
 		if toolName, ok := step.Config["mcp_tool"].(string); ok {
 			// Execute MCP tool with data as arguments
 			// Merge script data with step data
@@ -397,7 +397,7 @@ func (s *Service) executeScriptStep(ctx context.Context, step *WorkflowStep, dat
 					}
 				}
 			}
-			
+
 			result, err := s.mcpClient.ExecuteTool(ctx, toolName, toolArgs)
 			if err != nil {
 				return nil, fmt.Errorf("failed to execute MCP tool %s: %w", toolName, err)
@@ -409,7 +409,7 @@ func (s *Service) executeScriptStep(ctx context.Context, step *WorkflowStep, dat
 				"result": result,
 			}, nil
 		}
-		
+
 		// If no specific tool, try to discover tools from script
 		// For now, return error if tool name not specified
 		return nil, fmt.Errorf("mcp_tool name required in step config for MCP script type")
@@ -448,7 +448,7 @@ func (s *Service) executeScriptStep(ctx context.Context, step *WorkflowStep, dat
 func (s *Service) evaluateExpression(expr string, data map[string]interface{}) interface{} {
 	// Simple variable substitution
 	expr = s.interpolateString(expr, data)
-	
+
 	// Try to evaluate as number
 	// In production, use a proper expression evaluator library
 	return expr
@@ -459,25 +459,25 @@ func (s *Service) executeParallelSteps(ctx context.Context, stepIDs []string, st
 	if len(stepIDs) == 0 {
 		return map[string]interface{}{"status": "no_parallel_steps"}, nil
 	}
-	
+
 	type stepResult struct {
 		stepID string
 		result interface{}
 		err    error
 	}
-	
+
 	resultChan := make(chan stepResult, len(stepIDs))
-	
+
 	// Execute all parallel steps concurrently
 	for _, stepID := range stepIDs {
 		go func(id string) {
 			// Create a context with timeout for each parallel step
 			stepCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
 			defer cancel()
-			
+
 			var res interface{}
 			var err error
-			
+
 			// Check if step is already completed
 			if state.CompletedSteps[id] {
 				if existingResult, ok := state.StepResults[id]; ok {
@@ -485,7 +485,7 @@ func (s *Service) executeParallelSteps(ctx context.Context, stepIDs []string, st
 					return
 				}
 			}
-			
+
 			// Get step definition from stepMap
 			step, exists := stepMap[id]
 			if !exists {
@@ -496,10 +496,10 @@ func (s *Service) executeParallelSteps(ctx context.Context, stepIDs []string, st
 				}
 				return
 			}
-			
+
 			// Execute the step
 			res, err = s.executeStep(stepCtx, step, data, state)
-			
+
 			resultChan <- stepResult{
 				stepID: id,
 				result: res,
@@ -507,11 +507,11 @@ func (s *Service) executeParallelSteps(ctx context.Context, stepIDs []string, st
 			}
 		}(stepID)
 	}
-	
+
 	// Collect results from all parallel steps
 	results := make(map[string]interface{})
 	errors := make([]error, 0)
-	
+
 	for i := 0; i < len(stepIDs); i++ {
 		result := <-resultChan
 		results[result.stepID] = result.result
@@ -523,12 +523,12 @@ func (s *Service) executeParallelSteps(ctx context.Context, stepIDs []string, st
 			state.StepResults[result.stepID] = result.result
 		}
 	}
-	
+
 	// If any step failed, return error
 	if len(errors) > 0 {
 		return results, fmt.Errorf("parallel execution had %d errors: %v", len(errors), errors)
 	}
-	
+
 	return results, nil
 }
 
@@ -666,7 +666,7 @@ func (s *Service) evaluateConditionExpression(expr string, data map[string]inter
 func (s *Service) getExpressionValue(expr string, data map[string]interface{}) interface{} {
 	// Remove quotes if present
 	expr = strings.Trim(expr, `"'`)
-	
+
 	// Check if it's a numeric literal
 	if num, err := parseNumber(expr); err == nil {
 		return num
@@ -881,9 +881,9 @@ func (s *Service) ScheduleWorkflow(ctx context.Context, workflowID uuid.UUID, sc
 /* ScheduleConfig represents workflow scheduling configuration */
 type ScheduleConfig struct {
 	CronExpression string                 `json:"cron_expression,omitempty"`
-	Interval       string                 `json:"interval,omitempty"` // "hourly", "daily", "weekly", "monthly"
-	Time           string                 `json:"time,omitempty"`     // Time of day for daily/weekly/monthly
-	DayOfWeek      int                    `json:"day_of_week,omitempty"` // 0-6 for weekly
+	Interval       string                 `json:"interval,omitempty"`     // "hourly", "daily", "weekly", "monthly"
+	Time           string                 `json:"time,omitempty"`         // Time of day for daily/weekly/monthly
+	DayOfWeek      int                    `json:"day_of_week,omitempty"`  // 0-6 for weekly
 	DayOfMonth     int                    `json:"day_of_month,omitempty"` // 1-31 for monthly
 	Enabled        bool                   `json:"enabled"`
 	Input          map[string]interface{} `json:"input,omitempty"`
@@ -1108,25 +1108,25 @@ func (s *Service) GetWorkflowExecutionStatus(ctx context.Context, executionID uu
 
 /* WorkflowExecutionStatus represents workflow execution status */
 type WorkflowExecutionStatus struct {
-	ExecutionID     uuid.UUID                `json:"execution_id"`
-	WorkflowID      uuid.UUID                `json:"workflow_id"`
-	Status          string                   `json:"status"`
+	ExecutionID     uuid.UUID               `json:"execution_id"`
+	WorkflowID      uuid.UUID               `json:"workflow_id"`
+	Status          string                  `json:"status"`
 	StartedAt       time.Time               `json:"started_at"`
-	CompletedAt     *time.Time               `json:"completed_at,omitempty"`
-	ExecutionTimeMs *int64                   `json:"execution_time_ms,omitempty"`
-	ErrorMessage    *string                  `json:"error_message,omitempty"`
-	CurrentStep     string                   `json:"current_step,omitempty"`
-	CompletedSteps []string                 `json:"completed_steps,omitempty"`
-	Steps           []WorkflowStepExecution  `json:"steps,omitempty"`
+	CompletedAt     *time.Time              `json:"completed_at,omitempty"`
+	ExecutionTimeMs *int64                  `json:"execution_time_ms,omitempty"`
+	ErrorMessage    *string                 `json:"error_message,omitempty"`
+	CurrentStep     string                  `json:"current_step,omitempty"`
+	CompletedSteps  []string                `json:"completed_steps,omitempty"`
+	Steps           []WorkflowStepExecution `json:"steps,omitempty"`
 }
 
 /* WorkflowStepExecution represents a step execution */
 type WorkflowStepExecution struct {
-	StepID      string     `json:"step_id"`
-	Status      string     `json:"status"`
-	StartedAt   time.Time  `json:"started_at"`
-	CompletedAt *time.Time `json:"completed_at,omitempty"`
-	ErrorMessage *string   `json:"error_message,omitempty"`
+	StepID       string     `json:"step_id"`
+	Status       string     `json:"status"`
+	StartedAt    time.Time  `json:"started_at"`
+	CompletedAt  *time.Time `json:"completed_at,omitempty"`
+	ErrorMessage *string    `json:"error_message,omitempty"`
 }
 
 /* GetWorkflowMonitoring retrieves workflow monitoring metrics */
@@ -1204,6 +1204,95 @@ type WorkflowMonitoring struct {
 	AvgExecutionTimeMs float64   `json:"avg_execution_time_ms"`
 	AvgDuration        float64   `json:"avg_duration"`
 	MaxExecutionTimeMs float64   `json:"max_execution_time_ms"`
+}
+
+/* WorkflowRunStats holds workflow execution counts for a time range */
+type WorkflowRunStats struct {
+	TotalRuns    int     `json:"total_runs"`
+	SuccessCount int     `json:"success_count"`
+	FailedCount  int     `json:"failed_count"`
+	SuccessRate  float64 `json:"success_rate"`
+}
+
+/* GetWorkflowRunStats returns execution counts for a workflow in the given time range */
+func (s *Service) GetWorkflowRunStats(ctx context.Context, workflowID uuid.UUID, startTime, endTime time.Time) (*WorkflowRunStats, error) {
+	query := `
+		SELECT
+			COUNT(*) as total_runs,
+			COALESCE(SUM(CASE WHEN status = 'completed' THEN 1 ELSE 0 END), 0) as success_count,
+			COALESCE(SUM(CASE WHEN status = 'failed' THEN 1 ELSE 0 END), 0) as failed_count
+		FROM neuronip.workflow_executions
+		WHERE workflow_id = $1 AND started_at >= $2 AND started_at <= $3`
+	var total, success, failed int
+	err := s.pool.QueryRow(ctx, query, workflowID, startTime, endTime).Scan(&total, &success, &failed)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get workflow run stats: %w", err)
+	}
+	rate := 0.0
+	if total > 0 {
+		rate = float64(success) / float64(total)
+	}
+	return &WorkflowRunStats{
+		TotalRuns:    total,
+		SuccessCount: success,
+		FailedCount:  failed,
+		SuccessRate:  rate,
+	}, nil
+}
+
+/* WorkflowCost holds computed cost for a workflow over a time range */
+type WorkflowCost struct {
+	WorkflowID    uuid.UUID `json:"workflow_id"`
+	TotalRuns     int       `json:"total_runs"`
+	TotalCost     float64   `json:"total_cost"`
+	CostPerRun    float64   `json:"cost_per_run,omitempty"`
+	DurationMsSum float64   `json:"duration_ms_sum,omitempty"`
+}
+
+const (
+	workflowCostPerRunFixed  = 0.01     // fixed cost per execution
+	workflowCostPerMs        = 0.000001 // cost per millisecond of execution time
+	workflowCostLookbackDays = 30
+)
+
+/* GetWorkflowCost returns estimated cost for a workflow (last 30 days): fixed cost per run; duration-based cost from execution_time_ms when column exists (migration 010). */
+func (s *Service) GetWorkflowCost(ctx context.Context, workflowID uuid.UUID) (*WorkflowCost, error) {
+	startTime := time.Now().AddDate(0, 0, -workflowCostLookbackDays)
+	endTime := time.Now()
+
+	query := `
+		SELECT COUNT(*) as total_runs
+		FROM neuronip.workflow_executions
+		WHERE workflow_id = $1 AND started_at >= $2 AND started_at <= $3`
+	var totalRuns int
+	err := s.pool.QueryRow(ctx, query, workflowID, startTime, endTime).Scan(&totalRuns)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get workflow cost: %w", err)
+	}
+
+	fixedCost := float64(totalRuns) * workflowCostPerRunFixed
+	durationMsSum := 0.0
+	// Optional: add duration-based cost when execution_time_ms column exists (migration 010)
+	durationQuery := `
+		SELECT COALESCE(SUM(execution_time_ms), 0)::float
+		FROM neuronip.workflow_executions
+		WHERE workflow_id = $1 AND started_at >= $2 AND started_at <= $3`
+	if err := s.pool.QueryRow(ctx, durationQuery, workflowID, startTime, endTime).Scan(&durationMsSum); err == nil {
+		fixedCost += durationMsSum * workflowCostPerMs
+	}
+	totalCost := fixedCost
+	costPerRun := 0.0
+	if totalRuns > 0 {
+		costPerRun = totalCost / float64(totalRuns)
+	}
+
+	return &WorkflowCost{
+		WorkflowID:    workflowID,
+		TotalRuns:     totalRuns,
+		TotalCost:     totalCost,
+		CostPerRun:    costPerRun,
+		DurationMsSum: durationMsSum,
+	}, nil
 }
 
 /* GetWorkflow retrieves a workflow by ID */
@@ -1475,13 +1564,13 @@ func (s *Service) GetWorkflowVersion(ctx context.Context, workflowID uuid.UUID, 
 
 /* WorkflowVersion represents a workflow version */
 type WorkflowVersion struct {
-	ID              uuid.UUID              `json:"id"`
-	WorkflowID      uuid.UUID               `json:"workflow_id"`
-	Version         string                  `json:"version"`
+	ID               uuid.UUID              `json:"id"`
+	WorkflowID       uuid.UUID              `json:"workflow_id"`
+	Version          string                 `json:"version"`
 	ParentWorkflowID *uuid.UUID             `json:"parent_workflow_id,omitempty"`
-	Changes         map[string]interface{} `json:"changes,omitempty"`
-	CreatedAt       time.Time               `json:"created_at"`
-	Workflow        Workflow                `json:"workflow"`
+	Changes          map[string]interface{} `json:"changes,omitempty"`
+	CreatedAt        time.Time              `json:"created_at"`
+	Workflow         Workflow               `json:"workflow"`
 }
 
 /* GetScheduledWorkflows gets all scheduled workflows for a workflow */
@@ -1531,14 +1620,14 @@ func (s *Service) GetScheduledWorkflows(ctx context.Context, workflowID uuid.UUI
 
 /* WorkflowSchedule represents a scheduled workflow */
 type WorkflowSchedule struct {
-	ID            uuid.UUID              `json:"id"`
-	WorkflowID     uuid.UUID              `json:"workflow_id"`
-	ScheduleConfig ScheduleConfig         `json:"schedule_config"`
-	Enabled        bool                   `json:"enabled"`
-	NextRunAt      *time.Time             `json:"next_run_at,omitempty"`
-	LastRunAt      *time.Time             `json:"last_run_at,omitempty"`
-	CreatedAt      time.Time              `json:"created_at"`
-	UpdatedAt      time.Time              `json:"updated_at"`
+	ID             uuid.UUID      `json:"id"`
+	WorkflowID     uuid.UUID      `json:"workflow_id"`
+	ScheduleConfig ScheduleConfig `json:"schedule_config"`
+	Enabled        bool           `json:"enabled"`
+	NextRunAt      *time.Time     `json:"next_run_at,omitempty"`
+	LastRunAt      *time.Time     `json:"last_run_at,omitempty"`
+	CreatedAt      time.Time      `json:"created_at"`
+	UpdatedAt      time.Time      `json:"updated_at"`
 }
 
 /* CancelScheduledWorkflow cancels a scheduled workflow */
@@ -1671,25 +1760,43 @@ func (s *Service) CreateWorkflowSnapshot(ctx context.Context, executionID uuid.U
 		return nil, fmt.Errorf("agent client not configured")
 	}
 
-	// Get execution state
-	execution, err := s.GetWorkflowExecution(ctx, executionID)
+	// Get execution status
+	executionStatus, err := s.GetWorkflowExecutionStatus(ctx, executionID)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get execution: %w", err)
+		return nil, fmt.Errorf("failed to get execution status: %w", err)
+	}
+
+	// Query execution for input/output data and metadata
+	var inputDataJSON, outputDataJSON, metadataJSON []byte
+	err = s.pool.QueryRow(ctx, `SELECT input_data, output_data, metadata FROM neuronip.workflow_executions WHERE id = $1`, executionID).Scan(&inputDataJSON, &outputDataJSON, &metadataJSON)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get execution data: %w", err)
+	}
+
+	var inputData, outputData, metadata map[string]interface{}
+	if len(inputDataJSON) > 0 {
+		json.Unmarshal(inputDataJSON, &inputData)
+	}
+	if len(outputDataJSON) > 0 {
+		json.Unmarshal(outputDataJSON, &outputData)
+	}
+	if len(metadataJSON) > 0 {
+		json.Unmarshal(metadataJSON, &metadata)
 	}
 
 	// Build execution state
 	executionState := map[string]interface{}{
 		"execution_id": executionID.String(),
-		"workflow_id":  execution.WorkflowID.String(),
-		"status":       execution.Status,
-		"input_data":   execution.InputData,
-		"output_data":  execution.OutputData,
+		"workflow_id":  executionStatus.WorkflowID.String(),
+		"status":       executionStatus.Status,
+		"input_data":   inputData,
+		"output_data":  outputData,
 	}
 
 	// Get session ID if available
 	sessionID := ""
-	if execution.Metadata != nil {
-		if sid, ok := execution.Metadata["session_id"].(string); ok {
+	if metadata != nil {
+		if sid, ok := metadata["session_id"].(string); ok {
 			sessionID = sid
 		}
 	}
@@ -1737,16 +1844,20 @@ func (s *Service) ListWorkflowSnapshots(ctx context.Context, executionID uuid.UU
 		return nil, fmt.Errorf("agent client not configured")
 	}
 
-	// Get session ID from execution
-	execution, err := s.GetWorkflowExecution(ctx, executionID)
+	// Query execution metadata for session ID
+	var metadataJSON []byte
+	err := s.pool.QueryRow(ctx, `SELECT metadata FROM neuronip.workflow_executions WHERE id = $1`, executionID).Scan(&metadataJSON)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get execution: %w", err)
+		return nil, fmt.Errorf("failed to get execution metadata: %w", err)
 	}
 
+	var metadata map[string]interface{}
 	sessionID := ""
-	if execution.Metadata != nil {
-		if sid, ok := execution.Metadata["session_id"].(string); ok {
-			sessionID = sid
+	if len(metadataJSON) > 0 {
+		if err := json.Unmarshal(metadataJSON, &metadata); err == nil {
+			if sid, ok := metadata["session_id"].(string); ok {
+				sessionID = sid
+			}
 		}
 	}
 
@@ -1788,14 +1899,14 @@ func (s *Service) ListWorkflowSessions(ctx context.Context, agentID string, filt
 
 /* WorkflowExecutionMetric represents an execution metric */
 type WorkflowExecutionMetric struct {
-	ID          uuid.UUID  `json:"id"`
-	ExecutionID uuid.UUID  `json:"execution_id"`
-	StepID      *string    `json:"step_id,omitempty"`
-	Name        string     `json:"name"`
-	Value       float64    `json:"value"`
-	Unit        *string    `json:"unit,omitempty"`
-	Description *string    `json:"description,omitempty"`
-	Timestamp   time.Time  `json:"timestamp"`
+	ID          uuid.UUID `json:"id"`
+	ExecutionID uuid.UUID `json:"execution_id"`
+	StepID      *string   `json:"step_id,omitempty"`
+	Name        string    `json:"name"`
+	Value       float64   `json:"value"`
+	Unit        *string   `json:"unit,omitempty"`
+	Description *string   `json:"description,omitempty"`
+	Timestamp   time.Time `json:"timestamp"`
 }
 
 /* GetWorkflowExecutionDecisions gets execution decisions */
@@ -1841,13 +1952,13 @@ func (s *Service) GetWorkflowExecutionDecisions(ctx context.Context, executionID
 
 /* WorkflowDecision represents a workflow decision */
 type WorkflowDecision struct {
-	ID            uuid.UUID              `json:"id"`
-	ExecutionID   uuid.UUID              `json:"execution_id"`
-	DecisionPoint string                 `json:"decision_point"`
-	DecisionValue string                 `json:"decision_value"`
-	DecisionReason *string               `json:"decision_reason,omitempty"`
-	Context       map[string]interface{} `json:"context,omitempty"`
-	CreatedAt     time.Time              `json:"created_at"`
+	ID             uuid.UUID              `json:"id"`
+	ExecutionID    uuid.UUID              `json:"execution_id"`
+	DecisionPoint  string                 `json:"decision_point"`
+	DecisionValue  string                 `json:"decision_value"`
+	DecisionReason *string                `json:"decision_reason,omitempty"`
+	Context        map[string]interface{} `json:"context,omitempty"`
+	CreatedAt      time.Time              `json:"created_at"`
 }
 
 /* StoreWorkflowMemory stores workflow memory with vector embedding */
@@ -1922,9 +2033,9 @@ func (s *Service) SearchWorkflowMemory(ctx context.Context, workflowID uuid.UUID
 		json.Unmarshal(valueJSON, &value)
 
 		results = append(results, map[string]interface{}{
-			"memory_key": key,
+			"memory_key":   key,
 			"memory_value": value,
-			"similarity": similarity,
+			"similarity":   similarity,
 		})
 	}
 
@@ -1933,13 +2044,13 @@ func (s *Service) SearchWorkflowMemory(ctx context.Context, workflowID uuid.UUID
 
 /* Workflow represents a workflow model */
 type Workflow struct {
-	ID               uuid.UUID              `json:"id"`
-	Name             string                 `json:"name"`
-	Description      *string                `json:"description,omitempty"`
+	ID                 uuid.UUID              `json:"id"`
+	Name               string                 `json:"name"`
+	Description        *string                `json:"description,omitempty"`
 	WorkflowDefinition map[string]interface{} `json:"workflow_definition"`
-	AgentID          *uuid.UUID             `json:"agent_id,omitempty"`
-	Enabled          bool                   `json:"enabled"`
-	CreatedBy        *string                `json:"created_by,omitempty"`
-	CreatedAt        time.Time              `json:"created_at"`
-	UpdatedAt        time.Time              `json:"updated_at"`
+	AgentID            *uuid.UUID             `json:"agent_id,omitempty"`
+	Enabled            bool                   `json:"enabled"`
+	CreatedBy          *string                `json:"created_by,omitempty"`
+	CreatedAt          time.Time              `json:"created_at"`
+	UpdatedAt          time.Time              `json:"updated_at"`
 }

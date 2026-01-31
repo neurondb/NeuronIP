@@ -1,10 +1,11 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/Card'
+
 import Button from '@/components/ui/Button'
-import { useCreateIntegration, useUpdateIntegration, useIntegration } from '@/lib/api/queries'
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/Card'
 import { showToast } from '@/components/ui/Toast'
+import { useCreateIntegration, useUpdateIntegration, useIntegration } from '@/lib/api/queries'
 
 interface IntegrationConfigDialogProps {
   integrationId?: string

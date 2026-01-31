@@ -83,7 +83,7 @@ INSERT INTO neuronip.data_sources (id, name, type, config, status, connector_typ
  'active', 's3', '{"encryption": "AES256"}'::jsonb,
  NOW() - INTERVAL '10 days', NOW() - INTERVAL '15 minutes'),
 
-('660e8400-e29b-41d4-a716-446655440006', 'Snowflake Warehouse', 'snowflake',
+('660e8400-e29b-41d4-a716-446655440006', 'Analytics Warehouse', 'snowflake',
  '{"account": "acmecorp", "warehouse": "ANALYTICS_WH", "database": "PROD"}'::jsonb,
  'active', 'snowflake', '{"role": "ANALYST"}'::jsonb,
  NOW() - INTERVAL '8 days', NOW() - INTERVAL '5 minutes'),

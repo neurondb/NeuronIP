@@ -1,8 +1,9 @@
 'use client'
 
 import { motion } from 'framer-motion'
-import { staggerContainer, slideUp } from '@/lib/animations/variants'
+
 import LineageVisualization from '@/components/lineage/LineageVisualization'
+import { staggerContainer, slideUp } from '@/lib/animations/variants'
 
 export default function LineagePage() {
   return (

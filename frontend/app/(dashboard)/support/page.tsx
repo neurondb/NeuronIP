@@ -1,14 +1,14 @@
 'use client'
 
-import { useState } from 'react'
+import { PlusIcon } from '@heroicons/react/24/outline'
 import { motion } from 'framer-motion'
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/Card'
+import { useState } from 'react'
+
 import MetricCard from '@/components/dashboard/MetricCard'
-import TicketList from '@/components/support/TicketList'
-import CreateTicketDialog from '@/components/support/CreateTicketDialog'
 import FilterChips from '@/components/filters/FilterChips'
+import CreateTicketDialog from '@/components/support/CreateTicketDialog'
+import TicketList from '@/components/support/TicketList'
 import Button from '@/components/ui/Button'
-import { PlusIcon, FunnelIcon } from '@heroicons/react/24/outline'
 import { staggerContainer, slideUp } from '@/lib/animations/variants'
 import { useSupportTickets } from '@/lib/api/queries'
 
@@ -27,18 +27,18 @@ export default function SupportPage() {
   const [statusFilter, setStatusFilter] = useState<string | null>(null)
 
   // Fetch tickets from API
-  const { data: ticketsData, isLoading, refetch } = useSupportTickets()
+  const { data: ticketsData, isLoading: _isLoading, refetch } = useSupportTickets()
   
   // Transform API data to match Ticket interface
   const rawTickets = ticketsData?.tickets || ticketsData || []
   const tickets: Ticket[] = Array.isArray(rawTickets)
-    ? rawTickets.map((ticket: any) => ({
-        id: ticket.id || ticket.ticket_id || String(ticket),
-        title: ticket.title || ticket.subject || 'Untitled',
-        status: (ticket.status || 'open') as Ticket['status'],
-        priority: (ticket.priority || 'medium') as Ticket['priority'],
-        createdAt: ticket.created_at ? new Date(ticket.created_at) : new Date(),
-        updatedAt: ticket.updated_at ? new Date(ticket.updated_at) : new Date(),
+    ? rawTickets.map((ticket: Record<string, unknown>) => ({
+        id: String(ticket.id ?? ticket.ticket_id ?? ticket),
+        title: String(ticket.title ?? ticket.subject ?? 'Untitled'),
+        status: (ticket.status ?? 'open') as Ticket['status'],
+        priority: (ticket.priority ?? 'medium') as Ticket['priority'],
+        createdAt: ticket.created_at ? new Date(ticket.created_at as string) : new Date(),
+        updatedAt: ticket.updated_at ? new Date(ticket.updated_at as string) : new Date(),
       }))
     : []
 

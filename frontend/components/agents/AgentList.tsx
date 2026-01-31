@@ -1,13 +1,15 @@
 'use client'
 
-import { useState } from 'react'
-import { motion } from 'framer-motion'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card'
-import Button from '@/components/ui/Button'
-import { useAgents, useDeleteAgent, useDeployAgent } from '@/lib/api/queries'
-import { showToast } from '@/components/ui/Toast'
 import { CpuChipIcon, PlayIcon, TrashIcon, Cog6ToothIcon } from '@heroicons/react/24/outline'
 import { format } from 'date-fns'
+import { motion } from 'framer-motion'
+import { useState, useMemo } from 'react'
+
+import DatabaseView from '@/components/database/DatabaseView'
+import Button from '@/components/ui/Button'
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card'
+import { showToast } from '@/components/ui/Toast'
+import { useAgents, useDeleteAgent, useDeployAgent } from '@/lib/api/queries'
 
 interface AgentListProps {
   onSelectAgent?: (agentId: string) => void
@@ -15,11 +17,46 @@ interface AgentListProps {
 }
 
 export default function AgentList({ onSelectAgent, onCreateNew }: AgentListProps) {
+  const [viewType, setViewType] = useState<'grid' | 'database'>('grid')
   const { data: agentsData, isLoading } = useAgents()
   const deleteMutation = useDeleteAgent()
   const deployMutation = useDeployAgent()
 
   const agents = agentsData?.agents || agentsData || []
+
+  // Transform agents for DatabaseView
+  const databaseData = useMemo(() => {
+    return agents.map((agent: any) => ({
+      id: agent.id,
+      name: agent.name || agent.id,
+      description: agent.description || '',
+      status: agent.status || 'draft',
+      created: agent.created_at || new Date().toISOString(),
+      type: agent.type || 'general',
+      model: agent.model || 'unknown',
+    }))
+  }, [agents])
+
+  const databaseColumns = [
+    { id: 'name', name: 'Name', type: 'text' as const },
+    { id: 'description', name: 'Description', type: 'text' as const },
+    { id: 'status', name: 'Status', type: 'select' as const, options: ['draft', 'active', 'deployed', 'archived'] },
+    { id: 'type', name: 'Type', type: 'text' as const },
+    { id: 'model', name: 'Model', type: 'text' as const },
+    { id: 'created', name: 'Created', type: 'date' as const },
+  ]
+
+  const handleDatabaseUpdate = (rowId: string, columnId: string, value: any) => {
+    console.log('Update agent:', rowId, columnId, value)
+  }
+
+  const handleDatabaseDelete = (rowId: string) => {
+    deleteMutation.mutate(rowId)
+  }
+
+  const handleDatabaseCreate = (data: Record<string, any>) => {
+    onCreateNew?.()
+  }
 
   const handleDelete = async (agentId: string, e: React.MouseEvent) => {
     e.stopPropagation()
@@ -59,15 +96,44 @@ export default function AgentList({ onSelectAgent, onCreateNew }: AgentListProps
         <CardHeader>
           <div className="flex items-center justify-between">
             <CardTitle>Agents ({agents.length})</CardTitle>
-            {onCreateNew && (
-              <Button onClick={onCreateNew} size="sm">
-                New Agent
+            <div className="flex gap-2">
+              <Button
+                variant={viewType === 'grid' ? 'primary' : 'outline'}
+                size="sm"
+                onClick={() => setViewType('grid')}
+              >
+                Grid
               </Button>
-            )}
+              <Button
+                variant={viewType === 'database' ? 'primary' : 'outline'}
+                size="sm"
+                onClick={() => setViewType('database')}
+              >
+                Database
+              </Button>
+              {onCreateNew && (
+                <Button onClick={onCreateNew} size="sm">
+                  New Agent
+                </Button>
+              )}
+            </div>
           </div>
         </CardHeader>
         <CardContent>
-          {agents.length === 0 ? (
+          {viewType === 'database' && agents.length > 0 ? (
+            <div className="h-[600px]">
+              <DatabaseView
+                data={databaseData}
+                columns={databaseColumns}
+                onUpdate={handleDatabaseUpdate}
+                onDelete={handleDatabaseDelete}
+                onCreate={handleDatabaseCreate}
+                onRowClick={(rowId) => onSelectAgent?.(rowId)}
+                defaultView="table"
+                className="h-full"
+              />
+            </div>
+          ) : agents.length === 0 ? (
             <div className="text-center py-12">
               <CpuChipIcon className="h-12 w-12 text-muted-foreground mx-auto mb-4 opacity-50" />
               <p className="text-muted-foreground mb-4">No agents found. Create one to get started.</p>

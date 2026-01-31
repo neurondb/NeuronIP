@@ -32,7 +32,7 @@ type OutlierDetection struct {
 	OutlierValue  interface{}            `json:"outlier_value"`
 	ExpectedValue interface{}            `json:"expected_value,omitempty"`
 	Deviation     float64                `json:"deviation"` // Number of standard deviations
-	Severity      string                 `json:"severity"` // "low", "medium", "high", "critical"
+	Severity      string                 `json:"severity"`  // "low", "medium", "high", "critical"
 	DetectedAt    time.Time              `json:"detected_at"`
 	Metadata      map[string]interface{} `json:"metadata,omitempty"`
 }
@@ -144,15 +144,15 @@ func (s *OutlierService) detectStatisticalOutliers(ctx context.Context,
 		}
 
 		outlier := OutlierDetection{
-			ConnectorID: connectorID,
-			SchemaName:  schemaName,
-			TableName:   tableName,
-			ColumnName:  columnName,
-			OutlierType: "statistical",
-			OutlierValue: value,
+			ConnectorID:   connectorID,
+			SchemaName:    schemaName,
+			TableName:     tableName,
+			ColumnName:    columnName,
+			OutlierType:   "statistical",
+			OutlierValue:  value,
 			ExpectedValue: *mean,
-			Deviation:   zScore,
-			Severity:    s.determineSeverity(zScore),
+			Deviation:     zScore,
+			Severity:      s.determineSeverity(zScore),
 		}
 
 		outliers = append(outliers, outlier)
@@ -197,15 +197,15 @@ func (s *OutlierService) detectStatisticalOutliers(ctx context.Context,
 				}
 
 				outlier := OutlierDetection{
-					ConnectorID:  connectorID,
-					SchemaName:   schemaName,
-					TableName:    tableName,
-					ColumnName:   columnName,
-					OutlierType:  "statistical",
-					OutlierValue: value,
+					ConnectorID:   connectorID,
+					SchemaName:    schemaName,
+					TableName:     tableName,
+					ColumnName:    columnName,
+					OutlierType:   "statistical",
+					OutlierValue:  value,
 					ExpectedValue: *mean,
-					Deviation:    deviation,
-					Severity:     s.determineSeverity(deviation),
+					Deviation:     deviation,
+					Severity:      s.determineSeverity(deviation),
 				}
 
 				outliers = append(outliers, outlier)
@@ -216,29 +216,118 @@ func (s *OutlierService) detectStatisticalOutliers(ctx context.Context,
 	return outliers, nil
 }
 
-/* detectTemporalOutliers detects temporal anomalies */
+/* detectTemporalOutliers detects temporal anomalies by comparing recent values to historical averages */
 func (s *OutlierService) detectTemporalOutliers(ctx context.Context,
 	connectorID uuid.UUID, schemaName, tableName, columnName string) ([]OutlierDetection, error) {
 
-	// Detect sudden spikes or drops in time series data
-	// This would require a timestamp column, which we'll assume exists
 	var outliers []OutlierDetection
 
-	// Implementation would analyze temporal patterns
-	// For now, return empty
+	// Query for temporal analysis: compare recent week to historical average
+	query := fmt.Sprintf(`
+		WITH historical AS (
+			SELECT AVG(%s) as avg_val, STDDEV(%s) as std_val
+			FROM %s.%s
+			WHERE created_at < NOW() - INTERVAL '7 days'
+		),
+		recent AS (
+			SELECT %s as val, created_at
+			FROM %s.%s
+			WHERE created_at >= NOW() - INTERVAL '7 days'
+		)
+		SELECT r.val, r.created_at, h.avg_val, h.std_val,
+			   CASE WHEN h.std_val > 0 THEN ABS(r.val - h.avg_val) / h.std_val ELSE 0 END as z_score
+		FROM recent r, historical h
+		WHERE h.std_val > 0 AND ABS(r.val - h.avg_val) / h.std_val > 2
+		ORDER BY z_score DESC
+		LIMIT 50`,
+		columnName, columnName, schemaName, tableName,
+		columnName, schemaName, tableName)
+
+	rows, err := s.pool.Query(ctx, query)
+	if err != nil {
+		return outliers, nil // May fail if no created_at column
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var val, avgVal, stdVal, zScore float64
+		var createdAt time.Time
+		if err := rows.Scan(&val, &createdAt, &avgVal, &stdVal, &zScore); err != nil {
+			continue
+		}
+		outliers = append(outliers, OutlierDetection{
+			ID:            uuid.New(),
+			ConnectorID:   connectorID,
+			SchemaName:    schemaName,
+			TableName:     tableName,
+			ColumnName:    columnName,
+			OutlierType:   "temporal",
+			OutlierValue:  val,
+			ExpectedValue: avgVal,
+			Deviation:     zScore,
+			Severity:      s.determineSeverity(zScore),
+			DetectedAt:    time.Now(),
+		})
+	}
 
 	return outliers, nil
 }
 
-/* detectPatternOutliers detects pattern-based outliers */
+/* detectPatternOutliers detects pattern-based outliers (nulls, empty strings, format violations) */
 func (s *OutlierService) detectPatternOutliers(ctx context.Context,
 	connectorID uuid.UUID, schemaName, tableName, columnName string) ([]OutlierDetection, error) {
 
-	// Detect unusual patterns (e.g., unexpected null values, format violations)
 	var outliers []OutlierDetection
 
-	// Implementation would analyze patterns
-	// For now, return empty
+	// Query for unusual pattern: empty strings, nulls in non-null expected columns
+	query := fmt.Sprintf(`
+		SELECT COUNT(*) FILTER (WHERE %s IS NULL) as null_count,
+			   COUNT(*) FILTER (WHERE %s::text = '') as empty_count,
+			   COUNT(*) as total_count
+		FROM %s.%s`,
+		columnName, columnName, schemaName, tableName)
+
+	var nullCount, emptyCount, totalCount int64
+	err := s.pool.QueryRow(ctx, query).Scan(&nullCount, &emptyCount, &totalCount)
+	if err != nil {
+		return outliers, nil
+	}
+
+	// Detect high null ratio (>5% nulls is suspicious)
+	if totalCount > 0 {
+		nullRatio := float64(nullCount) / float64(totalCount)
+		if nullRatio > 0.05 {
+			outliers = append(outliers, OutlierDetection{
+				ID:           uuid.New(),
+				ConnectorID:  connectorID,
+				SchemaName:   schemaName,
+				TableName:    tableName,
+				ColumnName:   columnName,
+				OutlierType:  "pattern",
+				OutlierValue: fmt.Sprintf("null_ratio=%0.2f%%", nullRatio*100),
+				Deviation:    nullRatio * 10, // Scale for severity
+				Severity:     s.determineSeverity(nullRatio * 10),
+				DetectedAt:   time.Now(),
+			})
+		}
+
+		// Detect high empty ratio
+		emptyRatio := float64(emptyCount) / float64(totalCount)
+		if emptyRatio > 0.05 {
+			outliers = append(outliers, OutlierDetection{
+				ID:           uuid.New(),
+				ConnectorID:  connectorID,
+				SchemaName:   schemaName,
+				TableName:    tableName,
+				ColumnName:   columnName,
+				OutlierType:  "pattern",
+				OutlierValue: fmt.Sprintf("empty_ratio=%0.2f%%", emptyRatio*100),
+				Deviation:    emptyRatio * 10,
+				Severity:     s.determineSeverity(emptyRatio * 10),
+				DetectedAt:   time.Now(),
+			})
+		}
+	}
 
 	return outliers, nil
 }

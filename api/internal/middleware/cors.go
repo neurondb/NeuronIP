@@ -24,31 +24,55 @@ func CORS(config CORSConfig) func(http.Handler) http.Handler {
 				allowed = true
 			} else {
 				for _, allowedOrigin := range config.AllowedOrigins {
-					if allowedOrigin == "*" || allowedOrigin == origin {
+					if allowedOrigin == "*" {
+						allowed = true
+						break
+					}
+					if allowedOrigin == origin {
 						allowed = true
 						break
 					}
 				}
 			}
 
-			if allowed && origin != "" {
-				w.Header().Set("Access-Control-Allow-Origin", origin)
-			}
-
-			if len(config.AllowedMethods) > 0 {
-				w.Header().Set("Access-Control-Allow-Methods", strings.Join(config.AllowedMethods, ", "))
-			}
-
-			if len(config.AllowedHeaders) > 0 {
-				w.Header().Set("Access-Control-Allow-Headers", strings.Join(config.AllowedHeaders, ", "))
-			}
-
-			w.Header().Set("Access-Control-Allow-Credentials", "true")
-			w.Header().Set("Access-Control-Max-Age", "3600")
-
+			// Handle preflight OPTIONS requests first
 			if r.Method == "OPTIONS" {
+				// For OPTIONS preflight, always set CORS headers if origin is present
+				if origin != "" && allowed {
+					w.Header().Set("Access-Control-Allow-Origin", origin)
+					
+					if len(config.AllowedMethods) > 0 {
+						w.Header().Set("Access-Control-Allow-Methods", strings.Join(config.AllowedMethods, ", "))
+					}
+
+					if len(config.AllowedHeaders) > 0 {
+						w.Header().Set("Access-Control-Allow-Headers", strings.Join(config.AllowedHeaders, ", "))
+					}
+
+					w.Header().Set("Access-Control-Allow-Credentials", "true")
+					w.Header().Set("Access-Control-Max-Age", "3600")
+				}
 				w.WriteHeader(http.StatusNoContent)
 				return
+			}
+
+			// Set CORS headers for actual requests if allowed and this is a cross-origin request
+			if allowed && origin != "" {
+				// For cross-origin requests, always echo back the specific origin
+				// (required when using credentials: 'include' - cannot use '*')
+				w.Header().Set("Access-Control-Allow-Origin", origin)
+				
+				// Set other CORS headers
+				if len(config.AllowedMethods) > 0 {
+					w.Header().Set("Access-Control-Allow-Methods", strings.Join(config.AllowedMethods, ", "))
+				}
+
+				if len(config.AllowedHeaders) > 0 {
+					w.Header().Set("Access-Control-Allow-Headers", strings.Join(config.AllowedHeaders, ", "))
+				}
+
+				w.Header().Set("Access-Control-Allow-Credentials", "true")
+				w.Header().Set("Access-Control-Max-Age", "3600")
 			}
 
 			next.ServeHTTP(w, r)

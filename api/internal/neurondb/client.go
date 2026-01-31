@@ -7,17 +7,38 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/neurondb/NeuronIP/api/internal/config"
 )
 
 /* Client provides NeuronDB integration */
 type Client struct {
 	pool *pgxpool.Pool
+	cfg  *config.NeuronDBConfig
 }
 
-/* NewClient creates a new NeuronDB client */
+/* NewClient creates a new NeuronDB client (all features enabled; backward compatible) */
 func NewClient(pool *pgxpool.Pool) *Client {
-	return &Client{pool: pool}
+	return &Client{pool: pool, cfg: nil}
 }
+
+/* NewClientWithConfig creates a new NeuronDB client with feature flags from config */
+func NewClientWithConfig(pool *pgxpool.Pool, cfg *config.NeuronDBConfig) *Client {
+	return &Client{pool: pool, cfg: cfg}
+}
+
+/* Config returns the NeuronDB config; nil means all features enabled */
+func (c *Client) Config() *config.NeuronDBConfig {
+	return c.cfg
+}
+
+func (c *Client) vectorOpsEnabled() bool       { return c.cfg == nil || c.cfg.EnableVectorOps }
+func (c *Client) mlOpsEnabled() bool           { return c.cfg == nil || c.cfg.EnableMLOps }
+func (c *Client) ragOpsEnabled() bool          { return c.cfg == nil || c.cfg.EnableRAGOps }
+func (c *Client) multimodalEnabled() bool      { return c.cfg == nil || c.cfg.EnableMultimodal }
+func (c *Client) imageEmbeddingsEnabled() bool { return c.cfg == nil || c.cfg.EnableImageEmbeddings }
+func (c *Client) batchOpsEnabled() bool        { return c.cfg == nil || c.cfg.EnableBatchOps }
+func (c *Client) vectorIndexingEnabled() bool  { return c.cfg == nil || c.cfg.EnableVectorIndexing }
 
 /* Helper function to convert rows to map slice */
 func rowsToMapSlice(ctx context.Context, rows pgx.Rows) ([]map[string]interface{}, error) {
@@ -41,6 +62,9 @@ func rowsToMapSlice(ctx context.Context, rows pgx.Rows) ([]map[string]interface{
 
 /* GenerateEmbedding generates an embedding using NeuronDB */
 func (c *Client) GenerateEmbedding(ctx context.Context, text string, model string) (string, error) {
+	if !c.vectorOpsEnabled() {
+		return "", fmt.Errorf("NeuronDB vector ops disabled by config")
+	}
 	var embedding string
 	query := `SELECT neurondb_embed($1, $2)::text`
 	err := c.pool.QueryRow(ctx, query, text, model).Scan(&embedding)
@@ -52,6 +76,9 @@ func (c *Client) GenerateEmbedding(ctx context.Context, text string, model strin
 
 /* VectorSearch performs vector similarity search */
 func (c *Client) VectorSearch(ctx context.Context, queryEmbedding string, tableName string, embeddingColumn string, limit int) ([]map[string]interface{}, error) {
+	if !c.vectorOpsEnabled() {
+		return nil, fmt.Errorf("NeuronDB vector ops disabled by config")
+	}
 	if limit <= 0 {
 		limit = 10
 	}
@@ -94,6 +121,9 @@ func (c *Client) VectorSearch(ctx context.Context, queryEmbedding string, tableN
 
 /* Classify performs classification using NeuronDB ML functions */
 func (c *Client) Classify(ctx context.Context, text string, model string) (map[string]interface{}, error) {
+	if !c.mlOpsEnabled() {
+		return nil, fmt.Errorf("NeuronDB ML ops disabled by config")
+	}
 	var result map[string]interface{}
 	query := `SELECT neurondb_classify($1, $2)::jsonb as result`
 	err := c.pool.QueryRow(ctx, query, text, model).Scan(&result)
@@ -105,6 +135,9 @@ func (c *Client) Classify(ctx context.Context, text string, model string) (map[s
 
 /* Regress performs regression using NeuronDB ML functions */
 func (c *Client) Regress(ctx context.Context, features map[string]interface{}, model string) (float64, error) {
+	if !c.mlOpsEnabled() {
+		return 0, fmt.Errorf("NeuronDB ML ops disabled by config")
+	}
 	var result float64
 	query := `SELECT neurondb_regress($1::jsonb, $2)::float8 as result`
 	err := c.pool.QueryRow(ctx, query, features, model).Scan(&result)
@@ -120,6 +153,21 @@ func (c *Client) Regress(ctx context.Context, features map[string]interface{}, m
 
 /* BatchGenerateEmbedding generates embeddings for multiple texts */
 func (c *Client) BatchGenerateEmbedding(ctx context.Context, texts []string, model string) ([]string, error) {
+	if !c.vectorOpsEnabled() {
+		return nil, fmt.Errorf("NeuronDB vector ops disabled by config")
+	}
+	if !c.batchOpsEnabled() {
+		// Fallback to per-item
+		result := make([]string, len(texts))
+		for i, text := range texts {
+			emb, err := c.GenerateEmbedding(ctx, text, model)
+			if err != nil {
+				return nil, fmt.Errorf("batch embedding text %d: %w", i, err)
+			}
+			result[i] = emb
+		}
+		return result, nil
+	}
 	if len(texts) == 0 {
 		return []string{}, nil
 	}
@@ -148,6 +196,9 @@ func (c *Client) BatchGenerateEmbedding(ctx context.Context, texts []string, mod
 
 /* GenerateMultimodalEmbedding generates embedding for text + image */
 func (c *Client) GenerateMultimodalEmbedding(ctx context.Context, text string, imageData []byte, model string) (string, error) {
+	if !c.multimodalEnabled() {
+		return "", fmt.Errorf("NeuronDB multimodal disabled by config")
+	}
 	var embedding string
 	query := `SELECT neurondb_embed_multimodal($1, $2, $3)::text`
 	err := c.pool.QueryRow(ctx, query, text, imageData, model).Scan(&embedding)
@@ -159,6 +210,9 @@ func (c *Client) GenerateMultimodalEmbedding(ctx context.Context, text string, i
 
 /* GenerateImageEmbedding generates embedding for image only */
 func (c *Client) GenerateImageEmbedding(ctx context.Context, imageData []byte, model string) (string, error) {
+	if !c.imageEmbeddingsEnabled() {
+		return "", fmt.Errorf("NeuronDB image embeddings disabled by config")
+	}
 	var embedding string
 	query := `SELECT neurondb_embed_image($1, $2)::text`
 	err := c.pool.QueryRow(ctx, query, imageData, model).Scan(&embedding)
@@ -295,6 +349,9 @@ func (c *Client) HybridSearch(ctx context.Context, queryEmbedding string, keywor
 
 /* CreateVectorIndex creates HNSW or IVF index on a vector column */
 func (c *Client) CreateVectorIndex(ctx context.Context, indexName string, tableName string, columnName string, indexType string, options map[string]interface{}) error {
+	if !c.vectorIndexingEnabled() {
+		return fmt.Errorf("NeuronDB vector indexing disabled by config")
+	}
 	var query string
 	if indexType == "hnsw" {
 		m := 16
@@ -488,11 +545,11 @@ func (c *Client) simpleChunkDocument(content string, chunkSize int, chunkOverlap
 
 		chunk := content[start:end]
 		chunks = append(chunks, map[string]interface{}{
-			"text":     chunk,
-			"index":    len(chunks),
-			"start":    start,
-			"end":      end,
-			"overlap":  chunkOverlap,
+			"text":    chunk,
+			"index":   len(chunks),
+			"start":   start,
+			"end":     end,
+			"overlap": chunkOverlap,
 		})
 
 		if end >= contentLen {
@@ -514,6 +571,9 @@ func (c *Client) RetrieveContext(ctx context.Context, queryEmbedding string, tab
 
 /* GenerateResponse generates RAG response using retrieved context */
 func (c *Client) GenerateResponse(ctx context.Context, query string, context []string, model string) (string, error) {
+	if !c.ragOpsEnabled() {
+		return "", fmt.Errorf("NeuronDB RAG ops disabled by config")
+	}
 	contextJSON, err := json.Marshal(context)
 	if err != nil {
 		return "", fmt.Errorf("failed to marshal context: %w", err)
@@ -530,6 +590,9 @@ func (c *Client) GenerateResponse(ctx context.Context, query string, context []s
 
 /* AnswerWithCitations generates answer with citations */
 func (c *Client) AnswerWithCitations(ctx context.Context, query string, context []map[string]interface{}, model string) (map[string]interface{}, error) {
+	if !c.ragOpsEnabled() {
+		return nil, fmt.Errorf("NeuronDB RAG ops disabled by config")
+	}
 	contextJSON, err := json.Marshal(context)
 	if err != nil {
 		return nil, fmt.Errorf("failed to marshal context: %w", err)
@@ -643,4 +706,63 @@ func (c *Client) TimeSeriesAnalysis(ctx context.Context, tableName string, timeC
 		return nil, fmt.Errorf("failed to unmarshal result: %w", err)
 	}
 	return result, nil
+}
+
+// ============================================================================
+// Drift detection (NeuronDB extension: neurondb.detect_centroid_drift, neurondb.compute_distribution_divergence)
+// ============================================================================
+
+/* DetectCentroidDriftResult holds the result of centroid drift detection */
+type DetectCentroidDriftResult struct {
+	Distance    float64
+	Normalized  float64
+	Significant bool
+}
+
+/* DetectCentroidDrift runs neurondb.detect_centroid_drift when available.
+ * baselineTable/baselineCol and currentTable/currentCol must be safe identifiers (vector columns).
+ * Returns nil when the function is not available.
+ */
+func (c *Client) DetectCentroidDrift(ctx context.Context, baselineTable, baselineCol, currentTable, currentCol string) (*DetectCentroidDriftResult, error) {
+	if !c.mlOpsEnabled() {
+		return nil, fmt.Errorf("NeuronDB ML ops disabled by config")
+	}
+	ok, err := c.HasFunction(ctx, "neurondb", "detect_centroid_drift")
+	if err != nil || !ok {
+		return nil, nil
+	}
+	if !isSafeIdentifier(baselineTable) || !isSafeIdentifier(baselineCol) || !isSafeIdentifier(currentTable) || !isSafeIdentifier(currentCol) {
+		return nil, fmt.Errorf("invalid table or column name for drift detection")
+	}
+	var distance, normalized float64
+	var significant bool
+	query := `SELECT (r).f1, (r).f2, (r).f3 FROM neurondb.detect_centroid_drift($1, $2, $3, $4) AS r(f1 float8, f2 float8, f3 bool)`
+	err = c.pool.QueryRow(ctx, query, baselineTable, baselineCol, currentTable, currentCol).Scan(&distance, &normalized, &significant)
+	if err != nil {
+		return nil, err
+	}
+	return &DetectCentroidDriftResult{Distance: distance, Normalized: normalized, Significant: significant}, nil
+}
+
+/* ComputeDistributionDivergence runs neurondb.compute_distribution_divergence when available.
+ * Returns the divergence value and nil error when the function exists; (0, nil) when not available.
+ */
+func (c *Client) ComputeDistributionDivergence(ctx context.Context, baselineTable, baselineCol, currentTable, currentCol string) (float64, error) {
+	if !c.mlOpsEnabled() {
+		return 0, fmt.Errorf("NeuronDB ML ops disabled by config")
+	}
+	ok, err := c.HasFunction(ctx, "neurondb", "compute_distribution_divergence")
+	if err != nil || !ok {
+		return 0, nil
+	}
+	if !isSafeIdentifier(baselineTable) || !isSafeIdentifier(baselineCol) || !isSafeIdentifier(currentTable) || !isSafeIdentifier(currentCol) {
+		return 0, fmt.Errorf("invalid table or column name for divergence")
+	}
+	var divergence float64
+	query := `SELECT neurondb.compute_distribution_divergence($1, $2, $3, $4)`
+	err = c.pool.QueryRow(ctx, query, baselineTable, baselineCol, currentTable, currentCol).Scan(&divergence)
+	if err != nil {
+		return 0, err
+	}
+	return divergence, nil
 }

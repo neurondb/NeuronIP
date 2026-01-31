@@ -1,14 +1,15 @@
 'use client'
 
-import { useState, useEffect } from 'react'
-import { useRouter } from 'next/navigation'
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/Card'
-import Button from '@/components/ui/Button'
-import Input from '@/components/ui/Input'
-import { useAppStore } from '@/lib/store/useAppStore'
 import { KeyIcon, EyeIcon, EyeSlashIcon, CheckCircleIcon } from '@heroicons/react/24/outline'
-import apiClient from '@/lib/api/client'
+import { useRouter } from 'next/navigation'
+import { useState, useEffect } from 'react'
+
+import Button from '@/components/ui/Button'
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/Card'
+import Input from '@/components/ui/Input'
 import { showToast } from '@/components/ui/Toast'
+import apiClient from '@/lib/api/client'
+import { useAppStore } from '@/lib/store/useAppStore'
 
 export default function SecuritySettings() {
   const { notificationsEnabled, setNotificationsEnabled } = useAppStore()

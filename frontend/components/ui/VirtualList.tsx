@@ -1,7 +1,8 @@
 'use client'
 
-import React, { ReactNode, useMemo } from 'react'
 import { useVirtualizer } from '@tanstack/react-virtual'
+import React, { ReactNode, useMemo } from 'react'
+
 import { cn } from '@/lib/utils/cn'
 
 interface VirtualListProps<T> {

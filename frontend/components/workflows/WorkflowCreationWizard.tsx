@@ -1,13 +1,5 @@
 'use client'
 
-import { useState } from 'react'
-import Wizard, { WizardStep, WizardStepProps } from '@/components/ui/Wizard'
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/Card'
-import Button from '@/components/ui/Button'
-import Input from '@/components/ui/Input'
-import { Textarea } from '@/components/ui/Textarea'
-import { useCreateWorkflow } from '@/lib/api/queries'
-import { showToast } from '@/components/ui/Toast'
 import {
   SparklesIcon,
   DocumentTextIcon,
@@ -15,6 +7,15 @@ import {
   ClockIcon,
   CheckCircleIcon,
 } from '@heroicons/react/24/outline'
+import { useState } from 'react'
+
+import Button from '@/components/ui/Button'
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/Card'
+import Input from '@/components/ui/Input'
+import { Textarea } from '@/components/ui/Textarea'
+import { showToast } from '@/components/ui/Toast'
+import Wizard, { WizardStep, WizardStepProps } from '@/components/ui/Wizard'
+import { useCreateWorkflow } from '@/lib/api/queries'
 
 interface WorkflowWizardData {
   name: string

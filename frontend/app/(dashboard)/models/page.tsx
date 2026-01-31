@@ -1,12 +1,13 @@
 'use client'
 
-import { useState } from 'react'
+import { PlusIcon } from '@heroicons/react/24/outline'
 import { motion } from 'framer-motion'
-import ModelList from '@/components/models/ModelList'
+import { useState } from 'react'
+
 import InferenceInterface from '@/components/models/InferenceInterface'
+import ModelList from '@/components/models/ModelList'
 import RegisterModelDialog from '@/components/models/RegisterModelDialog'
 import Button from '@/components/ui/Button'
-import { PlusIcon } from '@heroicons/react/24/outline'
 import { staggerContainer, slideUp } from '@/lib/animations/variants'
 
 export default function ModelsPage() {

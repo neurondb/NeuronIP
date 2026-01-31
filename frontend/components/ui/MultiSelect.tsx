@@ -1,8 +1,10 @@
 'use client'
 
-import * as React from 'react'
 import { XMarkIcon, ChevronDownIcon, CheckIcon } from '@heroicons/react/24/outline'
+import * as React from 'react'
+
 import { cn } from '@/lib/utils/cn'
+
 import { Badge } from './Badge'
 import { Button } from './Button'
 import {

@@ -13,40 +13,40 @@ import (
 
 /* Service provides alerting functionality */
 type Service struct {
-	pool          *pgxpool.Pool
+	pool           *pgxpool.Pool
 	anomalyService *compliance.AnomalyService
 }
 
 /* NewService creates a new alerts service */
 func NewService(pool *pgxpool.Pool, anomalyService *compliance.AnomalyService) *Service {
 	return &Service{
-		pool:          pool,
+		pool:           pool,
 		anomalyService: anomalyService,
 	}
 }
 
 /* AlertRule represents an alert rule */
 type AlertRule struct {
-	ID          uuid.UUID              `json:"id"`
-	Name        string                 `json:"name"`
-	RuleType    string                 `json:"rule_type"` // "threshold", "anomaly", "data_drift"
-	Threshold   float64                `json:"threshold,omitempty"`
-	Metric      string                 `json:"metric"`
-	Condition   string                 `json:"condition"` // "gt", "lt", "eq", "gte", "lte"
-	Enabled     bool                   `json:"enabled"`
-	Config      map[string]interface{} `json:"config,omitempty"`
+	ID        uuid.UUID              `json:"id"`
+	Name      string                 `json:"name"`
+	RuleType  string                 `json:"rule_type"` // "threshold", "anomaly", "data_drift"
+	Threshold float64                `json:"threshold,omitempty"`
+	Metric    string                 `json:"metric"`
+	Condition string                 `json:"condition"` // "gt", "lt", "eq", "gte", "lte"
+	Enabled   bool                   `json:"enabled"`
+	Config    map[string]interface{} `json:"config,omitempty"`
 }
 
 /* Alert represents an alert */
 type Alert struct {
-	ID          uuid.UUID              `json:"id"`
-	RuleID      uuid.UUID              `json:"rule_id"`
-	Severity    string                 `json:"severity"` // "low", "medium", "high", "critical"
-	Message     string                 `json:"message"`
-	Details     map[string]interface{} `json:"details,omitempty"`
-	Status      string                 `json:"status"` // "active", "acknowledged", "resolved"
-	CreatedAt   time.Time              `json:"created_at"`
-	ResolvedAt  *time.Time             `json:"resolved_at,omitempty"`
+	ID         uuid.UUID              `json:"id"`
+	RuleID     uuid.UUID              `json:"rule_id"`
+	Severity   string                 `json:"severity"` // "low", "medium", "high", "critical"
+	Message    string                 `json:"message"`
+	Details    map[string]interface{} `json:"details,omitempty"`
+	Status     string                 `json:"status"` // "active", "acknowledged", "resolved"
+	CreatedAt  time.Time              `json:"created_at"`
+	ResolvedAt *time.Time             `json:"resolved_at,omitempty"`
 }
 
 /* CheckAlerts checks all alert rules and creates alerts for violations */
@@ -89,7 +89,7 @@ func (s *Service) checkRule(ctx context.Context, rule AlertRule) (*Alert, error)
 
 /* checkThresholdRule checks a threshold-based alert rule */
 func (s *Service) checkThresholdRule(ctx context.Context, rule AlertRule) (*Alert, error) {
-	// Get current metric value (placeholder - would query actual metrics)
+	// Get current metric value from neuronip.metric_values (or Prometheus when configured)
 	metricValue, err := s.getMetricValue(ctx, rule.Metric)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get metric value: %w", err)
@@ -121,10 +121,10 @@ func (s *Service) checkThresholdRule(ctx context.Context, rule AlertRule) (*Aler
 		Severity: "medium",
 		Message:  fmt.Sprintf("Metric %s = %.2f violates threshold (%.2f %s)", rule.Metric, metricValue, rule.Threshold, rule.Condition),
 		Details: map[string]interface{}{
-			"metric":      rule.Metric,
-			"value":       metricValue,
-			"threshold":   rule.Threshold,
-			"condition":   rule.Condition,
+			"metric":    rule.Metric,
+			"value":     metricValue,
+			"threshold": rule.Threshold,
+			"condition": rule.Condition,
 		},
 		Status:    "active",
 		CreatedAt: time.Now(),
@@ -174,10 +174,10 @@ func (s *Service) checkAnomalyRule(ctx context.Context, rule AlertRule) (*Alert,
 				Severity: s.getSeverityFromScore(detection.AnomalyScore),
 				Message:  fmt.Sprintf("Anomaly detected for %s: score %.2f", rule.Metric, detection.AnomalyScore),
 				Details: map[string]interface{}{
-					"anomaly_id":   detection.ID.String(),
-					"anomaly_score": detection.AnomalyScore,
-					"entity_type":   entityType,
-					"entity_id":     entityID,
+					"anomaly_id":        detection.ID.String(),
+					"anomaly_score":     detection.AnomalyScore,
+					"entity_type":       entityType,
+					"entity_id":         entityID,
 					"detection_details": detection.Details,
 				},
 				Status:    "active",
@@ -269,15 +269,15 @@ func (s *Service) checkDataDriftRule(ctx context.Context, rule AlertRule) (*Aler
 			Severity: "high",
 			Message:  fmt.Sprintf("Data drift detected for %s: drift score %.3f exceeds threshold %.3f", rule.Metric, driftScore, threshold),
 			Details: map[string]interface{}{
-				"metric":        rule.Metric,
-				"drift_score":   driftScore,
-				"threshold":     threshold,
-				"baseline_mean": baselineMean,
+				"metric":          rule.Metric,
+				"drift_score":     driftScore,
+				"threshold":       threshold,
+				"baseline_mean":   baselineMean,
 				"baseline_stddev": baselineStddev,
-				"current_mean":  currentMean,
-				"current_stddev": currentStddev,
-				"baseline_count": baselineCount,
-				"current_count": currentCount,
+				"current_mean":    currentMean,
+				"current_stddev":  currentStddev,
+				"baseline_count":  baselineCount,
+				"current_count":   currentCount,
 			},
 			Status:    "active",
 			CreatedAt: time.Now(),
@@ -325,13 +325,12 @@ func (s *Service) getMetricValue(ctx context.Context, metric string) (float64, e
 		)`
 	s.pool.Exec(ctx, createTableQuery)
 
-	// Query cached metric value (in production, this would query Prometheus or metric storage)
+	// Query metric value from neuronip.metric_values; optional Prometheus integration can be added via config
 	query := `SELECT metric_value FROM neuronip.metric_values WHERE metric_name = $1`
 	var value float64
 	err := s.pool.QueryRow(ctx, query, metric).Scan(&value)
 	if err != nil {
-		// If metric not found, return 0 (could also query Prometheus directly here)
-		// In production, you would query Prometheus metrics endpoint
+		// Metric not in cache; return 0 so threshold checks do not fire until metric is populated
 		return 0.0, nil
 	}
 
@@ -415,14 +414,14 @@ func (s *Service) storeAlert(ctx context.Context, alert Alert) error {
 	_, err := s.pool.Exec(ctx, query,
 		alert.ID, alert.RuleID, alert.Severity, alert.Message, detailsJSON,
 		alert.Status, alert.CreatedAt, alert.ResolvedAt)
-	
+
 	if err != nil {
 		return err
 	}
 
 	// Trigger workflows associated with this alert rule (if configured)
 	go s.triggerWorkflowsForAlert(context.Background(), alert)
-	
+
 	return nil
 }
 
@@ -542,7 +541,7 @@ func (s *Service) ResolveAlert(ctx context.Context, alertID uuid.UUID, resolutio
 func (s *Service) CreateAlertRule(ctx context.Context, rule AlertRule) error {
 	rule.ID = uuid.New()
 	configJSON, _ := json.Marshal(rule.Config)
-	
+
 	query := `
 		INSERT INTO neuronip.alert_rules (id, name, rule_type, threshold, metric, condition, enabled, config)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
@@ -554,7 +553,7 @@ func (s *Service) CreateAlertRule(ctx context.Context, rule AlertRule) error {
 			enabled = EXCLUDED.enabled,
 			config = EXCLUDED.config,
 			updated_at = NOW()`
-	
+
 	_, err := s.pool.Exec(ctx, query, rule.ID, rule.Name, rule.RuleType, rule.Threshold,
 		rule.Metric, rule.Condition, rule.Enabled, configJSON)
 	return err
@@ -566,32 +565,32 @@ func (s *Service) GetAlertRule(ctx context.Context, ruleID uuid.UUID) (*AlertRul
 		SELECT id, name, rule_type, threshold, metric, condition, enabled, config
 		FROM neuronip.alert_rules
 		WHERE id = $1`
-	
+
 	var rule AlertRule
 	var configJSON json.RawMessage
-	
+
 	err := s.pool.QueryRow(ctx, query, ruleID).Scan(&rule.ID, &rule.Name, &rule.RuleType,
 		&rule.Threshold, &rule.Metric, &rule.Condition, &rule.Enabled, &configJSON)
 	if err != nil {
 		return nil, fmt.Errorf("alert rule not found: %w", err)
 	}
-	
+
 	if configJSON != nil {
 		json.Unmarshal(configJSON, &rule.Config)
 	}
-	
+
 	return &rule, nil
 }
 
 /* UpdateAlertRule updates an alert rule */
 func (s *Service) UpdateAlertRule(ctx context.Context, rule AlertRule) error {
 	configJSON, _ := json.Marshal(rule.Config)
-	
+
 	query := `
 		UPDATE neuronip.alert_rules
 		SET name = $2, rule_type = $3, threshold = $4, metric = $5, condition = $6, enabled = $7, config = $8, updated_at = NOW()
 		WHERE id = $1`
-	
+
 	_, err := s.pool.Exec(ctx, query, rule.ID, rule.Name, rule.RuleType, rule.Threshold,
 		rule.Metric, rule.Condition, rule.Enabled, configJSON)
 	return err

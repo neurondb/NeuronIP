@@ -44,8 +44,8 @@ services:
       DB_NAME: neuronip
       SERVER_PORT: 8082
       NEURONDB_HOST: neurondb
-      NEURONDB_PORT: 5432
-      NEURONDB_DATABASE: neurondb
+      NEURONDB_PORT: "5432"
+      NEURONDB_DATABASE: neuronip
       NEURONAGENT_ENDPOINT: ${NEURONAGENT_ENDPOINT:-http://neuronagent:8080}
     ports:
       - "8082:8082"

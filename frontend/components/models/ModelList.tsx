@@ -1,12 +1,15 @@
 'use client'
 
 import { motion } from 'framer-motion'
+
+import Button from '@/components/ui/Button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/Card'
 import Loading from '@/components/ui/Loading'
-import Button from '@/components/ui/Button'
-import { useModels } from '@/lib/api/queries'
-import ModelCard from './ModelCard'
 import { staggerContainer, slideUp } from '@/lib/animations/variants'
+import { useModels } from '@/lib/api/queries'
+
+import ModelCard from './ModelCard'
+
 
 interface Model {
   id: string

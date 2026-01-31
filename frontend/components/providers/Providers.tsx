@@ -7,10 +7,12 @@ const ReactQueryDevtools = dynamic(
   () => import('@tanstack/react-query-devtools').then((mod) => mod.ReactQueryDevtools),
   { ssr: false }
 )
-import { Toaster } from '@/components/ui/Toaster'
+import { useState } from 'react'
+
 import { ErrorBoundary } from '@/components/error/ErrorBoundary'
 import { RealtimeNotifications } from '@/components/notifications/RealtimeNotifications'
-import { useState } from 'react'
+import { Toaster } from '@/components/ui/Toaster'
+
 
 export function Providers({ children }: { children: React.ReactNode }) {
   const [queryClient] = useState(
@@ -18,7 +20,8 @@ export function Providers({ children }: { children: React.ReactNode }) {
       new QueryClient({
         defaultOptions: {
           queries: {
-            staleTime: 60 * 1000, // 1 minute
+            staleTime: 5 * 60 * 1000, // 5 minutes
+            gcTime: 10 * 60 * 1000, // 10 minutes (formerly cacheTime)
             refetchOnWindowFocus: false,
             retry: 1,
           },

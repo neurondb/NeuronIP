@@ -1,15 +1,16 @@
 'use client'
 
-import { useState } from 'react'
 import { motion } from 'framer-motion'
-import { staggerContainer, slideUp } from '@/lib/animations/variants'
+import { useState } from 'react'
+
 import MetricCatalog from '@/components/metrics/MetricCatalog'
 import MetricEditor from '@/components/metrics/MetricEditor'
 import MetricLineage from '@/components/metrics/MetricLineage'
-import { useMetric, useCalculateMetric } from '@/lib/api/queries'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card'
 import Button from '@/components/ui/Button'
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card'
 import { showToast } from '@/components/ui/Toast'
+import { staggerContainer, slideUp } from '@/lib/animations/variants'
+import { useMetric, useCalculateMetric } from '@/lib/api/queries'
 
 export default function MetricsPage() {
   const [view, setView] = useState<'catalog' | 'editor' | 'lineage'>('catalog')
@@ -44,7 +45,7 @@ export default function MetricsPage() {
     try {
       const result = await calculateMetric.mutateAsync({ id: selectedMetricId })
       showToast(`Metric value: ${result.value}`, 'success')
-    } catch (error: any) {
+    } catch {
       showToast('Failed to calculate metric', 'error')
     }
   }

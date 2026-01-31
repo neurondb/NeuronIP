@@ -3,10 +3,12 @@ package tenancy
 import (
 	"context"
 	"fmt"
+	"os"
 	"testing"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/neurondb/NeuronIP/api/internal/testutil"
 )
 
 /* IsolationTestSuite provides isolation testing functionality */
@@ -147,8 +149,8 @@ func (s *IsolationTestSuite) TestAccessIsolation(ctx context.Context, tenantID u
 	return nil
 }
 
-/* RunAllIsolationTests runs all isolation tests for a tenant */
-func (s *IsolationTestSuite) RunAllIsolationTests(ctx context.Context, tenantID uuid.UUID) (map[string]bool, error) {
+/* RunAllIsolationTests runs all isolation tests for a tenant. If userID is non-nil and the user is associated with the tenant, access isolation is tested. */
+func (s *IsolationTestSuite) RunAllIsolationTests(ctx context.Context, tenantID uuid.UUID, userID *uuid.UUID) (map[string]bool, error) {
 	results := make(map[string]bool)
 
 	// Test schema isolation
@@ -158,19 +160,21 @@ func (s *IsolationTestSuite) RunAllIsolationTests(ctx context.Context, tenantID 
 		// Log error but continue
 	}
 
-	// Test access isolation (requires a test user)
-	// This would need a test user ID
-	// results["access_isolation"] = true // Placeholder
+	// Test access isolation when a test user is provided
+	if userID != nil {
+		err := s.TestAccessIsolation(ctx, tenantID, *userID)
+		results["access_isolation"] = err == nil
+	}
 
 	return results, nil
 }
 
-/* TestIsolationInTestSuite is a Go test function for running isolation tests */
-func TestIsolationInTestSuite(t *testing.T, service *TenancyService, pool *pgxpool.Pool) {
+/* runIsolationTests runs isolation tests with the given service and pool */
+func runIsolationTests(t *testing.T, service *TenancyService, pool *pgxpool.Pool) {
+	t.Helper()
 	ctx := context.Background()
 	testSuite := NewIsolationTestSuite(service, pool)
 
-	// Create test tenants
 	tenant1, err := service.CreateTenant(ctx, "test-tenant-1")
 	if err != nil {
 		t.Fatalf("Failed to create tenant 1: %v", err)
@@ -181,19 +185,59 @@ func TestIsolationInTestSuite(t *testing.T, service *TenancyService, pool *pgxpo
 		t.Fatalf("Failed to create tenant 2: %v", err)
 	}
 
-	// Test data isolation
+	// Create a test user and associate with tenant1 so RunAllIsolationTests can run access isolation
+	_, err = pool.Exec(ctx, `
+		INSERT INTO neuronip.users (email, password_hash, name, role)
+		VALUES ($1, $2, $3, $4)
+		ON CONFLICT (email) DO NOTHING`,
+		"isolation-test@test.local", "$2a$10$dummy", "Isolation Test User", "analyst")
+	if err != nil {
+		t.Fatalf("Failed to create test user: %v", err)
+	}
+	var testUserID uuid.UUID
+	err = pool.QueryRow(ctx, `SELECT id FROM neuronip.users WHERE email = $1`, "isolation-test@test.local").Scan(&testUserID)
+	if err != nil {
+		t.Fatalf("Failed to get test user id: %v", err)
+	}
+
+	_, err = pool.Exec(ctx, `
+		INSERT INTO neuronip.tenant_users (tenant_id, user_id, role)
+		VALUES ($1, $2, 'member')
+		ON CONFLICT (tenant_id, user_id) DO NOTHING`,
+		tenant1.ID, testUserID)
+	if err != nil {
+		t.Fatalf("Failed to link test user to tenant: %v", err)
+	}
+
 	err = testSuite.TestDataIsolation(ctx, tenant1.ID, tenant2.ID)
 	if err != nil {
 		t.Errorf("Data isolation test failed: %v", err)
 	}
 
-	// Test schema isolation
 	err = testSuite.TestSchemaIsolation(ctx, tenant1.ID)
 	if err != nil {
 		t.Errorf("Schema isolation test failed: %v", err)
 	}
 
-	// Cleanup
+	results, err := testSuite.RunAllIsolationTests(ctx, tenant1.ID, &testUserID)
+	if err != nil {
+		t.Errorf("RunAllIsolationTests failed: %v", err)
+	}
+	if !results["access_isolation"] {
+		t.Error("access_isolation test failed")
+	}
+
 	_ = service.DeleteTenant(ctx, tenant1.ID)
 	_ = service.DeleteTenant(ctx, tenant2.ID)
+}
+
+/* TestIsolationInTestSuite is a Go test that runs isolation tests when a test DB is available */
+func TestIsolationInTestSuite(t *testing.T) {
+	if os.Getenv("DB_HOST") == "" && os.Getenv("CI") == "" {
+		t.Skip("Skipping isolation tests: no DB_HOST set (use CI or set DB_* for integration tests)")
+	}
+	pool, cleanup := testutil.SetupTestDBOrSkip(t)
+	defer cleanup()
+	service := NewTenancyService(pool, TenancyModeSchema)
+	runIsolationTests(t, service, pool)
 }

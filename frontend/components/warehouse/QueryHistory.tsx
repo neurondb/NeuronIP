@@ -1,11 +1,13 @@
 'use client'
 
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/Card'
+import { ClockIcon } from '@heroicons/react/24/outline'
 import { useQuery } from '@tanstack/react-query'
+
+import Button from '@/components/ui/Button'
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/Card'
 import apiClient from '@/lib/api/client'
 import { API_ENDPOINTS } from '@/lib/utils/constants'
-import Button from '@/components/ui/Button'
-import { ClockIcon } from '@heroicons/react/24/outline'
+
 
 interface QueryHistoryProps {
   onSelectQuery?: (query: string) => void

@@ -1,11 +1,12 @@
 'use client'
 
-import { useState, useEffect } from 'react'
 import { motion } from 'framer-motion'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card'
-import Button from '@/components/ui/Button'
-import { showToast } from '@/components/ui/Toast'
+import { useState, useEffect } from 'react'
+
 import { Badge } from '@/components/ui/Badge'
+import Button from '@/components/ui/Button'
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card'
+import { showToast } from '@/components/ui/Toast'
 
 interface TimeGrain {
   id: string

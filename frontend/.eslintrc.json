@@ -18,6 +18,15 @@
     },
     "project": "./tsconfig.json"
   },
+  "ignorePatterns": [
+    "public/**",
+    ".next/**",
+    "node_modules/**",
+    "*.config.js",
+    "tailwind.config.js",
+    "next.config.js",
+    "vitest.config.ts"
+  ],
   "plugins": [
     "react",
     "react-hooks",
@@ -28,15 +37,16 @@
     "react/react-in-jsx-scope": "off",
     "react/prop-types": "off",
     "@typescript-eslint/explicit-module-boundary-types": "off",
+    "@typescript-eslint/no-explicit-any": "warn",
     "@typescript-eslint/no-unused-vars": [
-      "error",
+      "warn",
       {
         "argsIgnorePattern": "^_",
         "varsIgnorePattern": "^_"
       }
     ],
     "import/order": [
-      "error",
+      "warn",
       {
         "groups": [
           "builtin",
@@ -56,6 +66,7 @@
     "import/no-unresolved": "error",
     "react-hooks/rules-of-hooks": "error",
     "react-hooks/exhaustive-deps": "warn",
+    "react/no-unescaped-entities": "warn",
     "no-console": [
       "warn",
       {

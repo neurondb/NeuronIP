@@ -2,6 +2,7 @@
 
 import * as React from 'react'
 import { ResponsiveContainer } from 'recharts'
+
 import { cn } from '@/lib/utils/cn'
 
 interface InteractiveChartProps {

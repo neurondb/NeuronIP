@@ -1,10 +1,11 @@
 'use client'
 
-import React, { useState } from 'react'
-import { motion, AnimatePresence } from 'framer-motion'
 import { SparklesIcon } from '@heroicons/react/24/outline'
-import { cn } from '@/lib/utils/cn'
+import { motion, AnimatePresence } from 'framer-motion'
+import React, { useState } from 'react'
+
 import { slideUp, transition } from '@/lib/animations/variants'
+import { cn } from '@/lib/utils/cn'
 
 interface Suggestion {
   id: string

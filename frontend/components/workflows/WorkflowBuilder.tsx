@@ -15,11 +15,14 @@ import ReactFlow, {
 } from 'reactflow'
 import 'reactflow/dist/style.css'
 import { motion } from 'framer-motion'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card'
+
 import Button from '@/components/ui/Button'
-import Tooltip from '@/components/ui/Tooltip'
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card'
 import HelpText from '@/components/ui/HelpText'
+import Tooltip from '@/components/ui/Tooltip'
+
 import { InformationCircleIcon, BookmarkIcon } from '@heroicons/react/24/outline'
+
 import WorkflowNodePalette from './WorkflowNodePalette'
 
 interface WorkflowNode extends Node {
@@ -168,11 +171,11 @@ export default function WorkflowBuilder() {
   const addNode = useCallback((type: 'agent' | 'script' | 'condition' | 'parallel' | 'approval' | 'retry') => {
     const newNode: WorkflowNode = {
       id: `node-${Date.now()}`,
-      type: type,
+      type,
       position: { x: Math.random() * 400, y: Math.random() * 400 },
       data: {
         label: `${type.charAt(0).toUpperCase() + type.slice(1)} Node`,
-        type: type,
+        type,
         config: {},
       },
     }

@@ -1,7 +1,5 @@
 'use client'
 
-import { useState, ReactNode } from 'react'
-import { motion, AnimatePresence } from 'framer-motion'
 import {
   XMarkIcon,
   CheckCircleIcon,
@@ -10,6 +8,9 @@ import {
   LightBulbIcon,
   DocumentTextIcon,
 } from '@heroicons/react/24/outline'
+import { motion, AnimatePresence } from 'framer-motion'
+import { useState, ReactNode } from 'react'
+
 import { cn } from '@/lib/utils/cn'
 
 export type CalloutType = 'tip' | 'warning' | 'info' | 'success' | 'error' | 'note'

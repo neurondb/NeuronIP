@@ -1,17 +1,18 @@
 'use client'
 
-import { useState, useRef, useEffect } from 'react'
+import { PaperAirplaneIcon , InformationCircleIcon, SparklesIcon, ChatBubbleLeftRightIcon } from '@heroicons/react/24/outline'
 import { motion, AnimatePresence } from 'framer-motion'
-import { PaperAirplaneIcon } from '@heroicons/react/24/outline'
-import { Card } from '@/components/ui/Card'
-import Button from '@/components/ui/Button'
-import Loading from '@/components/ui/Loading'
-import { useSemanticRAG } from '@/lib/api/queries'
-import { cn } from '@/lib/utils/cn'
+import { useState, useRef, useEffect } from 'react'
 import ReactMarkdown from 'react-markdown'
-import Tooltip from '@/components/ui/Tooltip'
+
+import Button from '@/components/ui/Button'
+import { Card } from '@/components/ui/Card'
 import HelpText from '@/components/ui/HelpText'
-import { InformationCircleIcon, SparklesIcon, ChatBubbleLeftRightIcon } from '@heroicons/react/24/outline'
+import Loading from '@/components/ui/Loading'
+import Tooltip from '@/components/ui/Tooltip'
+import { useSemanticRAG } from '@/lib/api/queries'
+import { microcopy } from '@/lib/copy/microcopy'
+import { cn } from '@/lib/utils/cn'
 
 interface Message {
   id: string
@@ -82,7 +83,7 @@ export default function ChatInterface() {
           setMessages((prev) =>
             prev.map((msg) =>
               msg.id === assistantMessageId
-                ? { ...msg, content: 'Sorry, an error occurred. Please try again.' }
+                ? { ...msg, content: microcopy.errors.generic }
                 : msg
             )
           )
@@ -142,17 +143,17 @@ export default function ChatInterface() {
         {messages.length === 0 ? (
           <div className="flex flex-col items-center justify-center h-full text-center text-muted-foreground">
             <ChatBubbleLeftRightIcon className="h-16 w-16 mx-auto mb-4 opacity-30" />
-            <h3 className="text-lg font-semibold mb-2">Start a conversation</h3>
-            <p className="text-sm mb-4">Ask questions about your documents or data</p>
+            <h3 className="text-lg font-semibold mb-2">{microcopy.semantic.startConversation}</h3>
+            <p className="text-sm mb-4">{microcopy.semantic.askQuestions}</p>
             <HelpText
               variant="inline"
               content={
                 <div className="text-sm">
-                  <p className="mb-2">Try asking:</p>
+                  <p className="mb-2">{microcopy.semantic.tryAsking}</p>
                   <ul className="text-left space-y-1 list-disc list-inside">
-                    <li>"What documents discuss customer support?"</li>
-                    <li>"Explain the refund policy"</li>
-                    <li>"Find information about API authentication"</li>
+                    <li>{microcopy.semantic.example1}</li>
+                    <li>{microcopy.semantic.example2}</li>
+                    <li>{microcopy.semantic.example3}</li>
                   </ul>
                 </div>
               }
@@ -211,7 +212,7 @@ export default function ChatInterface() {
             type="text"
             value={input}
             onChange={(e) => setInput(e.target.value)}
-            placeholder="Ask a question..."
+            placeholder={microcopy.semantic.chatPlaceholder}
             className={cn(
               'flex-1 rounded-lg border border-border bg-background px-4 py-2',
               'text-sm focus:outline-none focus:ring-2 focus:ring-ring'

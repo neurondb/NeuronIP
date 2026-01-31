@@ -9,16 +9,16 @@ import (
 
 /* CDCManager coordinates CDC operations across different database types */
 type CDCManager struct {
-	postgresCDC *PostgresCDC
-	mysqlCDC    *MySQLCDC
+	postgresCDC CDC
+	mysqlCDC    CDC
 	pool        *pgxpool.Pool
 }
 
-/* NewCDCManager creates a new CDC manager */
+/* NewCDCManager creates a new CDC manager. Postgres CDC uses polling (stream_events) by default so no build tags or replication privilege are required. */
 func NewCDCManager(pool *pgxpool.Pool) *CDCManager {
 	return &CDCManager{
-		postgresCDC: NewPostgresCDC(pool),
-		mysqlCDC:    NewMySQLCDC(pool),
+		postgresCDC: NewPostgresPollingCDC(pool, "postgres_cdc"),
+		mysqlCDC:    nil, // NewMySQLCDC(pool) - requires build tags
 		pool:        pool,
 	}
 }
@@ -27,8 +27,14 @@ func NewCDCManager(pool *pgxpool.Pool) *CDCManager {
 func (m *CDCManager) StartCDCForDataSource(ctx context.Context, dataSourceType string, config map[string]interface{}) error {
 	switch dataSourceType {
 	case "postgresql", "postgres":
+		if m.postgresCDC == nil {
+			return fmt.Errorf("PostgreSQL CDC not available (requires build tags)")
+		}
 		return m.postgresCDC.StartCDC(ctx, config)
 	case "mysql":
+		if m.mysqlCDC == nil {
+			return fmt.Errorf("MySQL CDC not available (requires build tags)")
+		}
 		return m.mysqlCDC.StartCDC(ctx, config)
 	default:
 		return fmt.Errorf("CDC not supported for data source type: %s", dataSourceType)
@@ -39,8 +45,14 @@ func (m *CDCManager) StartCDCForDataSource(ctx context.Context, dataSourceType s
 func (m *CDCManager) StopCDCForDataSource(ctx context.Context, dataSourceType string) error {
 	switch dataSourceType {
 	case "postgresql", "postgres":
+		if m.postgresCDC == nil {
+			return fmt.Errorf("PostgreSQL CDC not available")
+		}
 		return m.postgresCDC.StopCDC(ctx)
 	case "mysql":
+		if m.mysqlCDC == nil {
+			return fmt.Errorf("MySQL CDC not available")
+		}
 		return m.mysqlCDC.StopCDC(ctx)
 	default:
 		return fmt.Errorf("CDC not supported for data source type: %s", dataSourceType)
@@ -56,28 +68,34 @@ func (m *CDCManager) ProcessChanges(ctx context.Context, dataSourceID string, da
 			"lsn":       change.LSN,
 			"timestamp": change.Timestamp,
 		}
-		
+
 		var cdc CDC
 		switch dataSourceType {
 		case "postgresql", "postgres":
+			if m.postgresCDC == nil {
+				continue
+			}
 			cdc = m.postgresCDC
 		case "mysql":
+			if m.mysqlCDC == nil {
+				continue
+			}
 			cdc = m.mysqlCDC
 		default:
 			continue
 		}
-		
+
 		if err := cdc.SaveCheckpoint(ctx, dataSourceID, change.Table, checkpoint); err != nil {
 			return fmt.Errorf("failed to save checkpoint: %w", err)
 		}
-		
+
 		// In production, would apply changes to target system
 		// This could be:
 		// 1. Apply to warehouse tables
 		// 2. Trigger ETL transformations
 		// 3. Update knowledge graph
 	}
-	
+
 	return nil
 }
 

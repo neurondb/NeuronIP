@@ -1,8 +1,9 @@
 'use client'
 
 import { useState } from 'react'
-import Modal from '@/components/ui/Modal'
+
 import Button from '@/components/ui/Button'
+import Modal from '@/components/ui/Modal'
 import { showToast } from '@/components/ui/Toast'
 import apiClient from '@/lib/api/client'
 import { useUsers } from '@/lib/api/queries'
@@ -38,7 +39,7 @@ export default function AddUserDialog({
         name: name.trim(),
         email: email.trim(),
         password: password.trim(),
-        role: role,
+        role,
       })
       showToast('User created successfully', 'success')
       onCreated?.()

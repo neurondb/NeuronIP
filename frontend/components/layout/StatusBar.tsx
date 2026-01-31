@@ -1,7 +1,5 @@
 'use client'
 
-import { useState, useEffect } from 'react'
-import { motion } from 'framer-motion'
 import {
   CheckCircleIcon,
   XCircleIcon,
@@ -22,13 +20,16 @@ import {
   InformationCircleIcon,
   TagIcon,
 } from '@heroicons/react/24/outline'
-import { cn } from '@/lib/utils/cn'
+import { motion } from 'framer-motion'
+import { useState, useEffect } from 'react'
+
 import StatusBadge from '@/components/ui/StatusBadge'
-import { HealthResponse, SystemStats } from '@/lib/api/types'
+import { showToast } from '@/components/ui/Toast'
 import Tooltip from '@/components/ui/Tooltip'
+import { HealthResponse, SystemStats } from '@/lib/api/types'
 import { useWebSocket } from '@/lib/hooks/useWebSocket'
 import { useAppStore } from '@/lib/store/useAppStore'
-import { showToast } from '@/components/ui/Toast'
+import { cn } from '@/lib/utils/cn'
 
 interface StatusBarProps {
   version?: string

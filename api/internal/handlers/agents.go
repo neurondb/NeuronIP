@@ -3,6 +3,7 @@ package handlers
 import (
 	"encoding/json"
 	"net/http"
+	"strconv"
 
 	"github.com/google/uuid"
 	"github.com/gorilla/mux"
@@ -130,14 +131,14 @@ func (h *AgentsHandler) GetPerformance(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	perf, err := h.service.GetPerformance(r.Context(), id)
+	summary, err := h.service.GetPerformanceWithSummary(r.Context(), id)
 	if err != nil {
 		WriteError(w, err)
 		return
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(perf)
+	json.NewEncoder(w).Encode(summary)
 }
 
 /* DeployAgent handles POST /api/v1/agents/{id}/deploy */
@@ -159,4 +160,73 @@ func (h *AgentsHandler) DeployAgent(w http.ResponseWriter, r *http.Request) {
 		"status": "deployed",
 		"id":     id,
 	})
+}
+
+/* GetRuns handles GET /api/v1/agents/{id}/runs */
+func (h *AgentsHandler) GetRuns(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	id, err := uuid.Parse(vars["id"])
+	if err != nil {
+		WriteErrorResponse(w, errors.BadRequest("Invalid agent ID"))
+		return
+	}
+	limit := 50
+	if l := r.URL.Query().Get("limit"); l != "" {
+		if n, e := strconv.Atoi(l); e == nil && n > 0 {
+			limit = n
+		}
+	}
+	runs, err := h.service.ListAgentRuns(r.Context(), id, limit)
+	if err != nil {
+		WriteError(w, err)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(runs)
+}
+
+/* GetMemory handles GET /api/v1/agents/{id}/memory */
+func (h *AgentsHandler) GetMemory(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	id, err := uuid.Parse(vars["id"])
+	if err != nil {
+		WriteErrorResponse(w, errors.BadRequest("Invalid agent ID"))
+		return
+	}
+	limit := 100
+	if l := r.URL.Query().Get("limit"); l != "" {
+		if n, e := strconv.Atoi(l); e == nil && n > 0 {
+			limit = n
+		}
+	}
+	entries, err := h.service.ListAgentMemory(r.Context(), id, limit)
+	if err != nil {
+		WriteError(w, err)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(entries)
+}
+
+/* GetEvaluations handles GET /api/v1/agents/{id}/evaluations */
+func (h *AgentsHandler) GetEvaluations(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	id, err := uuid.Parse(vars["id"])
+	if err != nil {
+		WriteErrorResponse(w, errors.BadRequest("Invalid agent ID"))
+		return
+	}
+	limit := 50
+	if l := r.URL.Query().Get("limit"); l != "" {
+		if n, e := strconv.Atoi(l); e == nil && n > 0 {
+			limit = n
+		}
+	}
+	evals, err := h.service.ListAgentEvaluations(r.Context(), id, limit)
+	if err != nil {
+		WriteError(w, err)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(evals)
 }

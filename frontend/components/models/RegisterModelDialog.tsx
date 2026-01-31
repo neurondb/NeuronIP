@@ -1,10 +1,11 @@
 'use client'
 
 import { useState } from 'react'
-import Modal from '@/components/ui/Modal'
+
 import Button from '@/components/ui/Button'
-import { useRegisterModel } from '@/lib/api/queries'
+import Modal from '@/components/ui/Modal'
 import { showToast } from '@/components/ui/Toast'
+import { useRegisterModel } from '@/lib/api/queries'
 
 interface RegisterModelDialogProps {
   open: boolean

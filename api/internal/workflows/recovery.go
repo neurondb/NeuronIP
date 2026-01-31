@@ -13,8 +13,8 @@ import (
 
 /* RecoveryService provides crash recovery and replay functionality for workflows */
 type RecoveryService struct {
-	pool       *pgxpool.Pool
-	service    *Service
+	pool    *pgxpool.Pool
+	service *Service
 }
 
 /* NewRecoveryService creates a new recovery service */
@@ -84,9 +84,16 @@ func (r *RecoveryService) RecoverIncompleteExecutions(ctx context.Context) ([]uu
 /* replayExecution replays a workflow execution from the last checkpoint */
 func (r *RecoveryService) replayExecution(ctx context.Context, executionID uuid.UUID, workflowID uuid.UUID, inputData json.RawMessage) error {
 	// Get workflow definition
-	_, err := r.service.GetWorkflow(ctx, workflowID)
+	workflow, err := r.service.GetWorkflow(ctx, workflowID)
 	if err != nil {
 		return fmt.Errorf("failed to get workflow: %w", err)
+	}
+
+	// Parse workflow definition
+	var def WorkflowDefinition
+	if workflow.WorkflowDefinition != nil {
+		defJSON, _ := json.Marshal(workflow.WorkflowDefinition)
+		json.Unmarshal(defJSON, &def)
 	}
 
 	// Parse input data
@@ -102,7 +109,7 @@ func (r *RecoveryService) replayExecution(ctx context.Context, executionID uuid.
 	checkpoint := r.getLastCheckpoint(ctx, executionID)
 
 	// Restore execution state from checkpoint
-	state := ExecutionState{
+	state := &ExecutionState{
 		ExecutionID:    executionID,
 		WorkflowID:     workflowID,
 		CurrentStep:    "",
@@ -117,29 +124,42 @@ func (r *RecoveryService) replayExecution(ctx context.Context, executionID uuid.
 		state.StepResults = checkpoint.StepResults
 	}
 
-	// If no checkpoint, start from beginning - mark execution as starting
-	if state.CurrentStep == "" {
-		// Update execution to indicate replay start
-		r.pool.Exec(ctx, `
-			UPDATE neuronip.workflow_executions 
-			SET status = 'running', started_at = COALESCE(started_at, NOW())
-			WHERE id = $1`, executionID)
+	// Update execution status to running
+	r.pool.Exec(ctx, `
+		UPDATE neuronip.workflow_executions 
+		SET status = 'running', started_at = COALESCE(started_at, NOW())
+		WHERE id = $1`, executionID)
 
-		// Re-execute workflow (this will be handled by ExecuteWorkflow, but we do it manually here)
-		// For now, mark as recovered - full replay would require re-implementing ExecuteWorkflow logic
+	// Execute remaining workflow steps using the service
+	if r.service != nil {
+		result, err := r.service.executeWorkflowSteps(ctx, &def, state, input)
+		if err != nil {
+			// Mark as failed
+			errMsg := err.Error()
+			r.pool.Exec(ctx, `
+				UPDATE neuronip.workflow_executions 
+				SET status = 'failed', completed_at = NOW(), error_message = $2,
+					output_data = jsonb_build_object('recovered', true, 'error', $2)
+				WHERE id = $1`, executionID, errMsg)
+			return fmt.Errorf("replay execution failed: %w", err)
+		}
+
+		// Mark as completed with results
+		resultJSON, _ := json.Marshal(map[string]interface{}{
+			"recovered":    true,
+			"recovered_at": time.Now().Format(time.RFC3339),
+			"result":       result,
+		})
 		r.pool.Exec(ctx, `
 			UPDATE neuronip.workflow_executions 
-			SET status = 'completed', completed_at = NOW(),
-				output_data = jsonb_build_object('recovered', true, 'recovered_at', NOW())
-			WHERE id = $1`, executionID)
+			SET status = 'completed', completed_at = NOW(), output_data = $2
+			WHERE id = $1`, executionID, resultJSON)
 	} else {
-		// Resume from checkpoint
-		// For full implementation, would resume workflow execution from checkpoint
-		// For now, mark as recovered
+		// No service available, mark as recovered but not re-executed
 		r.pool.Exec(ctx, `
 			UPDATE neuronip.workflow_executions 
 			SET status = 'completed', completed_at = NOW(),
-				output_data = jsonb_build_object('recovered', true, 'recovered_at', NOW(), 'checkpoint_used', true)
+				output_data = jsonb_build_object('recovered', true, 'recovered_at', NOW(), 'note', 'service unavailable')
 			WHERE id = $1`, executionID)
 	}
 

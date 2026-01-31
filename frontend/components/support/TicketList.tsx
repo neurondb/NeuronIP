@@ -1,11 +1,12 @@
 'use client'
 
-import { useState } from 'react'
+import { FunnelIcon, MagnifyingGlassIcon } from '@heroicons/react/24/outline'
 import { motion } from 'framer-motion'
+import { useState } from 'react'
+
+import Button from '@/components/ui/Button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/Card'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/Table'
-import Button from '@/components/ui/Button'
-import { FunnelIcon, MagnifyingGlassIcon } from '@heroicons/react/24/outline'
 import { slideUp, transition } from '@/lib/animations/variants'
 import { cn } from '@/lib/utils/cn'
 

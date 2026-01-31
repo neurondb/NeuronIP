@@ -1,9 +1,10 @@
 'use client'
 
-import * as React from 'react'
+import { XMarkIcon } from '@heroicons/react/24/outline'
 import * as SheetPrimitive from '@radix-ui/react-dialog'
 import { cva, type VariantProps } from 'class-variance-authority'
-import { XMarkIcon } from '@heroicons/react/24/outline'
+import * as React from 'react'
+
 import { cn } from '@/lib/utils/cn'
 
 const Sheet = SheetPrimitive.Root

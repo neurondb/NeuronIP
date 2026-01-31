@@ -52,6 +52,36 @@ module.exports = {
           DEFAULT: 'hsl(var(--card))',
           foreground: 'hsl(var(--card-foreground))',
         },
+        success: {
+          DEFAULT: 'hsl(var(--success))',
+          foreground: 'hsl(var(--success-foreground))',
+        },
+        warning: {
+          DEFAULT: 'hsl(var(--warning))',
+          foreground: 'hsl(var(--warning-foreground))',
+        },
+        info: {
+          DEFAULT: 'hsl(var(--info))',
+          foreground: 'hsl(var(--info-foreground))',
+        },
+        surface: {
+          raised: 'hsl(var(--surface-raised))',
+          overlay: 'hsl(var(--surface-overlay))',
+        },
+        divider: 'hsl(var(--divider))',
+      },
+      fontFamily: {
+        mono: ['var(--font-mono)', 'ui-monospace', 'monospace'],
+      },
+      fontSize: {
+        xs: ['var(--text-xs)', { lineHeight: 'var(--leading-normal)' }],
+        sm: ['var(--text-sm)', { lineHeight: 'var(--leading-normal)' }],
+        base: ['var(--text-base)', { lineHeight: 'var(--leading-normal)' }],
+        lg: ['var(--text-lg)', { lineHeight: 'var(--leading-snug)' }],
+        xl: ['var(--text-xl)', { lineHeight: 'var(--leading-snug)' }],
+        '2xl': ['var(--text-2xl)', { lineHeight: 'var(--leading-tight)' }],
+        '3xl': ['var(--text-3xl)', { lineHeight: 'var(--leading-tight)' }],
+        '4xl': ['var(--text-4xl)', { lineHeight: 'var(--leading-tight)' }],
       },
       borderRadius: {
         lg: 'var(--radius)',

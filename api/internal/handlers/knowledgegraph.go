@@ -12,12 +12,18 @@ import (
 
 /* KnowledgeGraphHandler handles knowledge graph requests */
 type KnowledgeGraphHandler struct {
-	service *knowledgegraph.Service
+	service   *knowledgegraph.Service
+	reasoning *knowledgegraph.ReasoningService
 }
 
 /* NewKnowledgeGraphHandler creates a new knowledge graph handler */
 func NewKnowledgeGraphHandler(service *knowledgegraph.Service) *KnowledgeGraphHandler {
-	return &KnowledgeGraphHandler{service: service}
+	return &KnowledgeGraphHandler{service: service, reasoning: nil}
+}
+
+/* NewKnowledgeGraphHandlerWithReasoning creates a handler with reasoning service for graph-based reasoning */
+func NewKnowledgeGraphHandlerWithReasoning(service *knowledgegraph.Service, reasoning *knowledgegraph.ReasoningService) *KnowledgeGraphHandler {
+	return &KnowledgeGraphHandler{service: service, reasoning: reasoning}
 }
 
 /* ExtractEntitiesRequest represents entity extraction request */
@@ -66,10 +72,10 @@ func (h *KnowledgeGraphHandler) ExtractEntities(w http.ResponseWriter, r *http.R
 
 /* LinkEntitiesRequest represents entity linking request */
 type LinkEntitiesRequest struct {
-	SourceEntityID     string   `json:"source_entity_id"`
-	TargetEntityID     string   `json:"target_entity_id"`
-	RelationshipType   string   `json:"relationship_type"`
-	Description        *string  `json:"description,omitempty"`
+	SourceEntityID       string  `json:"source_entity_id"`
+	TargetEntityID       string  `json:"target_entity_id"`
+	RelationshipType     string  `json:"relationship_type"`
+	Description          *string `json:"description,omitempty"`
 	RelationshipStrength float64 `json:"relationship_strength,omitempty"`
 }
 
@@ -151,9 +157,9 @@ func (h *KnowledgeGraphHandler) GetEntityLinks(w http.ResponseWriter, r *http.Re
 
 /* SearchEntitiesRequest represents entity search request */
 type SearchEntitiesRequest struct {
-	Query       string    `json:"query"`
-	EntityTypeID *string  `json:"entity_type_id,omitempty"`
-	Limit       int       `json:"limit,omitempty"`
+	Query        string  `json:"query"`
+	EntityTypeID *string `json:"entity_type_id,omitempty"`
+	Limit        int     `json:"limit,omitempty"`
 }
 
 /* SearchEntities handles entity search requests */
@@ -194,10 +200,10 @@ func (h *KnowledgeGraphHandler) SearchEntities(w http.ResponseWriter, r *http.Re
 
 /* TraverseGraphRequest represents graph traversal request */
 type TraverseGraphRequest struct {
-	StartEntityID uuid.UUID `json:"start_entity_id"`
-	MaxDepth      int        `json:"max_depth,omitempty"`
-	RelationshipTypes []string `json:"relationship_types,omitempty"`
-	Direction     string     `json:"direction,omitempty"` // "outgoing", "incoming", "both"
+	StartEntityID     uuid.UUID `json:"start_entity_id"`
+	MaxDepth          int       `json:"max_depth,omitempty"`
+	RelationshipTypes []string  `json:"relationship_types,omitempty"`
+	Direction         string    `json:"direction,omitempty"` // "outgoing", "incoming", "both"
 }
 
 /* TraverseGraph handles graph traversal requests */
@@ -228,9 +234,9 @@ func (h *KnowledgeGraphHandler) TraverseGraph(w http.ResponseWriter, r *http.Req
 
 /* CreateGlossaryTermRequest represents glossary term creation request */
 type CreateGlossaryTermRequest struct {
-	Term            string    `json:"term"`
-	Definition      string    `json:"definition"`
-	Category        *string   `json:"category,omitempty"`
+	Term            string   `json:"term"`
+	Definition      string   `json:"definition"`
+	Category        *string  `json:"category,omitempty"`
 	RelatedEntityID *string  `json:"related_entity_id,omitempty"`
 	Synonyms        []string `json:"synonyms,omitempty"`
 }
@@ -323,9 +329,9 @@ func (h *KnowledgeGraphHandler) SearchGlossary(w http.ResponseWriter, r *http.Re
 
 /* CreateEntityTypeRequest represents entity type creation request */
 type CreateEntityTypeRequest struct {
-	TypeName     string    `json:"type_name"`
-	Description  *string   `json:"description,omitempty"`
-	ParentTypeID   *string `json:"parent_type_id,omitempty"`
+	TypeName     string  `json:"type_name"`
+	Description  *string `json:"description,omitempty"`
+	ParentTypeID *string `json:"parent_type_id,omitempty"`
 }
 
 /* CreateEntityType handles entity type creation */
@@ -422,4 +428,28 @@ func (h *KnowledgeGraphHandler) ExecuteGraphQuery(w http.ResponseWriter, r *http
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(response)
+}
+
+/* Reason handles POST /api/v1/knowledge-graph/reason - graph-based reasoning */
+func (h *KnowledgeGraphHandler) Reason(w http.ResponseWriter, r *http.Request) {
+	if h.reasoning == nil {
+		WriteErrorResponse(w, errors.BadRequest("Reasoning service not configured"))
+		return
+	}
+	var req knowledgegraph.ReasonRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		WriteErrorResponse(w, errors.BadRequest("Invalid request body"))
+		return
+	}
+	if req.Question == "" {
+		WriteErrorResponse(w, errors.ValidationFailed("question is required", nil))
+		return
+	}
+	result, err := h.reasoning.Reason(r.Context(), req)
+	if err != nil {
+		WriteError(w, err)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(result)
 }

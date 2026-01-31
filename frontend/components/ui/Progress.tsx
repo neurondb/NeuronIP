@@ -1,8 +1,8 @@
 'use client'
 
-import * as React from 'react'
-// @ts-ignore - @radix-ui/react-progress may not have types
 import * as ProgressPrimitive from '@radix-ui/react-progress'
+import * as React from 'react'
+
 import { cn } from '@/lib/utils/cn'
 
 const Progress = React.forwardRef<

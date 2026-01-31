@@ -14,26 +14,37 @@ import (
 	"github.com/neurondb/NeuronIP/api/internal/agent"
 	"github.com/neurondb/NeuronIP/api/internal/agents"
 	"github.com/neurondb/NeuronIP/api/internal/ai"
-	"github.com/neurondb/NeuronIP/api/internal/rag"
 	"github.com/neurondb/NeuronIP/api/internal/alerts"
 	"github.com/neurondb/NeuronIP/api/internal/analytics"
 	"github.com/neurondb/NeuronIP/api/internal/audit"
 	"github.com/neurondb/NeuronIP/api/internal/auth"
 	"github.com/neurondb/NeuronIP/api/internal/backup"
 	"github.com/neurondb/NeuronIP/api/internal/billing"
+	"github.com/neurondb/NeuronIP/api/internal/blocks"
+	"github.com/neurondb/NeuronIP/api/internal/cache"
 	"github.com/neurondb/NeuronIP/api/internal/catalog"
 	"github.com/neurondb/NeuronIP/api/internal/classification"
+
+	// collaboration is used internally by handlers.NewCollaborationHandler
+	_ "github.com/neurondb/NeuronIP/api/internal/collaboration"
 	"github.com/neurondb/NeuronIP/api/internal/comments"
 	"github.com/neurondb/NeuronIP/api/internal/compliance"
 	"github.com/neurondb/NeuronIP/api/internal/config"
 	"github.com/neurondb/NeuronIP/api/internal/connectors"
+	"github.com/neurondb/NeuronIP/api/internal/databases"
 	"github.com/neurondb/NeuronIP/api/internal/dataquality"
 	"github.com/neurondb/NeuronIP/api/internal/datasources"
 	"github.com/neurondb/NeuronIP/api/internal/db"
+	"github.com/neurondb/NeuronIP/api/internal/execution"
+	"github.com/neurondb/NeuronIP/api/internal/governance"
 	"github.com/neurondb/NeuronIP/api/internal/handlers"
 	"github.com/neurondb/NeuronIP/api/internal/ingestion"
 	ingestionconnectors "github.com/neurondb/NeuronIP/api/internal/ingestion/connectors"
 	"github.com/neurondb/NeuronIP/api/internal/integrations"
+	bibot "github.com/neurondb/NeuronIP/api/internal/integrations/bi"
+	slackbot "github.com/neurondb/NeuronIP/api/internal/integrations/slack"
+	teamsbot "github.com/neurondb/NeuronIP/api/internal/integrations/teams"
+	"github.com/neurondb/NeuronIP/api/internal/itsm"
 	"github.com/neurondb/NeuronIP/api/internal/knowledgegraph"
 	"github.com/neurondb/NeuronIP/api/internal/lineage"
 	"github.com/neurondb/NeuronIP/api/internal/logging"
@@ -41,13 +52,16 @@ import (
 	"github.com/neurondb/NeuronIP/api/internal/mcp"
 	"github.com/neurondb/NeuronIP/api/internal/metrics"
 	"github.com/neurondb/NeuronIP/api/internal/middleware"
+	"github.com/neurondb/NeuronIP/api/internal/ml"
 	"github.com/neurondb/NeuronIP/api/internal/models"
 	"github.com/neurondb/NeuronIP/api/internal/neurondb"
-	"github.com/neurondb/NeuronIP/api/internal/observability"
+	"github.com/neurondb/NeuronIP/api/internal/notion"
 	"github.com/neurondb/NeuronIP/api/internal/ownership"
 	"github.com/neurondb/NeuronIP/api/internal/policy"
 	"github.com/neurondb/NeuronIP/api/internal/profiling"
+	"github.com/neurondb/NeuronIP/api/internal/rag"
 	"github.com/neurondb/NeuronIP/api/internal/semantic"
+	"github.com/neurondb/NeuronIP/api/internal/session"
 	"github.com/neurondb/NeuronIP/api/internal/support"
 	"github.com/neurondb/NeuronIP/api/internal/tenancy"
 	"github.com/neurondb/NeuronIP/api/internal/tracing"
@@ -55,12 +69,6 @@ import (
 	"github.com/neurondb/NeuronIP/api/internal/warehouse"
 	"github.com/neurondb/NeuronIP/api/internal/webhooks"
 	"github.com/neurondb/NeuronIP/api/internal/workflows"
-	"github.com/neurondb/NeuronIP/api/internal/session"
-	"github.com/neurondb/NeuronIP/api/internal/execution"
-	"github.com/neurondb/NeuronIP/api/internal/collaboration"
-	slackbot "github.com/neurondb/NeuronIP/api/internal/integrations/slack"
-	teamsbot "github.com/neurondb/NeuronIP/api/internal/integrations/teams"
-	bibot "github.com/neurondb/NeuronIP/api/internal/integrations/bi"
 )
 
 var (
@@ -133,34 +141,73 @@ func main() {
 		os.Exit(1)
 	}
 
-	// Create Pool wrapper for backward compatibility
-	poolWrapper := &db.Pool{Pool: pool}
+	// Pool for NeuronDB: use dedicated neurondb pool if configured, else same as neuronip
+	neurondbPool, err := multiPool.GetPool("neurondb")
+	if err != nil {
+		neurondbPool = pool
+	}
+	dbNames := []string{"neuronip", "neuronai-demo"}
+	if neurondbPool != pool {
+		dbNames = append(dbNames, "neurondb")
+	}
+
+	// Create Pool wrapper for backward compatibility (for future route/handler wiring)
+	_ = &db.Pool{Pool: pool}
 
 	logger.Info("Database pools created successfully",
 		"max_conns", cfg.Database.MaxOpenConns,
 		"min_conns", cfg.Database.MaxIdleConns,
-		"databases", []string{"neuronip", "neuronai-demo"},
+		"databases", dbNames,
 	)
 
 	// Initialize database queries (uses default pool, but queries can be context-aware)
 	queries := db.NewQueries(pool)
 
-	// Initialize NeuronDB client
-	neurondbClient := neurondb.NewClient(pool)
+	// Initialize NeuronDB client with config (feature flags + capability checks)
+	neurondbClient := neurondb.NewClientWithConfig(neurondbPool, &cfg.NeuronDB)
+	if extVersion, err := neurondbClient.ExtensionVersion(ctx); err != nil {
+		logger.Warn("NeuronDB extension not found or version check failed; vector/ML/RAG ops may fail", "error", err)
+	} else {
+		logger.Info("NeuronDB extension ready", "version", extVersion)
+	}
+
+	// Initialize cache (Redis with memory fallback)
+	redisURL := os.Getenv("REDIS_URL")
+	var cacheService cache.CacheInterface
+	if redisURL != "" {
+		redisCache, err := cache.NewRedisCache(redisURL, 5*time.Minute)
+		if err == nil {
+			cacheService = redisCache
+			defer redisCache.Close()
+			logger.Info("Redis cache initialized", "url", redisURL)
+		} else {
+			logger.Warn("Failed to initialize Redis cache, using memory cache only", "error", err)
+			cacheService = cache.NewMemoryCache(5 * time.Minute)
+		}
+	} else {
+		// Use existing cache implementation as fallback
+		existingCache := cache.NewCache(5*time.Minute, 10000)
+		cacheService = cache.NewAdapter(existingCache)
+		logger.Info("Using in-memory cache (no Redis configured)")
+	}
 
 	// Create router
 	router := mux.NewRouter()
 
 	// Apply global middleware (order matters)
-	router.Use(middleware.Recovery)                   // Recover from panics
-	router.Use(middleware.RequestID)                  // Add request ID
-	router.Use(middleware.SecurityHeaders)            // Security headers
-	router.Use(middleware.HTTPLogging)                // Request/response logging
-	router.Use(middleware.CORS(middleware.CORSConfig{ // CORS
-		AllowedOrigins: cfg.CORS.AllowedOrigins,
-		AllowedMethods: cfg.CORS.AllowedMethods,
-		AllowedHeaders: cfg.CORS.AllowedHeaders,
-	}))
+	router.Use(middleware.Recovery)        // Recover from panics
+	router.Use(middleware.RequestID)       // Add request ID
+	router.Use(middleware.SecurityHeaders) // Security headers
+	router.Use(middleware.HTTPLogging)     // Request/response logging
+
+	// Apply caching middleware (before auth to cache public endpoints)
+	cacheConfig := middleware.DefaultCacheConfig(cacheService)
+	router.Use(middleware.CacheMiddleware(cacheConfig))
+
+	// Apply compression middleware
+	router.Use(middleware.CompressionMiddleware)
+
+	// Note: CORS is applied at server level to ensure it runs for all requests
 
 	// Initialize MCP client (optional)
 	var mcpClient *mcp.Client
@@ -179,12 +226,26 @@ func main() {
 	router.Handle("/health", healthHandler).Methods("GET")
 	router.Handle("/api/v1/health", healthHandler).Methods("GET")
 
+	// Database connection test endpoint (no auth required - must be before apiRouter)
+	// CORS middleware handles OPTIONS preflight requests, router just needs to allow them through
+	router.HandleFunc("/api/v1/database/test", func(w http.ResponseWriter, r *http.Request) {
+		// OPTIONS is handled by CORS middleware (returns before reaching here)
+		if r.Method == "OPTIONS" {
+			return
+		}
+		if r.Method != "POST" {
+			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		handlers.TestDatabaseConnection(w, r)
+	}).Methods("POST", "OPTIONS")
+
 	// Metrics endpoint (no auth required) - Prometheus metrics
 	router.Handle("/metrics", metrics.Handler()).Methods("GET")
 
 	// API routes (require auth)
 	apiRouter := router.PathPrefix("/api/v1").Subrouter()
-	
+
 	// Apply session middleware first (supports cookie-based auth)
 	// Note: sessionManager is initialized later, so we'll add this after initialization
 	// For now, we'll add it after sessionManager is created
@@ -209,8 +270,14 @@ func main() {
 	pipelineService := semantic.NewPipelineService(pool)
 	pipelineHandler := handlers.NewPipelineHandler(pipelineService)
 
-	// Initialize warehouse service
+	// Initialize metrics service (metric catalog) - needed for query rewriter
+	metricsCatalogService := catalog.NewMetricsService(pool)
+	semanticCatalogService := catalog.NewSemanticService(pool)
+
+	// Initialize warehouse service with query rewriter
 	warehouseService := warehouse.NewService(pool, agentClient, neurondbClient, mcpClient)
+	queryRewriterService := semantic.NewQueryRewriter(pool, semanticCatalogService, metricsCatalogService)
+	queryRewriterHandler := handlers.NewQueryRewriterHandler(queryRewriterService)
 	warehouseHandler := handlers.NewWarehouseHandler(warehouseService)
 
 	// Initialize saved search service
@@ -221,104 +288,153 @@ func main() {
 	governanceService := warehouse.NewGovernanceService(pool)
 	governanceHandler := handlers.NewGovernanceHandler(governanceService)
 
-	// Initialize cache service
-	cacheService := warehouse.NewCacheService(pool)
-	cacheHandler := handlers.NewCacheHandler(cacheService)
+	// Initialize warehouse cache service (for query result caching)
+	warehouseCacheService := warehouse.NewCacheService(pool)
+	cacheHandler := handlers.NewCacheHandler(warehouseCacheService)
+
+	// Initialize workload service (elastic analytics queues)
+	workloadService := execution.NewWorkloadService(pool)
+	workloadHandler := handlers.NewWorkloadHandler(workloadService)
+
+	// Initialize data products service (shares / consumption layer)
+	dataProductService := warehouse.NewDataProductService(pool)
+	dataProductsHandler := handlers.NewDataProductsHandler(dataProductService)
+
+	// Initialize notebooks service
+	notebookService := ml.NewNotebookService(pool)
+	notebooksHandler := handlers.NewNotebooksHandler(notebookService)
 
 	// Initialize workflow service
 	workflowService := workflows.NewService(pool, agentClient, neurondbClient, mcpClient)
 	workflowHandler := handlers.NewWorkflowHandler(workflowService)
+	workflowOrchestrator := workflows.NewOrchestrator(pool)
+	workflowEnhancedHandler := handlers.NewWorkflowEnhancedHandler(workflowOrchestrator, workflowService)
 
 	// Initialize compliance services
-	complianceService := compliance.NewService(pool.Pool, neurondbClient)
-	anomalyService := compliance.NewAnomalyService(pool.Pool, neurondbClient)
-	policyService := compliance.NewPolicyService(pool.Pool, neurondbClient)
+	complianceService := compliance.NewService(pool, neurondbClient)
+	anomalyService := compliance.NewAnomalyService(pool, neurondbClient)
+	policyService := compliance.NewPolicyService(pool, neurondbClient)
 	complianceHandler := handlers.NewComplianceHandler(complianceService, anomalyService, policyService)
 
 	// Initialize analytics service
-	analyticsService := analytics.NewService(pool.Pool, neurondbClient, mcpClient)
+	analyticsService := analytics.NewService(pool, neurondbClient, mcpClient)
 	analyticsHandler := handlers.NewAnalyticsHandler(analyticsService)
 
 	// Initialize models service
-	modelsService := models.NewService(pool.Pool, neurondbClient, mcpClient)
+	modelsService := models.NewService(pool, neurondbClient, mcpClient)
+	qualityScorer := models.NewQualityScorer(pool)
 	modelsHandler := handlers.NewModelHandler(modelsService)
+	modelQualityHandler := handlers.NewModelQualityHandler(qualityScorer)
 
 	// Initialize integrations services
-	integrationsService := integrations.NewIntegrationsService(pool.Pool)
-	helpdeskService := integrations.NewHelpdeskService(pool.Pool)
-	webhookService := integrations.NewWebhookService(pool.Pool)
+	integrationsService := integrations.NewIntegrationsService(pool)
+	helpdeskService := integrations.NewHelpdeskService(pool)
+	webhookService := integrations.NewWebhookService(pool)
 	integrationHandler := handlers.NewIntegrationHandler(integrationsService, helpdeskService, webhookService)
 
 	// Initialize alerts service
-	alertsService := alerts.NewService(pool.Pool, anomalyService)
+	alertsService := alerts.NewService(pool, anomalyService)
 	alertsHandler := handlers.NewAlertsHandler(alertsService)
 
 	// Initialize support service
-	supportService := support.NewService(queries, pool.Pool, agentClient, neurondbClient)
+	supportService := support.NewService(queries, pool, agentClient, neurondbClient)
 	supportHandler := handlers.NewSupportHandler(supportService)
 
 	// Initialize knowledge graph service
-	knowledgeGraphService := knowledgegraph.NewService(pool.Pool, neurondbClient)
-	knowledgeGraphHandler := handlers.NewKnowledgeGraphHandler(knowledgeGraphService)
+	knowledgeGraphService := knowledgegraph.NewService(pool, neurondbClient)
+	reasoningService := knowledgegraph.NewReasoningService(pool, knowledgeGraphService)
+	knowledgeGraphHandler := handlers.NewKnowledgeGraphHandlerWithReasoning(knowledgeGraphService, reasoningService)
 
 	// Initialize data sources service
-	dataSourceService := datasources.NewDataSourceService(pool.Pool)
+	dataSourceService := datasources.NewDataSourceService(pool)
 	dataSourceHandler := handlers.NewDataSourceHandler(dataSourceService)
 
 	// Initialize business metrics service (semantic layer)
-	businessMetricsService := metrics.NewMetricsService(pool.Pool)
+	businessMetricsService := metrics.NewMetricsService(pool)
 
-	// Initialize metrics service (metric catalog)
-	metricsCatalogService := catalog.NewMetricsService(pool.Pool)
+	// Initialize glossary linker service
+	glossaryLinkerService := catalog.NewGlossaryLinker(pool)
 	businessMetricsHandler := handlers.NewMetricsHandler(businessMetricsService, metricsCatalogService)
+	glossaryLinkHandler := handlers.NewGlossaryLinkHandler(glossaryLinkerService)
 
 	// Initialize agents service
-	agentsService := agents.NewAgentsService(pool.Pool, agentClient)
+	agentsService := agents.NewAgentsService(pool, agentClient)
 	agentsHandler := handlers.NewAgentsHandler(agentsService)
 
+	// Initialize agent observability services
+	agentTracingService := agent.NewTracingService(pool)
+	agentEvidenceTracker := agent.NewEvidenceTracker(pool)
+	agentHallucinationDetector := agent.NewHallucinationDetector(pool)
+	agentAuditTrailService := agent.NewAuditTrailService(pool)
+
 	// Initialize observability service
-	observabilityService := observability.NewObservabilityService(pool.Pool)
-	observabilityHandler := handlers.NewObservabilityHandler(pool.Pool)
-	
+	observabilityHandler := handlers.NewObservabilityHandler(pool)
+	agentObservabilityHandler := handlers.NewAgentObservabilityHandler(
+		agentTracingService,
+		agentEvidenceTracker,
+		agentHallucinationDetector,
+		agentAuditTrailService,
+	)
+
 	// Initialize model governance handler
-	modelGovernanceHandler := handlers.NewModelGovernanceHandler(pool.Pool)
-	
-	// Initialize collaboration handler
-	collaborationHandler := handlers.NewCollaborationHandler(pool.Pool)
-	
+	modelGovernanceHandler := handlers.NewModelGovernanceHandler(pool)
+	promptTemplateService := governance.NewPromptTemplateService(pool)
+	approvalWorkflowService := governance.NewApprovalWorkflowService(pool)
+	uiRLSService := governance.NewUIRLSService(pool)
+	promptTemplateHandler := handlers.NewPromptTemplateHandler(promptTemplateService)
+	approvalWorkflowHandler := handlers.NewApprovalWorkflowHandler(approvalWorkflowService)
+	uiRLSHandler := handlers.NewUIRLSHandler(uiRLSService)
+
+	// Initialize decision dashboards
+	decisionDashboardService := governance.NewDecisionDashboardService(pool)
+	decisionDashboardsHandler := handlers.NewDecisionDashboardsHandler(decisionDashboardService)
+
+	// Initialize ITSM
+	itsmService := itsm.NewService(pool)
+	itsmHandler := handlers.NewITSMHandler(itsmService)
+
+	// Initialize collaboration handler (internally uses its own services)
+	collaborationHandler := handlers.NewCollaborationHandler(pool)
+
 	// Initialize execution services
-	replicaService := execution.NewReplicaService(pool.Pool)
-	shardService := execution.NewShardService(pool.Pool)
-	jobQueueService := execution.NewJobQueueService(pool.Pool)
-	_ = replicaService // Used for read routing
-	_ = shardService   // Used for sharding
-	_ = jobQueueService // Used for job queue
-	
+	replicaService := execution.NewReplicaService(pool)
+	shardService := execution.NewShardService(pool)
+	jobQueueService := execution.NewJobQueueService(pool)
+	priorityQueueManager := execution.NewPriorityQueueManager()
+	distributedExecutor := execution.NewDistributedExecutor(pool, cfg.Execution.NodeID, cfg.Execution.MaxConcurrent)
+	_ = replicaService       // Used for read routing
+	_ = shardService         // Used for sharding
+	_ = jobQueueService      // Used for job queue
+	_ = priorityQueueManager // Used for priority queues
+	_ = distributedExecutor  // Used for distributed execution
+
 	// Initialize quota service
-	quotaService := tenancy.NewQuotaService(pool.Pool)
-	_ = quotaService // Used for resource limits
-	
+	quotaService := tenancy.NewQuotaService(pool)
+	isolationService := tenancy.NewIsolationService(pool)
+	_ = quotaService     // Used for resource limits
+	_ = isolationService // Used for tenant isolation
+
 	// Initialize row security service
 	rowSecurityService := auth.NewRowSecurityService(queries)
-	
+
 	// Initialize policy-aware service
-	policyAwareService := semantic.NewPolicyAwareService(pool.Pool, rowSecurityService)
+	policyAwareService := semantic.NewPolicyAwareService(pool, rowSecurityService)
 	_ = policyAwareService // Used for policy-aware retrieval
-	
+
 	// Initialize Slack bot service
 	slackToken := os.Getenv("SLACK_BOT_TOKEN")
 	slackBotService := slackbot.NewSlackBotService(agentClient, neurondbClient, slackToken)
-	
+
 	// Initialize Teams bot service
 	teamsAppID := os.Getenv("TEAMS_APP_ID")
 	teamsAppPassword := os.Getenv("TEAMS_APP_PASSWORD")
 	teamsBotService := teamsbot.NewTeamsBotService(agentClient, neurondbClient, teamsAppID, teamsAppPassword)
-	
+
 	// Initialize BI export service
 	biExportService := bibot.NewBIExportService(warehouseService)
 
 	// Initialize metrics collector
-	metricsCollector := metrics.NewMetricsCollector(pool.Pool)
+	metricsCollector := metrics.NewMetricsCollector(pool)
 	metricsEnhancedHandler := handlers.NewMetricsEnhancedHandler(metricsCollector)
 
 	// Initialize tracing service
@@ -329,27 +445,26 @@ func main() {
 	timeoutConfig := middleware.DefaultTimeoutConfig()
 	apiRouter.Use(middleware.TimeoutByRoute(timeoutConfig))
 
-	// Initialize lineage service
-	lineageService := lineage.NewLineageService(pool.Pool)
-	lineageHandler := handlers.NewLineageHandler(lineageService)
+	// Initialize lineage service from lineage package (separate from semantic lineage)
+	lineageServiceFromPackage := lineage.NewLineageService(pool)
+	lineageHandler := handlers.NewLineageHandler(lineageServiceFromPackage)
 
 	// Audit service is initialized above with new audit package
 
 	// Initialize billing service
-	billingService := billing.NewBillingService(pool.Pool)
+	billingService := billing.NewBillingService(pool)
 	billingHandler := handlers.NewBillingHandler(billingService)
 
 	// Initialize versioning service
-	versioningService := versioning.NewVersioningService(pool.Pool)
+	versioningService := versioning.NewVersioningService(pool)
 	versioningHandler := handlers.NewVersioningHandler(versioningService)
 
 	// Initialize catalog service with NeuronDB client for multimodal embeddings
-	catalogService := catalog.NewCatalogServiceWithNeuronDB(pool.Pool, neurondbClient)
+	catalogService := catalog.NewCatalogServiceWithNeuronDB(pool, neurondbClient)
 	catalogHandler := handlers.NewCatalogHandler(catalogService)
 
 	// Initialize semantic definitions service
-	// Note: semantic search handler uses semantic.Service, not catalog.SemanticService
-	_ = catalog.NewSemanticService(pool.Pool) // Reserved for future use
+	// semanticCatalogService is created above and used by queryRewriterService
 
 	// Initialize unified AI service for orchestration
 	unifiedAIService := ai.NewUnifiedAIService(neurondbClient, mcpClient, agentClient)
@@ -360,7 +475,9 @@ func main() {
 	unifiedRAGHandler := handlers.NewUnifiedRAGHandler(unifiedRAGService)
 
 	// Initialize ingestion service
-	ingestionService := ingestion.NewService(pool.Pool, mcpClient)
+	ingestionService := ingestion.NewService(pool, mcpClient)
+	// dataQualityValidator := ingestion.NewValidator(pool) // Validator not yet implemented
+	// _ = dataQualityValidator // Used for data quality checks
 	// Register connector factories to avoid import cycles
 	ingestionService.RegisterConnectorFactory("zendesk", func(ct string) ingestion.Connector {
 		return ingestionconnectors.NewZendeskConnector()
@@ -469,12 +586,12 @@ func main() {
 	ingestionHandler := handlers.NewIngestionHandler(ingestionService)
 
 	// Initialize audit service
-	auditService := audit.NewAuditService(pool.Pool)
+	auditService := audit.NewAuditService(pool)
 	auditHandler := handlers.NewAuditHandler(auditService)
 
 	// Initialize session manager
 	sessionManager := session.NewManager(
-		pool.Pool,
+		pool,
 		cfg.Auth.Session.AccessTokenTTL,
 		cfg.Auth.Session.RefreshTokenTTL,
 		cfg.Auth.Session.CookieDomain,
@@ -484,7 +601,7 @@ func main() {
 
 	// Start session cleanup service (runs every hour)
 	var cleanupService *session.CleanupService
-	cleanupService = session.NewCleanupService(pool.Pool, 1*time.Hour)
+	cleanupService = session.NewCleanupService(pool, 1*time.Hour)
 	cleanupService.Start(ctx)
 
 	// Apply session middleware to API routes (before API key middleware)
@@ -522,21 +639,21 @@ func main() {
 	// if tenancyMode == "" {
 	// 	tenancyMode = tenancy.TenancyModeSchema
 	// }
-	// tenancyService := tenancy.NewTenancyService(pool.Pool, tenancyMode)
+	// tenancyService := tenancy.NewTenancyService(pool, tenancyMode)
 
 	// Initialize policy engine
-	policyEngine := policy.NewPolicyEngine(pool.Pool)
+	policyEngine := policy.NewPolicyEngine(pool)
 	policyHandler := handlers.NewPolicyHandler(policyEngine)
 
 	// Initialize webhook handler (webhookService already initialized above)
 	webhookHandler := handlers.NewWebhookHandler(webhookService)
 
-	// Semantic search routes
-	apiRouter.HandleFunc("/semantic/search", semanticHandler.Search).Methods("POST")
-	apiRouter.HandleFunc("/semantic/rag", semanticHandler.RAG).Methods("POST")
-	apiRouter.HandleFunc("/semantic/documents", semanticHandler.CreateDocument).Methods("POST")
-	apiRouter.HandleFunc("/semantic/documents/{id}", semanticHandler.UpdateDocument).Methods("PUT")
-	apiRouter.HandleFunc("/semantic/collections/{id}", semanticHandler.GetCollection).Methods("GET")
+	// Semantic search routes - commented out as methods don't exist yet
+	// apiRouter.HandleFunc("/semantic/search", semanticHandler.Search).Methods("POST")
+	// apiRouter.HandleFunc("/semantic/rag", semanticHandler.RAG).Methods("POST")
+	// apiRouter.HandleFunc("/semantic/documents", semanticHandler.CreateDocument).Methods("POST")
+	// apiRouter.HandleFunc("/semantic/documents/{id}", semanticHandler.UpdateDocument).Methods("PUT")
+	// apiRouter.HandleFunc("/semantic/collections/{id}", semanticHandler.GetCollection).Methods("GET")
 
 	// Unified AI routes
 	apiRouter.HandleFunc("/ai/embedding", unifiedAIHandler.GenerateEmbedding).Methods("POST")
@@ -547,6 +664,8 @@ func main() {
 	apiRouter.HandleFunc("/rag/query", unifiedRAGHandler.PerformRAG).Methods("POST")
 	apiRouter.HandleFunc("/rag/query/stream", unifiedRAGHandler.PerformRAGStream).Methods("POST")
 	apiRouter.HandleFunc("/rag/status", unifiedRAGHandler.GetRAGStatus).Methods("GET")
+	// AI assistant: policy-aware RAG - same pipeline as /rag/query, use with user context for policy filtering
+	apiRouter.HandleFunc("/ai/assistant", unifiedRAGHandler.PerformRAG).Methods("POST")
 
 	// Pipeline routes
 	apiRouter.HandleFunc("/semantic/pipelines", pipelineHandler.CreatePipeline).Methods("POST")
@@ -557,6 +676,8 @@ func main() {
 
 	// Warehouse routes
 	apiRouter.HandleFunc("/warehouse/query", warehouseHandler.Query).Methods("POST")
+	apiRouter.HandleFunc("/warehouse/query/rewrite", queryRewriterHandler.RewriteQuery).Methods("POST")
+	apiRouter.HandleFunc("/warehouse/query/semantics", queryRewriterHandler.GetQuerySemantics).Methods("GET")
 	apiRouter.HandleFunc("/warehouse/queries/{id}", warehouseHandler.GetQuery).Methods("GET")
 	apiRouter.HandleFunc("/warehouse/queries/history", warehouseHandler.GetQueryHistory).Methods("GET")
 	apiRouter.HandleFunc("/warehouse/optimize", warehouseHandler.GetQueryOptimization).Methods("POST")
@@ -581,8 +702,31 @@ func main() {
 	apiRouter.HandleFunc("/warehouse/cache/invalidate", cacheHandler.InvalidateCache).Methods("POST")
 	apiRouter.HandleFunc("/warehouse/cache/stats", cacheHandler.GetCacheStats).Methods("GET")
 
+	// Workload routes (elastic analytics queues)
+	apiRouter.HandleFunc("/warehouse/workload/queues", workloadHandler.ListQueues).Methods("GET")
+	apiRouter.HandleFunc("/warehouse/workload/queues", workloadHandler.CreateQueue).Methods("POST")
+	apiRouter.HandleFunc("/warehouse/workload/queues/{name}", workloadHandler.GetQueueByName).Methods("GET")
+
+	// Data products routes (shares / consumption layer)
+	apiRouter.HandleFunc("/data-products", dataProductsHandler.ListDataProducts).Methods("GET")
+	apiRouter.HandleFunc("/data-products", dataProductsHandler.CreateDataProduct).Methods("POST")
+	apiRouter.HandleFunc("/data-products/{id}", dataProductsHandler.GetDataProduct).Methods("GET")
+	apiRouter.HandleFunc("/data-products/{id}/share", dataProductsHandler.ShareDataProduct).Methods("POST")
+	apiRouter.HandleFunc("/data-products/{id}/revoke", dataProductsHandler.RevokeDataProduct).Methods("POST")
+	apiRouter.HandleFunc("/data-products/{id}/consumers", dataProductsHandler.ListConsumers).Methods("GET")
+
+	// Notebooks routes
+	apiRouter.HandleFunc("/notebooks", notebooksHandler.ListNotebooks).Methods("GET")
+	apiRouter.HandleFunc("/notebooks", notebooksHandler.CreateNotebook).Methods("POST")
+	apiRouter.HandleFunc("/notebooks/{id}", notebooksHandler.GetNotebook).Methods("GET")
+	apiRouter.HandleFunc("/notebooks/{id}/cells", notebooksHandler.ListCells).Methods("GET")
+	apiRouter.HandleFunc("/notebooks/{id}/cells", notebooksHandler.AddCell).Methods("POST")
+	apiRouter.HandleFunc("/notebooks/{id}/runs", notebooksHandler.ListRuns).Methods("GET")
+	apiRouter.HandleFunc("/notebooks/{id}/runs", notebooksHandler.CreateRun).Methods("POST")
+
 	// Workflow routes
 	apiRouter.HandleFunc("/workflows", workflowHandler.ListWorkflows).Methods("GET")
+	// apiRouter.HandleFunc("/workflows/{id}/stream", workflowHandler.StreamExecution).Methods("GET") // WebSocket for live execution - not yet implemented
 	apiRouter.HandleFunc("/workflows", workflowHandler.CreateWorkflow).Methods("POST")
 	apiRouter.HandleFunc("/workflows/{id}", workflowHandler.GetWorkflow).Methods("GET")
 	apiRouter.HandleFunc("/workflows/{id}", workflowHandler.UpdateWorkflow).Methods("PUT")
@@ -595,6 +739,9 @@ func main() {
 	apiRouter.HandleFunc("/workflows/{id}/schedules", workflowHandler.GetScheduledWorkflows).Methods("GET")
 	apiRouter.HandleFunc("/workflows/{id}/schedules/{schedule_id}/cancel", workflowHandler.CancelScheduledWorkflow).Methods("POST")
 	apiRouter.HandleFunc("/workflows/{id}/monitoring", workflowHandler.GetWorkflowMonitoring).Methods("GET")
+	apiRouter.HandleFunc("/workflows/{id}/execute-distributed", workflowEnhancedHandler.ExecuteDistributedWorkflow).Methods("POST")
+	apiRouter.HandleFunc("/workflows/{id}/metrics", workflowEnhancedHandler.GetWorkflowMetrics).Methods("GET")
+	apiRouter.HandleFunc("/workflows/{id}/cost", workflowEnhancedHandler.GetWorkflowCost).Methods("GET")
 	apiRouter.HandleFunc("/workflows/executions/{id}/status", workflowHandler.GetWorkflowExecutionStatus).Methods("GET")
 	apiRouter.HandleFunc("/workflows/executions/{id}/recover", workflowHandler.RecoverWorkflowExecution).Methods("POST")
 	apiRouter.HandleFunc("/workflows/executions/{id}/logs", workflowHandler.GetWorkflowExecutionLogs).Methods("GET")
@@ -610,6 +757,7 @@ func main() {
 	apiRouter.HandleFunc("/compliance/policies/{id}", complianceHandler.UpdatePolicy).Methods("PUT")
 	apiRouter.HandleFunc("/compliance/policies/{id}", complianceHandler.DeletePolicy).Methods("DELETE")
 	apiRouter.HandleFunc("/compliance/report", complianceHandler.GetComplianceReport).Methods("GET")
+	apiRouter.HandleFunc("/compliance/report/export", complianceHandler.ExportComplianceReport).Methods("GET")
 
 	// Analytics routes
 	apiRouter.HandleFunc("/analytics/search", analyticsHandler.GetSearchAnalytics).Methods("GET")
@@ -622,6 +770,9 @@ func main() {
 	apiRouter.HandleFunc("/models", modelsHandler.RegisterModel).Methods("POST")
 	apiRouter.HandleFunc("/models/{id}", modelsHandler.GetModel).Methods("GET")
 	apiRouter.HandleFunc("/models/{id}/infer", modelsHandler.InferModel).Methods("POST")
+	apiRouter.HandleFunc("/models/quality/score", modelQualityHandler.ScoreOutput).Methods("POST")
+	apiRouter.HandleFunc("/models/{id}/quality/scores", modelQualityHandler.GetScores).Methods("GET")
+	apiRouter.HandleFunc("/models/{id}/quality/average", modelQualityHandler.GetAverageScore).Methods("GET")
 
 	// Integration routes
 	apiRouter.HandleFunc("/integrations", integrationHandler.ListIntegrations).Methods("GET")
@@ -657,6 +808,7 @@ func main() {
 	apiRouter.HandleFunc("/knowledge-graph/entities/link", knowledgeGraphHandler.LinkEntities).Methods("POST")
 	apiRouter.HandleFunc("/knowledge-graph/traverse", knowledgeGraphHandler.TraverseGraph).Methods("POST")
 	apiRouter.HandleFunc("/knowledge-graph/entity-types", knowledgeGraphHandler.CreateEntityType).Methods("POST")
+	apiRouter.HandleFunc("/knowledge-graph/reason", knowledgeGraphHandler.Reason).Methods("POST")
 	apiRouter.HandleFunc("/knowledge-graph/glossary", knowledgeGraphHandler.CreateGlossaryTerm).Methods("POST")
 	apiRouter.HandleFunc("/knowledge-graph/glossary/{id}", knowledgeGraphHandler.GetGlossaryTerm).Methods("GET")
 	apiRouter.HandleFunc("/knowledge-graph/glossary/search", knowledgeGraphHandler.SearchGlossary).Methods("POST")
@@ -691,6 +843,9 @@ func main() {
 	apiRouter.HandleFunc("/agents/{id}", agentsHandler.DeleteAgent).Methods("DELETE")
 	apiRouter.HandleFunc("/agents/{id}/performance", agentsHandler.GetPerformance).Methods("GET")
 	apiRouter.HandleFunc("/agents/{id}/deploy", agentsHandler.DeployAgent).Methods("POST")
+	apiRouter.HandleFunc("/agents/{id}/runs", agentsHandler.GetRuns).Methods("GET")
+	apiRouter.HandleFunc("/agents/{id}/memory", agentsHandler.GetMemory).Methods("GET")
+	apiRouter.HandleFunc("/agents/{id}/evaluations", agentsHandler.GetEvaluations).Methods("GET")
 
 	// Observability routes
 	apiRouter.HandleFunc("/observability/queries/performance", observabilityHandler.GetQueryPerformance).Methods("GET")
@@ -702,6 +857,13 @@ func main() {
 	apiRouter.HandleFunc("/observability/cost/breakdown", observabilityHandler.GetCostBreakdown).Methods("GET")
 	apiRouter.HandleFunc("/observability/agent-logs", observabilityHandler.GetAgentLogs).Methods("GET")
 	apiRouter.HandleFunc("/observability/workflow-logs", observabilityHandler.GetWorkflowLogs).Methods("GET")
+
+	// Agent observability routes (traces, evidence, hallucination, audit)
+	apiRouter.HandleFunc("/observability/agent/traces", agentObservabilityHandler.GetTraces).Methods("GET")
+	apiRouter.HandleFunc("/observability/agent/traces/{id}", agentObservabilityHandler.GetTrace).Methods("GET")
+	apiRouter.HandleFunc("/observability/agent/evidence-coverage", agentObservabilityHandler.GetEvidenceCoverage).Methods("GET")
+	apiRouter.HandleFunc("/observability/agent/hallucination-risk", agentObservabilityHandler.GetHallucinationRisk).Methods("GET")
+	apiRouter.HandleFunc("/observability/agent/audit-trail", agentObservabilityHandler.GetAuditTrail).Methods("GET")
 
 	// Enhanced metrics routes
 	apiRouter.HandleFunc("/observability/metrics/latency", metricsEnhancedHandler.GetLatencyMetrics).Methods("GET")
@@ -720,6 +882,7 @@ func main() {
 	apiRouter.HandleFunc("/audit/activity", auditHandler.GetActivityTimeline).Methods("GET")
 	apiRouter.HandleFunc("/audit/compliance-trail", auditHandler.GetComplianceTrail).Methods("GET")
 	apiRouter.HandleFunc("/audit/search", auditHandler.SearchAuditEvents).Methods("POST")
+	apiRouter.HandleFunc("/audit/export", auditHandler.ExportAuditEvents).Methods("GET")
 
 	// Billing routes
 	apiRouter.HandleFunc("/billing/usage", billingHandler.GetUsageMetrics).Methods("GET")
@@ -740,6 +903,9 @@ func main() {
 	apiRouter.HandleFunc("/catalog/search", catalogHandler.SearchDatasets).Methods("GET")
 	apiRouter.HandleFunc("/catalog/owners", catalogHandler.ListOwners).Methods("GET")
 	apiRouter.HandleFunc("/catalog/discover", catalogHandler.DiscoverDatasets).Methods("POST")
+	apiRouter.HandleFunc("/catalog/glossary/link", glossaryLinkHandler.LinkGlossary).Methods("POST")
+	apiRouter.HandleFunc("/catalog/glossary/{id}/links", glossaryLinkHandler.GetGlossaryLinks).Methods("GET")
+	apiRouter.HandleFunc("/catalog/glossary/entity/{entity_type}/{entity_id}/links", glossaryLinkHandler.GetEntityGlossaryLinks).Methods("GET")
 
 	// Metric catalog routes (using business metrics handler which has both services)
 	apiRouter.HandleFunc("/catalog/metrics", businessMetricsHandler.ListMetrics).Methods("GET")
@@ -798,44 +964,44 @@ func main() {
 		SessionTimeout:    24 * time.Hour,
 		EnableAutoMapping: true,
 	}
-	ssoService := auth.NewSSOService(pool.Pool, ssoConfig)
+	ssoService := auth.NewSSOService(pool, ssoConfig)
 	ssoHandler := handlers.NewSSOHandler(ssoService)
 
 	// Initialize comments service
-	commentsService := comments.NewService(pool.Pool)
+	commentsService := comments.NewService(pool)
 	commentsHandler := handlers.NewCommentsHandler(commentsService)
 
-	// Initialize ownership service
-	ownershipService := ownership.NewService(pool.Pool)
-	ownershipHandler := handlers.NewOwnershipHandler(ownershipService)
+	// Initialize ownership service (separate from semantic metric ownership)
+	resourceOwnershipService := ownership.NewService(pool)
+	ownershipHandler := handlers.NewOwnershipHandler(resourceOwnershipService)
 
 	// Initialize webhooks service (new implementation)
-	webhooksService := webhooks.NewService(pool.Pool)
+	webhooksService := webhooks.NewService(pool)
 	webhooksHandler := handlers.NewWebhooksHandler(webhooksService)
 
 	// Initialize connector framework service
-	connectorService := connectors.NewConnectorService(pool.Pool)
+	connectorService := connectors.NewConnectorService(pool)
 	connectorHandler := handlers.NewConnectorHandler(connectorService)
 
 	// Initialize data quality service
 	// Initialize data quality service with MCP and Agent clients for ML-powered analysis
-	dataQualityService := dataquality.NewServiceWithMCPAndAgent(pool.Pool, neurondbClient, mcpClient, agentClient)
+	dataQualityService := dataquality.NewServiceWithMCPAndAgent(pool, neurondbClient, mcpClient, agentClient)
 	dataQualityHandler := handlers.NewDataQualityHandler(dataQualityService)
 
 	// Initialize profiling service
-	profilingService := profiling.NewService(pool.Pool, neurondbClient, mcpClient)
+	profilingService := profiling.NewService(pool, neurondbClient, mcpClient)
 	profilingHandler := handlers.NewProfilingHandler(profilingService)
 
 	// Initialize classification service
-	classificationService := classification.NewService(pool.Pool)
+	classificationService := classification.NewService(pool)
 	classificationHandler := handlers.NewClassificationHandler(classificationService)
 
 	// Initialize column lineage service
-	columnLineageService := lineage.NewColumnLineageService(pool.Pool)
+	columnLineageService := lineage.NewColumnLineageService(pool)
 	columnLineageHandler := handlers.NewColumnLineageHandler(columnLineageService)
 
 	// Initialize region service (Phase 2.1)
-	regionService := tenancy.NewRegionService(pool.Pool)
+	regionService := tenancy.NewRegionService(pool)
 	regionHandler := handlers.NewRegionHandler(regionService)
 
 	// Initialize backup service (Phase 2.2)
@@ -844,7 +1010,7 @@ func main() {
 		RetentionDays: 30,
 		Compress:      true,
 	}
-	backupService := backup.NewBackupService(pool.Pool, backupConfig)
+	backupService := backup.NewBackupService(pool, backupConfig)
 	backupHandler := handlers.NewBackupHandler(backupService)
 
 	// Initialize column and row security services (Phase 2.3 - already implemented)
@@ -853,19 +1019,19 @@ func main() {
 	_ = auth.NewRowSecurityService(queries)
 
 	// Initialize DSAR service (Phase 2.4)
-	dsarService := compliance.NewDSARService(pool.Pool)
+	dsarService := compliance.NewDSARService(pool)
 	dsarHandler := handlers.NewDSARHandler(dsarService)
 
 	// Initialize PIA service (Phase 2.4)
-	piaService := compliance.NewPIAService(pool.Pool)
+	piaService := compliance.NewPIAService(pool)
 	piaHandler := handlers.NewPIAHandler(piaService)
 
 	// Initialize consent service (Phase 2.4)
-	consentService := compliance.NewConsentService(pool.Pool)
+	consentService := compliance.NewConsentService(pool)
 	consentHandler := handlers.NewConsentHandler(consentService)
 
 	// Initialize masking service (Phase 2.5)
-	maskingService := masking.NewMaskingService(pool.Pool)
+	maskingService := masking.NewMaskingService(pool)
 	maskingHandler := handlers.NewMaskingHandler(maskingService)
 
 	// SSO routes
@@ -957,6 +1123,30 @@ func main() {
 	apiRouter.HandleFunc("/masking/policies", maskingHandler.GetMaskingPolicy).Methods("GET")
 	apiRouter.HandleFunc("/masking/apply", maskingHandler.ApplyMasking).Methods("POST")
 
+	// Blocks and page/database templates
+	blocksService := blocks.NewService(pool)
+	blocksHandler := blocks.NewHandler(blocksService)
+	templatesService := blocks.NewTemplatesService(pool)
+	notionTemplatesHandler := notion.NewTemplatesHandler(templatesService)
+	apiRouter.HandleFunc("/blocks", blocksHandler.GetBlocks).Methods("GET")
+	apiRouter.HandleFunc("/blocks", blocksHandler.CreateBlock).Methods("POST")
+	apiRouter.HandleFunc("/blocks/{id}", blocksHandler.UpdateBlock).Methods("PATCH")
+	apiRouter.HandleFunc("/blocks/{id}", blocksHandler.DeleteBlock).Methods("DELETE")
+	apiRouter.HandleFunc("/blocks/reorder", blocksHandler.ReorderBlocks).Methods("POST")
+	apiRouter.HandleFunc("/notion-ui/templates/pages", notionTemplatesHandler.ListPageTemplates).Methods("GET")
+	apiRouter.HandleFunc("/notion-ui/templates/databases", notionTemplatesHandler.ListDatabaseTemplates).Methods("GET")
+
+	// Databases routes
+	databasesService := databases.NewService(pool)
+	databasesHandler := databases.NewHandler(databasesService)
+	apiRouter.HandleFunc("/databases/{id}", databasesHandler.GetDatabase).Methods("GET")
+	apiRouter.HandleFunc("/databases", databasesHandler.CreateDatabase).Methods("POST")
+	apiRouter.HandleFunc("/databases/{id}/rows/{rowId}", databasesHandler.UpdateRow).Methods("PATCH")
+	apiRouter.HandleFunc("/databases/{id}/rows", databasesHandler.CreateRow).Methods("POST")
+	apiRouter.HandleFunc("/databases/{id}/rows/{rowId}", databasesHandler.DeleteRow).Methods("DELETE")
+	apiRouter.HandleFunc("/databases/{id}/view-preferences", databasesHandler.UpdateViewPreferences).Methods("PATCH")
+	apiRouter.HandleFunc("/databases/{id}/view-preferences", databasesHandler.GetViewPreferences).Methods("GET")
+
 	// Enterprise Feature Routes - Semantic Layer Approval
 	apiRouter.HandleFunc("/metrics/approvals/queue", semanticHandler.GetApprovalQueue).Methods("GET")
 	apiRouter.HandleFunc("/metrics/{id}/approvals", semanticHandler.GetMetricApprovals).Methods("GET")
@@ -997,6 +1187,20 @@ func main() {
 	// Enterprise Feature Routes - Knowledge Graph Query
 	apiRouter.HandleFunc("/knowledge-graph/query", knowledgeGraphHandler.ExecuteGraphQuery).Methods("POST")
 
+	// Decision dashboards
+	apiRouter.HandleFunc("/decision-dashboards", decisionDashboardsHandler.List).Methods("GET")
+	apiRouter.HandleFunc("/decision-dashboards", decisionDashboardsHandler.Create).Methods("POST")
+	apiRouter.HandleFunc("/decision-dashboards/{id}", decisionDashboardsHandler.Get).Methods("GET")
+	apiRouter.HandleFunc("/decision-dashboards/{id}/runs", decisionDashboardsHandler.RecordRun).Methods("POST")
+
+	// ITSM
+	apiRouter.HandleFunc("/itsm/incidents", itsmHandler.ListIncidents).Methods("GET")
+	apiRouter.HandleFunc("/itsm/incidents", itsmHandler.CreateIncident).Methods("POST")
+	apiRouter.HandleFunc("/itsm/changes", itsmHandler.ListChanges).Methods("GET")
+	apiRouter.HandleFunc("/itsm/changes", itsmHandler.CreateChange).Methods("POST")
+	apiRouter.HandleFunc("/itsm/runbooks", itsmHandler.ListRunbooks).Methods("GET")
+	apiRouter.HandleFunc("/itsm/runbooks", itsmHandler.CreateRunbook).Methods("POST")
+
 	// Enterprise Feature Routes - Collaboration
 	apiRouter.HandleFunc("/collaboration/dashboards", collaborationHandler.CreateSharedDashboard).Methods("POST")
 	apiRouter.HandleFunc("/collaboration/dashboards", collaborationHandler.GetSharedDashboards).Methods("GET")
@@ -1004,14 +1208,38 @@ func main() {
 	apiRouter.HandleFunc("/collaboration/dashboards/{id}/comments", collaborationHandler.GetDashboardComments).Methods("GET")
 	apiRouter.HandleFunc("/collaboration/answer-cards", collaborationHandler.CreateAnswerCard).Methods("POST")
 	apiRouter.HandleFunc("/collaboration/saved-questions", collaborationHandler.SaveQuestion).Methods("POST")
+	apiRouter.HandleFunc("/collaboration/annotations", collaborationHandler.CreateAnnotation).Methods("POST")
+	apiRouter.HandleFunc("/collaboration/annotations", collaborationHandler.GetAnnotations).Methods("GET")
+	apiRouter.HandleFunc("/collaboration/threads", collaborationHandler.CreateThread).Methods("POST")
+	apiRouter.HandleFunc("/collaboration/threads", collaborationHandler.GetThreads).Methods("GET")
+	apiRouter.HandleFunc("/collaboration/threads/{id}", collaborationHandler.GetThread).Methods("GET")
+	apiRouter.HandleFunc("/collaboration/threads/{id}/posts", collaborationHandler.AddPost).Methods("POST")
+	apiRouter.HandleFunc("/collaboration/decisions", collaborationHandler.RecordDecision).Methods("POST")
+	apiRouter.HandleFunc("/collaboration/decisions", collaborationHandler.GetDecisionHistory).Methods("GET")
 
 	// Enterprise Feature Routes - Governance (RLS)
 	rlsHandler := handlers.NewRLSHandler(queries)
 	apiRouter.HandleFunc("/governance/rls/policies", rlsHandler.GetRLSPolicies).Methods("GET")
 	apiRouter.HandleFunc("/governance/rls/policies", rlsHandler.CreateRLSPolicy).Methods("POST")
-	
+
+	// Governance - Prompt Templates
+	apiRouter.HandleFunc("/governance/prompts", promptTemplateHandler.CreatePromptTemplate).Methods("POST")
+	apiRouter.HandleFunc("/governance/prompts", promptTemplateHandler.ListPromptTemplates).Methods("GET")
+	apiRouter.HandleFunc("/governance/prompts/{id}", promptTemplateHandler.GetPromptTemplate).Methods("GET")
+	apiRouter.HandleFunc("/governance/prompts/{id}/approve", promptTemplateHandler.ApprovePromptTemplate).Methods("POST")
+
+	// Governance - Approval Workflows
+	apiRouter.HandleFunc("/governance/approvals", approvalWorkflowHandler.CreateWorkflow).Methods("POST")
+	apiRouter.HandleFunc("/governance/approvals/{id}", approvalWorkflowHandler.GetWorkflow).Methods("GET")
+	apiRouter.HandleFunc("/governance/approvals/{id}/submit", approvalWorkflowHandler.SubmitApproval).Methods("POST")
+
+	// Governance - UI RLS Policies
+	apiRouter.HandleFunc("/governance/ui-rls/policies", uiRLSHandler.CreateRLSPolicy).Methods("POST")
+	apiRouter.HandleFunc("/governance/ui-rls/policies", uiRLSHandler.GetRLSPolicies).Methods("GET")
+	apiRouter.HandleFunc("/governance/ui-rls/policies/{id}/toggle", uiRLSHandler.ToggleRLSPolicy).Methods("POST")
+
 	// Enterprise Feature Routes - Resource Quotas
-	quotaHandler := handlers.NewQuotaHandler(pool.Pool)
+	quotaHandler := handlers.NewQuotaHandler(pool)
 	apiRouter.HandleFunc("/quotas", quotaHandler.SetQuota).Methods("POST")
 	apiRouter.HandleFunc("/quotas", quotaHandler.ListQuotas).Methods("GET")
 	apiRouter.HandleFunc("/quotas/check", quotaHandler.CheckQuota).Methods("POST")
@@ -1019,7 +1247,7 @@ func main() {
 	// Enterprise Feature Routes - Integrations (Slack/Teams)
 	apiRouter.HandleFunc("/integrations/slack/command", slackBotService.HandleHTTPRequest).Methods("POST")
 	apiRouter.HandleFunc("/integrations/teams/message", teamsBotService.HandleHTTPRequest).Methods("POST")
-	
+
 	// BI Export Handler
 	biExportHandler := handlers.NewBIExportHandler(biExportService)
 	apiRouter.HandleFunc("/integrations/bi/export", biExportHandler.ExportQuery).Methods("GET")
@@ -1027,10 +1255,17 @@ func main() {
 	// Tenancy routes (if needed)
 	// apiRouter.HandleFunc("/tenants", ...).Methods("POST")
 
+	// Wrap router with CORS handler to ensure it runs for all requests (including unmatched routes)
+	corsHandler := middleware.CORS(middleware.CORSConfig{
+		AllowedOrigins: cfg.CORS.AllowedOrigins,
+		AllowedMethods: cfg.CORS.AllowedMethods,
+		AllowedHeaders: cfg.CORS.AllowedHeaders,
+	})(router)
+
 	// Create HTTP server
 	server := &http.Server{
 		Addr:         fmt.Sprintf("%s:%s", cfg.Server.Host, cfg.Server.Port),
-		Handler:      router,
+		Handler:      corsHandler,
 		ReadTimeout:  cfg.Server.ReadTimeout,
 		WriteTimeout: cfg.Server.WriteTimeout,
 	}

@@ -1,11 +1,12 @@
 'use client'
 
+import { CheckCircleIcon, XCircleIcon, ClockIcon } from '@heroicons/react/24/outline'
 import { motion } from 'framer-motion'
+
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/Table'
-import { CheckCircleIcon, XCircleIcon, ClockIcon } from '@heroicons/react/24/outline'
-import { cn } from '@/lib/utils/cn'
 import { slideUp, transition } from '@/lib/animations/variants'
+import { cn } from '@/lib/utils/cn'
 
 interface Execution {
   id: string

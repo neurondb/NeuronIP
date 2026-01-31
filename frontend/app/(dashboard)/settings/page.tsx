@@ -1,10 +1,11 @@
 'use client'
 
 import { motion } from 'framer-motion'
+
 import GeneralSettings from '@/components/settings/GeneralSettings'
 import IntegrationSettings from '@/components/settings/IntegrationSettings'
-import SecuritySettings from '@/components/settings/SecuritySettings'
 import PreferencesPanel from '@/components/settings/PreferencesPanel'
+import SecuritySettings from '@/components/settings/SecuritySettings'
 import { staggerContainer, slideUp } from '@/lib/animations/variants'
 
 export const dynamic = 'force-dynamic'

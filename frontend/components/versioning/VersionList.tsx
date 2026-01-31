@@ -1,12 +1,13 @@
 'use client'
 
-import { useState } from 'react'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card'
-import Button from '@/components/ui/Button'
-import { useVersions, useRollbackVersion } from '@/lib/api/queries'
-import { showToast } from '@/components/ui/Toast'
 import { ClockIcon, ArrowPathIcon } from '@heroicons/react/24/outline'
 import { format } from 'date-fns'
+import { useState } from 'react'
+
+import Button from '@/components/ui/Button'
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card'
+import { showToast } from '@/components/ui/Toast'
+import { useVersions, useRollbackVersion } from '@/lib/api/queries'
 
 interface VersionListProps {
   resourceType: string

@@ -8,7 +8,6 @@ import (
 	"image/png"
 	"io"
 	"strings"
-
 	// PDF parsing requires go-fitz - make it optional
 	// "github.com/gen2brain/go-fitz"
 )
@@ -38,8 +37,7 @@ func (p *PDFParser) Parse(reader io.Reader) (*PDFContent, error) {
 		return nil, fmt.Errorf("invalid PDF format")
 	}
 
-	// Use basic PDF parsing (go-fitz dependency removed for build compatibility)
-	// For advanced PDF parsing with go-fitz, uncomment and add dependency
+	// Basic PDF parsing is used here. Advanced PDF parsing (e.g. go-fitz) can be added later via build tag or optional dependency.
 	return p.parseBasicPDF(data)
 }
 
@@ -113,15 +111,15 @@ func (p *PDFParser) imageToBase64(img image.Image) (string, error) {
 
 /* PDFContent represents extracted PDF content */
 type PDFContent struct {
-	Pages    []PageContent           `json:"pages"`
-	Metadata map[string]interface{}  `json:"metadata"`
-	Text     string                   `json:"text"` // Full text concatenation
+	Pages    []PageContent          `json:"pages"`
+	Metadata map[string]interface{} `json:"metadata"`
+	Text     string                 `json:"text"` // Full text concatenation
 }
 
 /* PageContent represents content from a single PDF page */
 type PageContent struct {
-	PageNumber int    `json:"page_number"`
-	Text       string `json:"text"`
+	PageNumber int      `json:"page_number"`
+	Text       string   `json:"text"`
 	Images     []string `json:"images,omitempty"` // Base64 encoded images if extractImages=true
 }
 
@@ -130,13 +128,13 @@ func (p *PDFContent) ExtractText() string {
 	if p.Text != "" {
 		return p.Text
 	}
-	
+
 	var builder strings.Builder
 	for _, page := range p.Pages {
 		builder.WriteString(page.Text)
 		builder.WriteString("\n")
 	}
-	
+
 	return builder.String()
 }
 
@@ -144,11 +142,11 @@ func (p *PDFContent) ExtractText() string {
 func (p *PDFParser) extractTextFromPage(data []byte, pageNum int) string {
 	dataStr := string(data)
 	var textBuilder strings.Builder
-	
+
 	// Look for text objects in PDF content streams
 	// PDF text is typically in content streams between stream/endstream
 	// Text operators: Tj, TJ, ', "
-	
+
 	// Find text between parentheses (common in PDF text objects)
 	// Pattern: (text content) Tj or (text) TJ
 	start := 0
@@ -159,17 +157,17 @@ func (p *PDFParser) extractTextFromPage(data []byte, pageNum int) string {
 			break
 		}
 		openIdx += start
-		
+
 		// Find closing parenthesis
 		closeIdx := strings.Index(dataStr[openIdx:], ")")
 		if closeIdx == -1 {
 			break
 		}
 		closeIdx += openIdx
-		
+
 		// Extract text between parentheses
 		text := dataStr[openIdx+1 : closeIdx]
-		
+
 		// Check if followed by text operator (Tj, TJ, ', ")
 		afterClose := closeIdx + 1
 		if afterClose < len(dataStr) {
@@ -193,16 +191,16 @@ func (p *PDFParser) extractTextFromPage(data []byte, pageNum int) string {
 				}
 			}
 		}
-		
+
 		start = closeIdx + 1
 	}
-	
+
 	result := textBuilder.String()
 	if result == "" {
 		// Fallback: try to find readable text patterns
 		result = p.extractReadableText(dataStr)
 	}
-	
+
 	return strings.TrimSpace(result)
 }
 
@@ -215,17 +213,17 @@ func unescapePDFString(s string) string {
 	result = strings.ReplaceAll(result, "\\(", "(")
 	result = strings.ReplaceAll(result, "\\)", ")")
 	result = strings.ReplaceAll(result, "\\\\", "\\")
-	
+
 	// Remove octal escapes (simplified)
 	// In production, properly decode all PDF escape sequences
-	
+
 	return result
 }
 
 /* extractReadableText extracts readable text patterns from PDF */
 func (p *PDFParser) extractReadableText(dataStr string) string {
 	var textBuilder strings.Builder
-	
+
 	// Look for readable ASCII text sequences (words)
 	// This is a fallback for when proper text extraction fails
 	words := strings.Fields(dataStr)
@@ -239,7 +237,7 @@ func (p *PDFParser) extractReadableText(dataStr string) string {
 			}
 		}
 	}
-	
+
 	return strings.TrimSpace(textBuilder.String())
 }
 

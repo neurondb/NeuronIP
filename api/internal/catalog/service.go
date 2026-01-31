@@ -257,28 +257,27 @@ func (s *CatalogService) GenerateDatasetEmbedding(ctx context.Context, datasetID
 		text += " " + fmt.Sprintf("%v", dataset.Tags)
 	}
 
-	// Generate embedding based on whether image is provided
+	// Generate embedding based on whether image is provided and multimodal is available
 	modelName := "sentence-transformers/all-MiniLM-L6-v2"
-	if imageData != nil && len(imageData) > 0 {
-		// Use multimodal embedding
+	if imageData != nil && len(imageData) > 0 && s.neurondbClient.UseMultimodalEmbedding(ctx) {
 		embedding, err := s.neurondbClient.GenerateMultimodalEmbedding(ctx, text, imageData, modelName)
 		if err != nil {
-			// Fallback to text-only
 			return s.neurondbClient.GenerateEmbedding(ctx, text, modelName)
 		}
 		return embedding, nil
 	}
 
-	// Use text-only embedding
 	return s.neurondbClient.GenerateEmbedding(ctx, text, modelName)
 }
 
-/* GenerateImageOnlyEmbedding generates embedding for image-only metadata */
+/* GenerateImageOnlyEmbedding generates embedding for image-only metadata (gated by config and function availability) */
 func (s *CatalogService) GenerateImageOnlyEmbedding(ctx context.Context, imageData []byte) (string, error) {
 	if s.neurondbClient == nil {
 		return "", fmt.Errorf("NeuronDB client not configured")
 	}
-
+	if !s.neurondbClient.UseImageEmbedding(ctx) {
+		return "", fmt.Errorf("NeuronDB image embeddings disabled or neurondb_embed_image not available")
+	}
 	modelName := "sentence-transformers/all-MiniLM-L6-v2"
 	return s.neurondbClient.GenerateImageEmbedding(ctx, imageData, modelName)
 }

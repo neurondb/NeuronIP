@@ -1,10 +1,11 @@
 'use client'
 
 import { motion } from 'framer-motion'
+
 import { Card, CardContent } from '@/components/ui/Card'
 import { slideUp, transition } from '@/lib/animations/variants'
 
-interface SearchResult {
+export interface SearchResult {
   id: string
   title: string
   content: string

@@ -1,14 +1,15 @@
 'use client'
 
-import { useState } from 'react'
 import { motion } from 'framer-motion'
-import { staggerContainer, slideUp } from '@/lib/animations/variants'
-import AgentList from '@/components/agents/AgentList'
-import AgentDetail from '@/components/agents/AgentDetail'
-import CreateAgentDialog from '@/components/agents/CreateAgentDialog'
+import { useState } from 'react'
+
 import AgentCreationWizard from '@/components/agents/AgentCreationWizard'
-import Modal from '@/components/ui/Modal'
+import AgentDetail from '@/components/agents/AgentDetail'
+import AgentList from '@/components/agents/AgentList'
+import CreateAgentDialog from '@/components/agents/CreateAgentDialog'
 import Button from '@/components/ui/Button'
+import Modal from '@/components/ui/Modal'
+import { staggerContainer, slideUp } from '@/lib/animations/variants'
 
 export default function AgentsPage() {
   const [selectedAgentId, setSelectedAgentId] = useState<string | null>(null)

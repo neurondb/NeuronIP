@@ -1,7 +1,8 @@
 'use client'
 
-import { useEffect, useState } from 'react'
 import { useRouter, usePathname } from 'next/navigation'
+import { useEffect, useState } from 'react'
+
 import { checkAuth } from '@/lib/auth'
 
 interface AuthGuardProps {
@@ -10,6 +11,7 @@ interface AuthGuardProps {
 
 export default function AuthGuard({ children }: AuthGuardProps) {
   const [isAuthenticated, setIsAuthenticated] = useState<boolean | null>(null)
+  const [hasChecked, setHasChecked] = useState(false)
   const router = useRouter()
   const pathname = usePathname()
 
@@ -18,23 +20,28 @@ export default function AuthGuard({ children }: AuthGuardProps) {
       // Skip auth check for login page
       if (pathname === '/login') {
         setIsAuthenticated(true)
+        setHasChecked(true)
         return
       }
 
-      // Check authentication via API (cookie-based)
-      const isAuth = await checkAuth()
-      
-      if (!isAuth) {
-        // Not authenticated, redirect to login
-        router.push('/login')
-        setIsAuthenticated(false)
-      } else {
-        setIsAuthenticated(true)
+      // Only check auth once on mount, or if pathname changes to a non-login page
+      if (!hasChecked) {
+        // Check authentication via API (cookie-based)
+        const isAuth = await checkAuth()
+        
+        if (!isAuth) {
+          // Not authenticated, redirect to login
+          router.push('/login')
+          setIsAuthenticated(false)
+        } else {
+          setIsAuthenticated(true)
+        }
+        setHasChecked(true)
       }
     }
     
     checkAuthStatus()
-  }, [router, pathname])
+  }, [router, pathname, hasChecked])
 
   // Show nothing while checking
   if (isAuthenticated === null) {

@@ -1,11 +1,11 @@
 'use client'
 
-import { useState } from 'react'
 import { motion } from 'framer-motion'
-import { staggerContainer, slideUp } from '@/lib/animations/variants'
-import VersionList from '@/components/versioning/VersionList'
-import Button from '@/components/ui/Button'
+import { useState } from 'react'
+
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card'
+import VersionList from '@/components/versioning/VersionList'
+import { staggerContainer, slideUp } from '@/lib/animations/variants'
 
 export default function VersioningPage() {
   const [resourceType, setResourceType] = useState<string>('model')

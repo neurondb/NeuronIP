@@ -1,17 +1,19 @@
 'use client'
 
 import { motion } from 'framer-motion'
+
+import BarChart from '@/components/charts/BarChart'
 import ChartContainer from '@/components/charts/ChartContainer'
 import LineChart from '@/components/charts/LineChart'
-import BarChart from '@/components/charts/BarChart'
-import { useSearchAnalytics, useWarehouseAnalytics, useWorkflowAnalytics, useComplianceAnalytics } from '@/lib/api/queries'
 import { staggerContainer, slideUp } from '@/lib/animations/variants'
+import { useSearchAnalytics, useWarehouseAnalytics, useWorkflowAnalytics, useComplianceAnalytics } from '@/lib/api/queries'
 
 export default function AnalyticsPage() {
-  const { data: searchAnalytics } = useSearchAnalytics()
-  const { data: warehouseAnalytics } = useWarehouseAnalytics()
-  const { data: workflowAnalytics } = useWorkflowAnalytics()
-  const { data: complianceAnalytics } = useComplianceAnalytics()
+  // Analytics data hooks - data can be used for future enhancements
+  useSearchAnalytics()
+  useWarehouseAnalytics()
+  useWorkflowAnalytics()
+  useComplianceAnalytics()
 
   const chartData = [
     { date: 'Mon', searches: 45, queries: 32, workflows: 12, compliance: 8 },

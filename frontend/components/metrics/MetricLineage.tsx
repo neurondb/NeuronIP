@@ -1,10 +1,11 @@
 'use client'
 
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/Card'
-import { useMetricLineage, useAddMetricLineage } from '@/lib/api/queries'
-import { showToast } from '@/components/ui/Toast'
 import { useState } from 'react'
+
 import Button from '@/components/ui/Button'
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/Card'
+import { showToast } from '@/components/ui/Toast'
+import { useMetricLineage, useAddMetricLineage } from '@/lib/api/queries'
 
 interface MetricLineageProps {
   metricId: string

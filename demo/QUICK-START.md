@@ -108,6 +108,15 @@ After loading demo data, you'll see:
 ### And More...
 - Users, metrics, data sources, ingestion jobs, knowledge documents, etc.
 
+## Demo Login Credentials
+
+If you use the **minimal** or **demo** seed (e.g. `go run ./cmd/seed -type=minimal` or load demo data), you can log in with:
+
+- **Email:** demo@example.com  
+- **Password:** demo123  
+
+Change these in production.
+
 ## Troubleshooting
 
 ### "Cannot connect to database"

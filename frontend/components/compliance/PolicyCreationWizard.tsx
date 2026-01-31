@@ -1,16 +1,17 @@
 'use client'
 
+import { InformationCircleIcon } from '@heroicons/react/24/outline'
 import { useState } from 'react'
-import Wizard, { WizardStep, WizardStepProps } from '@/components/ui/Wizard'
-import { Card, CardContent } from '@/components/ui/Card'
+
 import Button from '@/components/ui/Button'
+import { Card, CardContent } from '@/components/ui/Card'
+import HelpText from '@/components/ui/HelpText'
 import Input from '@/components/ui/Input'
 import { Textarea } from '@/components/ui/Textarea'
 import { showToast } from '@/components/ui/Toast'
 import Tooltip from '@/components/ui/Tooltip'
 import Warning from '@/components/ui/Warning'
-import HelpText from '@/components/ui/HelpText'
-import { InformationCircleIcon } from '@heroicons/react/24/outline'
+import Wizard, { WizardStep, WizardStepProps } from '@/components/ui/Wizard'
 
 interface PolicyWizardData {
   name: string

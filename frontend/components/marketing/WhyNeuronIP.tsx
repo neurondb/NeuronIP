@@ -1,7 +1,5 @@
 'use client'
 
-import { motion } from 'framer-motion'
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/Card'
 import { 
   BoltIcon, 
   LockClosedIcon, 
@@ -10,6 +8,9 @@ import {
   CheckCircleIcon, 
   CurrencyDollarIcon 
 } from '@heroicons/react/24/outline'
+import { motion } from 'framer-motion'
+
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/Card'
 import { slideUp } from '@/lib/animations/variants'
 
 interface Claim {
@@ -218,13 +219,13 @@ export default function WhyNeuronIP() {
         </p>
         <div className="flex gap-4 justify-center">
           <a
-            href="/dashboard"
+            href="/"
             className="px-6 py-3 bg-primary text-primary-foreground rounded-lg font-medium hover:bg-primary/90 transition-colors"
           >
             Try Demo
           </a>
           <a
-            href="/dashboard/features"
+            href="/features"
             className="px-6 py-3 bg-muted text-foreground rounded-lg font-medium hover:bg-muted/80 transition-colors"
           >
             View Features

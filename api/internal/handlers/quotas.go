@@ -3,7 +3,6 @@ package handlers
 import (
 	"encoding/json"
 	"net/http"
-	"strconv"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -48,9 +47,7 @@ func (h *QuotaHandler) SetQuota(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusCreated)
-	json.NewEncoder(w).Encode(quota)
+	WriteJSON(w, http.StatusCreated, quota)
 }
 
 /* ListQuotas handles GET /api/v1/quotas */
@@ -74,8 +71,7 @@ func (h *QuotaHandler) ListQuotas(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(quotas)
+	WriteJSON(w, http.StatusOK, quotas)
 }
 
 /* CheckQuota handles POST /api/v1/quotas/check */
@@ -102,8 +98,7 @@ func (h *QuotaHandler) CheckQuota(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]interface{}{
+	WriteJSON(w, http.StatusOK, map[string]interface{}{
 		"within_quota": withinQuota,
 		"quota":        quota,
 	})

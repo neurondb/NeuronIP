@@ -1,13 +1,15 @@
 'use client'
 
-import { useState, useRef, useEffect } from 'react'
-import { motion } from 'framer-motion'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card'
-import Button from '@/components/ui/Button'
-import { cn } from '@/lib/utils/cn'
-import Tooltip from '@/components/ui/Tooltip'
-import HelpText from '@/components/ui/HelpText'
 import { InformationCircleIcon, PlayIcon } from '@heroicons/react/24/outline'
+import { motion } from 'framer-motion'
+import { useState, useRef, useEffect } from 'react'
+
+import Button from '@/components/ui/Button'
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card'
+import HelpText from '@/components/ui/HelpText'
+import Tooltip from '@/components/ui/Tooltip'
+import { cn } from '@/lib/utils/cn'
+
 
 interface QueryEditorProps {
   value: string

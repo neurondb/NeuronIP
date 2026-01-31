@@ -1,7 +1,6 @@
 package handlers
 
 import (
-	"database/sql"
 	"encoding/json"
 	"net/http"
 	"strconv"
@@ -48,8 +47,7 @@ func (h *ModelGovernanceHandler) ListModels(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(models)
+	WriteJSON(w, http.StatusOK, models)
 }
 
 /* GetModel handles GET /api/v1/models/{id} */
@@ -67,8 +65,7 @@ func (h *ModelGovernanceHandler) GetModel(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(model)
+	WriteJSON(w, http.StatusOK, model)
 }
 
 /* GetModelVersions handles GET /api/v1/models/{id}/versions */
@@ -101,8 +98,7 @@ func (h *ModelGovernanceHandler) GetModelVersions(w http.ResponseWriter, r *http
 		}
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(versions)
+	WriteJSON(w, http.StatusOK, versions)
 }
 
 /* ApproveModel handles POST /api/v1/models/{id}/approve */
@@ -173,25 +169,7 @@ func (h *ModelGovernanceHandler) ListPrompts(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(prompts)
-}
-		if parentID.Valid {
-			pid, _ := uuid.Parse(parentID.String)
-			prompt.ParentTemplateID = &pid
-		}
-		if variablesJSON != nil {
-			json.Unmarshal(variablesJSON, &prompt.Variables)
-		}
-		if metadataJSON != nil {
-			json.Unmarshal(metadataJSON, &prompt.Metadata)
-		}
-		
-		prompts = append(prompts, prompt)
-	}
-	
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(prompts)
+	WriteJSON(w, http.StatusOK, prompts)
 }
 
 /* GetPrompt handles GET /api/v1/prompts/{id} */
@@ -209,8 +187,7 @@ func (h *ModelGovernanceHandler) GetPrompt(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(prompt)
+	WriteJSON(w, http.StatusOK, prompt)
 }
 
 /* GetPromptVersions handles GET /api/v1/prompts/{name}/versions */
@@ -224,8 +201,7 @@ func (h *ModelGovernanceHandler) GetPromptVersions(w http.ResponseWriter, r *htt
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(versions)
+	WriteJSON(w, http.StatusOK, versions)
 }
 
 /* ApprovePrompt handles POST /api/v1/prompts/{id}/approve */

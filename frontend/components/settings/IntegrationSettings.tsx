@@ -1,12 +1,12 @@
 'use client'
 
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/Card'
+import { CheckCircleIcon, XCircleIcon , InformationCircleIcon } from '@heroicons/react/24/outline'
+
 import Button from '@/components/ui/Button'
-import { CheckCircleIcon, XCircleIcon } from '@heroicons/react/24/outline'
-import { cn } from '@/lib/utils/cn'
-import Tooltip from '@/components/ui/Tooltip'
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/Card'
 import HelpText from '@/components/ui/HelpText'
-import { InformationCircleIcon } from '@heroicons/react/24/outline'
+import Tooltip from '@/components/ui/Tooltip'
+import { cn } from '@/lib/utils/cn'
 
 interface Integration {
   id: string

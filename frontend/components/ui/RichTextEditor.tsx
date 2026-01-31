@@ -1,9 +1,5 @@
 'use client'
 
-import { useEditor, EditorContent } from '@tiptap/react'
-import StarterKit from '@tiptap/starter-kit'
-import { cn } from '@/lib/utils/cn'
-import { Button } from './Button'
 import {
   BoldIcon as Bold,
   ItalicIcon as Italic,
@@ -11,6 +7,12 @@ import {
   NumberedListIcon as NumberedList,
   CodeBracketIcon as CodeBracket,
 } from '@heroicons/react/24/outline'
+import { useEditor, EditorContent } from '@tiptap/react'
+import StarterKit from '@tiptap/starter-kit'
+
+import { cn } from '@/lib/utils/cn'
+
+import { Button } from './Button'
 
 interface RichTextEditorProps {
   content?: string

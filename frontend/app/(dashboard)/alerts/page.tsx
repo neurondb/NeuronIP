@@ -1,14 +1,15 @@
 'use client'
 
-import { useState } from 'react'
 import { motion } from 'framer-motion'
+import { useState } from 'react'
+
 import AlertList from '@/components/alerts/AlertList'
 import AlertRules from '@/components/alerts/AlertRules'
-import Modal from '@/components/ui/Modal'
 import Button from '@/components/ui/Button'
-import { useCreateAlertRule } from '@/lib/api/queries'
+import Modal from '@/components/ui/Modal'
 import { showToast } from '@/components/ui/Toast'
 import { staggerContainer, slideUp } from '@/lib/animations/variants'
+import { useCreateAlertRule } from '@/lib/api/queries'
 
 export default function AlertsPage() {
   const [createRuleOpen, setCreateRuleOpen] = useState(false)

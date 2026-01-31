@@ -1,7 +1,8 @@
 'use client'
 
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/Card'
 import { LineChart, Line, BarChart, Bar, PieChart, Pie, Cell, ScatterChart, Scatter, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts'
+
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/Card'
 
 interface ChartVisualizationProps {
   chartType: string

@@ -1,8 +1,9 @@
 'use client'
 
 import { useState } from 'react'
-import Modal from '@/components/ui/Modal'
+
 import Button from '@/components/ui/Button'
+import Modal from '@/components/ui/Modal'
 import { showToast } from '@/components/ui/Toast'
 import { createSavedSearch } from '@/lib/api/saved-searches'
 

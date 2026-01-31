@@ -1,12 +1,16 @@
 'use client'
 
-import { Component, ReactNode } from 'react'
-import Link from 'next/link'
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from './Card'
-import Button from './Button'
-import { formatError, getErrorRecovery } from '@/lib/api/errorHandler'
-import { ApiError } from '@/lib/api/client'
 import { ExclamationTriangleIcon, ArrowPathIcon, HomeIcon } from '@heroicons/react/24/outline'
+import Link from 'next/link'
+import { Component, ReactNode } from 'react'
+
+import { ApiError } from '@/lib/api/client'
+import { formatError, getErrorRecovery } from '@/lib/api/errorHandler'
+
+import Button from './Button'
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from './Card'
+
+
 
 interface Props {
   children: ReactNode
@@ -148,7 +152,7 @@ export default class ErrorBoundary extends Component<Props, State> {
                 <Button onClick={this.handleReload} variant="outline">
                   Reload Page
                 </Button>
-                <Link href="/dashboard">
+                <Link href="/">
                   <Button variant="ghost">
                     <HomeIcon className="h-4 w-4 mr-2" />
                     Go Home

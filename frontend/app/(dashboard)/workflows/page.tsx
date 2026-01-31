@@ -1,26 +1,29 @@
 'use client'
 
-import { useState } from 'react'
 import { motion } from 'framer-motion'
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/Card'
+import { useState , useMemo } from 'react'
+
+import DatabaseView from '@/components/database/DatabaseView'
 import Button from '@/components/ui/Button'
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/Card'
 import Modal from '@/components/ui/Modal'
+import { showToast } from '@/components/ui/Toast'
+import ExecutionLog from '@/components/workflows/ExecutionLog'
 import WorkflowBuilder from '@/components/workflows/WorkflowBuilder'
 import WorkflowCreationWizard from '@/components/workflows/WorkflowCreationWizard'
-import WorkflowExecutionMonitor from '@/components/workflows/WorkflowExecutionMonitor'
-import WorkflowTemplates from '@/components/workflows/WorkflowTemplates'
 import WorkflowDebugger from '@/components/workflows/WorkflowDebugger'
-import WorkflowVersionManager from '@/components/workflows/WorkflowVersionManager'
+import WorkflowExecutionMonitor from '@/components/workflows/WorkflowExecutionMonitor'
 import WorkflowScheduler from '@/components/workflows/WorkflowScheduler'
-import ExecutionLog from '@/components/workflows/ExecutionLog'
+import WorkflowTemplates from '@/components/workflows/WorkflowTemplates'
+import WorkflowVersionManager from '@/components/workflows/WorkflowVersionManager'
+import { staggerContainer, slideUp } from '@/lib/animations/variants'
 import {
   useWorkflows,
   useExecuteWorkflow,
   useWorkflow,
   useWorkflowMonitoring,
 } from '@/lib/api/queries'
-import { showToast } from '@/components/ui/Toast'
-import { staggerContainer, slideUp } from '@/lib/animations/variants'
+
 
 interface Execution {
   id: string
@@ -32,7 +35,7 @@ interface Execution {
 }
 
 export default function WorkflowsPage() {
-  const [activeTab, setActiveTab] = useState<'builder' | 'execute' | 'monitor' | 'templates' | 'versions' | 'scheduler'>('builder')
+  const [activeTab, setActiveTab] = useState<'list' | 'builder' | 'execute' | 'monitor' | 'templates' | 'versions' | 'scheduler'>('list')
   const [selectedWorkflowId, setSelectedWorkflowId] = useState<string>('')
   const [selectedExecutionId, setSelectedExecutionId] = useState<string>('')
   const [workflowId, setWorkflowId] = useState('')
@@ -40,8 +43,37 @@ export default function WorkflowsPage() {
   const [showWizard, setShowWizard] = useState(false)
   const { data: workflows, refetch: refetchWorkflows } = useWorkflows()
   const { mutate: executeWorkflow, isPending } = useExecuteWorkflow(workflowId || '')
-  const { data: workflow } = useWorkflow(selectedWorkflowId, !!selectedWorkflowId)
+  const { data: _workflow } = useWorkflow(selectedWorkflowId, !!selectedWorkflowId)
   const { data: monitoring } = useWorkflowMonitoring(selectedWorkflowId, '24h', !!selectedWorkflowId)
+
+  // Transform workflows for DatabaseView
+  const workflowList = workflows?.workflows ?? []
+  const databaseData = useMemo(() => {
+    return (workflowList as Array<Record<string, unknown>>).map((wf) => ({
+      id: wf.id,
+      name: wf.name || wf.id,
+      description: wf.description || '',
+      status: wf.status || 'draft',
+      created: wf.created_at || new Date().toISOString(),
+      updated: wf.updated_at || new Date().toISOString(),
+      version: wf.version || '1.0',
+    }))
+  }, [workflowList])
+
+  const databaseColumns = [
+    { id: 'name', name: 'Name', type: 'text' as const },
+    { id: 'description', name: 'Description', type: 'text' as const },
+    { id: 'status', name: 'Status', type: 'select' as const, options: ['draft', 'active', 'archived'] },
+    { id: 'version', name: 'Version', type: 'text' as const },
+    { id: 'created', name: 'Created', type: 'date' as const },
+    { id: 'updated', name: 'Updated', type: 'date' as const },
+  ]
+
+  const handleWorkflowSelect = (rowId: string) => {
+    setSelectedWorkflowId(rowId)
+    setWorkflowId(rowId)
+    setActiveTab('builder')
+  }
 
   const handleExecute = () => {
     if (!workflowId.trim()) {
@@ -62,7 +94,7 @@ export default function WorkflowsPage() {
     executeWorkflow(
       {},
       {
-        onSuccess: (data) => {
+        onSuccess: (_data) => {
           setExecutions((prev) =>
             prev.map((e) =>
               e.id === execution.id
@@ -96,6 +128,7 @@ export default function WorkflowsPage() {
   }
 
   const tabs = [
+    { id: 'list', label: 'List' },
     { id: 'builder', label: 'Builder' },
     { id: 'execute', label: 'Execute' },
     { id: 'monitor', label: 'Monitor' },
@@ -137,7 +170,7 @@ export default function WorkflowsPage() {
                   className="flex-1 rounded-lg border border-border bg-background px-4 py-2 focus:outline-none focus:ring-2 focus:ring-ring"
                 >
                   <option value="">-- Select a workflow --</option>
-                  {workflows.workflows?.map((wf: any) => (
+                  {workflows.workflows?.map((wf: { id: string; name?: string }) => (
                     <option key={wf.id} value={wf.id}>
                       {wf.name || wf.id}
                     </option>
@@ -170,6 +203,18 @@ export default function WorkflowsPage() {
 
       {/* Tab Content */}
       <motion.div variants={slideUp} className="flex-1 min-h-0 overflow-auto">
+        {activeTab === 'list' && (
+          <div className="h-[600px]">
+            <DatabaseView
+              data={databaseData}
+              columns={databaseColumns}
+              onRowClick={handleWorkflowSelect}
+              defaultView="table"
+              className="h-full"
+            />
+          </div>
+        )}
+
         {activeTab === 'builder' && (
           <div className="h-full">
             <WorkflowBuilder />

@@ -1,5 +1,10 @@
 -- Migration: Distributed Execution and Scale Story
 -- Description: Adds read replicas, job queue, resource quotas, and sharding
+--
+-- Schema reference:
+--   resource_quotas: workspace/user limits (tenancy.QuotaService, quota API). limit_value, period daily|weekly|monthly.
+--   execution_resource_quotas: execution.QuotaService. max_limit, period hour|day|month.
+--   tenant_resource_quotas: tenancy.IsolationService. See 037_distributed_execution.sql.
 
 -- Read Replicas: Database read replica configuration
 CREATE TABLE IF NOT EXISTS neuronip.read_replicas (
@@ -47,8 +52,30 @@ CREATE INDEX IF NOT EXISTS idx_job_queue_priority ON neuronip.job_queue(priority
 CREATE INDEX IF NOT EXISTS idx_job_queue_job_type ON neuronip.job_queue(job_type);
 CREATE INDEX IF NOT EXISTS idx_job_queue_scheduled ON neuronip.job_queue(scheduled_at) WHERE status IN ('pending', 'queued');
 
--- Resource Quotas: Per-user and per-workspace resource limits
+-- Resource Quotas: Per-workspace and per-user limits (quota API / tenancy.QuotaService). Matches sql/033.
 CREATE TABLE IF NOT EXISTS neuronip.resource_quotas (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    workspace_id UUID,
+    user_id TEXT,
+    resource_type TEXT NOT NULL,
+    limit_value BIGINT NOT NULL,
+    current_usage BIGINT NOT NULL DEFAULT 0,
+    period TEXT NOT NULL CHECK (period IN ('daily', 'weekly', 'monthly')),
+    reset_at TIMESTAMPTZ NOT NULL,
+    metadata JSONB DEFAULT '{}',
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    UNIQUE(COALESCE(workspace_id, '00000000-0000-0000-0000-000000000000'::uuid), COALESCE(user_id, ''), resource_type, period)
+);
+COMMENT ON TABLE neuronip.resource_quotas IS 'Resource quotas for workspaces and users';
+
+CREATE INDEX IF NOT EXISTS idx_resource_quotas_workspace ON neuronip.resource_quotas(workspace_id);
+CREATE INDEX IF NOT EXISTS idx_resource_quotas_user ON neuronip.resource_quotas(user_id);
+CREATE INDEX IF NOT EXISTS idx_resource_quotas_type ON neuronip.resource_quotas(resource_type);
+CREATE INDEX IF NOT EXISTS idx_resource_quotas_reset ON neuronip.resource_quotas(reset_at);
+
+-- Execution quotas: execution.QuotaService (hour/day/month, max_limit, enabled). Separate from resource_quotas.
+CREATE TABLE IF NOT EXISTS neuronip.execution_resource_quotas (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     workspace_id UUID,
     user_id TEXT,
@@ -62,12 +89,12 @@ CREATE TABLE IF NOT EXISTS neuronip.resource_quotas (
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     UNIQUE(workspace_id, user_id, resource_type, period)
 );
-COMMENT ON TABLE neuronip.resource_quotas IS 'Resource quota limits per user and workspace';
+COMMENT ON TABLE neuronip.execution_resource_quotas IS 'Execution-specific resource quotas (hour/day/month)';
 
-CREATE INDEX IF NOT EXISTS idx_resource_quotas_workspace ON neuronip.resource_quotas(workspace_id);
-CREATE INDEX IF NOT EXISTS idx_resource_quotas_user ON neuronip.resource_quotas(user_id);
-CREATE INDEX IF NOT EXISTS idx_resource_quotas_type ON neuronip.resource_quotas(resource_type);
-CREATE INDEX IF NOT EXISTS idx_resource_quotas_reset ON neuronip.resource_quotas(reset_at) WHERE enabled = true;
+CREATE INDEX IF NOT EXISTS idx_execution_resource_quotas_workspace ON neuronip.execution_resource_quotas(workspace_id);
+CREATE INDEX IF NOT EXISTS idx_execution_resource_quotas_user ON neuronip.execution_resource_quotas(user_id);
+CREATE INDEX IF NOT EXISTS idx_execution_resource_quotas_type ON neuronip.execution_resource_quotas(resource_type);
+CREATE INDEX IF NOT EXISTS idx_execution_resource_quotas_reset ON neuronip.execution_resource_quotas(reset_at) WHERE enabled = true;
 
 -- Query Shards: Sharding strategy for large tables
 CREATE TABLE IF NOT EXISTS neuronip.query_shards (
@@ -153,6 +180,20 @@ CREATE TRIGGER trigger_update_resource_quotas_updated_at
     BEFORE UPDATE ON neuronip.resource_quotas
     FOR EACH ROW
     EXECUTE FUNCTION neuronip.update_resource_quotas_updated_at();
+
+CREATE OR REPLACE FUNCTION neuronip.update_execution_resource_quotas_updated_at()
+RETURNS TRIGGER AS $$
+BEGIN
+    NEW.updated_at = NOW();
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+DROP TRIGGER IF EXISTS trigger_update_execution_resource_quotas_updated_at ON neuronip.execution_resource_quotas;
+CREATE TRIGGER trigger_update_execution_resource_quotas_updated_at
+    BEFORE UPDATE ON neuronip.execution_resource_quotas
+    FOR EACH ROW
+    EXECUTE FUNCTION neuronip.update_execution_resource_quotas_updated_at();
 
 CREATE OR REPLACE FUNCTION neuronip.update_query_shards_updated_at()
 RETURNS TRIGGER AS $$

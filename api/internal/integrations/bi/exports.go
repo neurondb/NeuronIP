@@ -5,6 +5,7 @@ import (
 	"encoding/csv"
 	"encoding/json"
 	"fmt"
+	"sort"
 	"strings"
 
 	"github.com/neurondb/NeuronIP/api/internal/warehouse"
@@ -103,11 +104,66 @@ func (s *BIExportService) exportToCSV(result *warehouse.QueryResponse) ([]byte, 
 	return []byte(buf.String()), "text/csv", nil
 }
 
-/* exportToExcel exports to Excel format (simplified - would use proper Excel library) */
+/* exportToExcel exports to Excel XML format (SpreadsheetML) */
 func (s *BIExportService) exportToExcel(result *warehouse.QueryResponse) ([]byte, string, error) {
-	// In production, would use excelize or similar library
-	// For now, return CSV as Excel-compatible format
-	return s.exportToCSV(result)
+	var buf strings.Builder
+
+	// SpreadsheetML XML header
+	buf.WriteString(`<?xml version="1.0" encoding="UTF-8"?>
+<?mso-application progid="Excel.Sheet"?>
+<Workbook xmlns="urn:schemas-microsoft-com:office:spreadsheet"
+ xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet">
+<Worksheet ss:Name="Results">
+<Table>
+`)
+
+	if len(result.Results) > 0 {
+		// Write header row
+		buf.WriteString("<Row>\n")
+		headers := make([]string, 0)
+		for key := range result.Results[0] {
+			headers = append(headers, key)
+		}
+		sort.Strings(headers) // Sort headers for consistent output
+		for _, h := range headers {
+			buf.WriteString(fmt.Sprintf(`<Cell><Data ss:Type="String">%s</Data></Cell>`, escapeXML(h)))
+			buf.WriteString("\n")
+		}
+		buf.WriteString("</Row>\n")
+
+		// Write data rows
+		for _, row := range result.Results {
+			buf.WriteString("<Row>\n")
+			for _, h := range headers {
+				val := row[h]
+				valStr := fmt.Sprintf("%v", val)
+				cellType := "String"
+				if val != nil {
+					switch val.(type) {
+					case int, int64, float64, int32:
+						cellType = "Number"
+					}
+				}
+				buf.WriteString(fmt.Sprintf(`<Cell><Data ss:Type="%s">%s</Data></Cell>`, cellType, escapeXML(valStr)))
+				buf.WriteString("\n")
+			}
+			buf.WriteString("</Row>\n")
+		}
+	}
+
+	buf.WriteString("</Table>\n</Worksheet>\n</Workbook>")
+
+	return []byte(buf.String()), "application/vnd.ms-excel", nil
+}
+
+/* escapeXML escapes XML special characters */
+func escapeXML(s string) string {
+	s = strings.ReplaceAll(s, "&", "&amp;")
+	s = strings.ReplaceAll(s, "<", "&lt;")
+	s = strings.ReplaceAll(s, ">", "&gt;")
+	s = strings.ReplaceAll(s, "\"", "&quot;")
+	s = strings.ReplaceAll(s, "'", "&apos;")
+	return s
 }
 
 /* exportToTableau exports to Tableau format */

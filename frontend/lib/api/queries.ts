@@ -1,6 +1,8 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+
+import { API_BASE_URL, API_ENDPOINTS, QUERY_KEYS } from '../utils/constants'
+
 import apiClient from './client'
-import { API_ENDPOINTS, QUERY_KEYS } from '../utils/constants'
 
 // Types
 interface SemanticSearchRequest {
@@ -1105,6 +1107,29 @@ export function useSearchAuditEvents() {
   })
 }
 
+/** Returns URL for audit events export (CSV or JSON). Use in anchor href or window.open. */
+export function getAuditExportUrl(params?: { format?: 'csv' | 'json'; limit?: number }) {
+  const q = new URLSearchParams()
+  if (params?.format) q.set('format', params.format)
+  if (params?.limit) q.set('limit', String(params.limit))
+  return `${API_BASE_URL}${API_ENDPOINTS.auditExport}?${q.toString()}`
+}
+
+/** Returns URL for compliance report export (CSV or JSON). Use in anchor href or window.open. */
+export function getComplianceReportExportUrl(params?: {
+  format?: 'csv' | 'json'
+  start_time?: string
+  end_time?: string
+  entity_type?: string
+}) {
+  const q = new URLSearchParams()
+  if (params?.format) q.set('format', params.format)
+  if (params?.start_time) q.set('start_time', params.start_time)
+  if (params?.end_time) q.set('end_time', params.end_time)
+  if (params?.entity_type) q.set('entity_type', params.entity_type)
+  return `${API_BASE_URL}${API_ENDPOINTS.complianceReportExport}?${q.toString()}`
+}
+
 // Billing Queries
 export function useBillingUsage(filters?: Record<string, unknown>) {
   return useQuery({
@@ -1183,6 +1208,45 @@ export function useAgentPerformance(id: string, enabled = true) {
     queryKey: QUERY_KEYS.agentPerformance(id),
     queryFn: async () => {
       const response = await apiClient.get(API_ENDPOINTS.agentPerformance(id))
+      return response.data
+    },
+    enabled: enabled && !!id,
+  })
+}
+
+export function useAgentRuns(id: string, limit = 50, enabled = true) {
+  return useQuery({
+    queryKey: QUERY_KEYS.agentRuns(id),
+    queryFn: async () => {
+      const response = await apiClient.get(API_ENDPOINTS.agentRuns(id), {
+        params: { limit },
+      })
+      return response.data
+    },
+    enabled: enabled && !!id,
+  })
+}
+
+export function useAgentMemory(id: string, limit = 100, enabled = true) {
+  return useQuery({
+    queryKey: QUERY_KEYS.agentMemory(id),
+    queryFn: async () => {
+      const response = await apiClient.get(API_ENDPOINTS.agentMemory(id), {
+        params: { limit },
+      })
+      return response.data
+    },
+    enabled: enabled && !!id,
+  })
+}
+
+export function useAgentEvaluations(id: string, limit = 50, enabled = true) {
+  return useQuery({
+    queryKey: QUERY_KEYS.agentEvaluations(id),
+    queryFn: async () => {
+      const response = await apiClient.get(API_ENDPOINTS.agentEvaluations(id), {
+        params: { limit },
+      })
       return response.data
     },
     enabled: enabled && !!id,

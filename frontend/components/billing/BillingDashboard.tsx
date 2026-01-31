@@ -1,9 +1,10 @@
 'use client'
 
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card'
-import { useBillingDashboard, useBillingUsage, useBillingMetrics } from '@/lib/api/queries'
 import { ChartBarIcon, CreditCardIcon, ArrowTrendingUpIcon } from '@heroicons/react/24/outline'
 import { LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts'
+
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card'
+import { useBillingDashboard, useBillingUsage, useBillingMetrics } from '@/lib/api/queries'
 
 export default function BillingDashboard() {
   const { data: dashboardData, isLoading: dashboardLoading } = useBillingDashboard()

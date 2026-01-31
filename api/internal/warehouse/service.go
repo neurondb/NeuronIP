@@ -12,25 +12,37 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/neurondb/NeuronIP/api/internal/agent"
+	"github.com/neurondb/NeuronIP/api/internal/catalog"
 	"github.com/neurondb/NeuronIP/api/internal/mcp"
 	"github.com/neurondb/NeuronIP/api/internal/neurondb"
+	"github.com/neurondb/NeuronIP/api/internal/semantic"
 )
 
 /* Service provides data warehouse Q&A functionality */
 type Service struct {
-	pool           *pgxpool.Pool
-	agentClient    *agent.Client
-	neurondbClient *neurondb.Client
-	mcpClient      *mcp.Client
+	pool            *pgxpool.Pool
+	agentClient     *agent.Client
+	neurondbClient  *neurondb.Client
+	mcpClient       *mcp.Client
+	queryRewriter   *semantic.QueryRewriter
+	semanticService *catalog.SemanticService
+	metricsService  *catalog.MetricsService
 }
 
 /* NewService creates a new warehouse service */
 func NewService(pool *pgxpool.Pool, agentClient *agent.Client, neurondbClient *neurondb.Client, mcpClient *mcp.Client) *Service {
+	semanticService := catalog.NewSemanticService(pool)
+	metricsService := catalog.NewMetricsService(pool)
+	queryRewriter := semantic.NewQueryRewriter(pool, semanticService, metricsService)
+
 	return &Service{
-		pool:           pool,
-		agentClient:    agentClient,
-		neurondbClient: neurondbClient,
-		mcpClient:      mcpClient,
+		pool:            pool,
+		agentClient:     agentClient,
+		neurondbClient:  neurondbClient,
+		mcpClient:       mcpClient,
+		queryRewriter:   queryRewriter,
+		semanticService: semanticService,
+		metricsService:  metricsService,
 	}
 }
 
@@ -89,6 +101,14 @@ func (s *Service) ExecuteQuery(ctx context.Context, req QueryRequest) (*QueryRes
 		return nil, fmt.Errorf("failed to convert NL to SQL: %w", err)
 	}
 
+	// Rewrite query using business semantics
+	if s.queryRewriter != nil {
+		rewrittenSQL, rewriteErr := s.queryRewriter.RewriteQuery(ctx, generatedSQL, "sql")
+		if rewriteErr == nil && rewrittenSQL != generatedSQL {
+			generatedSQL = rewrittenSQL
+		}
+	}
+
 	// Validate SQL syntax (basic validation)
 	if err := s.validateSQL(generatedSQL); err != nil {
 		return nil, fmt.Errorf("invalid SQL: %w", err)
@@ -97,23 +117,20 @@ func (s *Service) ExecuteQuery(ctx context.Context, req QueryRequest) (*QueryRes
 	// Use MCP PostgreSQL query optimization if available
 	if s.mcpClient != nil {
 		// Use MCP PostgreSQL tools for query optimization and plan analysis
-		if s.mcpClient != nil {
-			// Get query plan
-			plan, err := s.mcpClient.PostgreSQLQueryPlan(ctx, generatedSQL)
-			if err == nil && plan != nil {
-				// Store plan in metadata
-				if metadata == nil {
-					metadata = make(map[string]interface{})
-				}
-				metadata["query_plan"] = plan
-			}
+		// Get query plan
+		plan, err := s.mcpClient.PostgreSQLQueryPlan(ctx, generatedSQL)
+		if err == nil && plan != nil {
+			// Plan is available but not stored in response metadata currently
+			_ = plan
+		}
 
-			// Get optimization suggestions
-			optimization, err := s.mcpClient.PostgreSQLQueryOptimization(ctx, generatedSQL)
+		// Get optimization suggestions
+		optimization, err := s.mcpClient.PostgreSQLQueryOptimization(ctx, generatedSQL)
 		if err == nil {
 			// Log optimization suggestions (could be used to improve query)
 			if suggestions, ok := optimization["suggestions"].([]interface{}); ok && len(suggestions) > 0 {
 				// Store optimization suggestions (could be added to response metadata)
+				_ = suggestions
 			}
 		}
 	}
@@ -135,13 +152,19 @@ func (s *Service) ExecuteQuery(ctx context.Context, req QueryRequest) (*QueryRes
 	}
 
 	// Execute SQL with timeout - use MCP if available for better execution
-	execCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	// Use configurable timeout based on query complexity
+	queryTimeout := 30 * time.Second
+	if req.UserID != nil {
+		// Allow longer timeout for authenticated users
+		queryTimeout = 60 * time.Second
+	}
+	execCtx, cancel := context.WithTimeout(ctx, queryTimeout)
 	defer cancel()
 
 	var results []map[string]interface{}
-	var execErr error
 
 	// Try MCP PostgreSQLExecuteQuery first if available
+	mcpSucceeded := false
 	if s.mcpClient != nil {
 		mcpResult, mcpErr := s.mcpClient.PostgreSQLExecuteQuery(execCtx, generatedSQL, nil)
 		if mcpErr == nil {
@@ -153,6 +176,7 @@ func (s *Service) ExecuteQuery(ctx context.Context, req QueryRequest) (*QueryRes
 						results = append(results, rowMap)
 					}
 				}
+				mcpSucceeded = true
 			} else if data, ok := mcpResult["data"].([]interface{}); ok {
 				results = make([]map[string]interface{}, 0, len(data))
 				for _, row := range data {
@@ -160,42 +184,45 @@ func (s *Service) ExecuteQuery(ctx context.Context, req QueryRequest) (*QueryRes
 						results = append(results, rowMap)
 					}
 				}
-			}
-			// If we got results from MCP, skip direct execution
-			if len(results) > 0 || execErr == nil {
-				// Use MCP results or continue with empty results
-				goto processResults
+				mcpSucceeded = true
 			}
 		}
-		// Fall through to direct execution if MCP fails
 	}
 
-	// Direct SQL execution (fallback or primary method)
-	rows, execErr := s.pool.Query(execCtx, generatedSQL)
-	if execErr != nil {
-		// Update query status to failed
-		s.pool.Exec(ctx, `UPDATE neuronip.warehouse_queries SET status = $1, error_message = $2, executed_at = $3 WHERE id = $4`,
-			"failed", execErr.Error(), time.Now(), queryID)
-		return nil, fmt.Errorf("failed to execute SQL: %w", execErr)
-	}
-	defer rows.Close()
+	// Fall back to direct execution if MCP failed or not available
+	if !mcpSucceeded {
+		rows, execErr := s.pool.Query(execCtx, generatedSQL)
+		if execErr != nil {
+			// Update query status to failed
+			s.pool.Exec(ctx, `UPDATE neuronip.warehouse_queries SET status = $1, error_message = $2, executed_at = $3 WHERE id = $4`,
+				"failed", execErr.Error(), time.Now(), queryID)
+			return nil, fmt.Errorf("failed to execute SQL: %w", execErr)
+		}
+		defer rows.Close()
 
-	// Parse results from direct execution
-	fieldDescriptions := rows.FieldDescriptions()
-	for rows.Next() {
-		values, err := rows.Values()
-		if err != nil {
-			return nil, fmt.Errorf("failed to get row values: %w", err)
+		// Parse results from direct execution with result limit to prevent memory issues
+		maxResults := 10000 // Maximum results to prevent excessive memory usage
+		fieldDescriptions := rows.FieldDescriptions()
+		for rows.Next() && len(results) < maxResults {
+			values, err := rows.Values()
+			if err != nil {
+				return nil, fmt.Errorf("failed to get row values: %w", err)
+			}
+
+			row := make(map[string]interface{})
+			for i, desc := range fieldDescriptions {
+				row[desc.Name] = values[i]
+			}
+			results = append(results, row)
 		}
 
-		row := make(map[string]interface{})
-		for i, desc := range fieldDescriptions {
-			row[desc.Name] = values[i]
+		// Warn if results were truncated
+		if len(results) >= maxResults {
+			// Log warning but continue - results are already limited
 		}
-		results = append(results, row)
 	}
 
-processResults:
+	// Process results (common path for both MCP and direct execution)
 
 	// Update query status to completed
 	executedAt := time.Now()
@@ -833,7 +860,7 @@ func (s *Service) ExecuteHybridSearch(ctx context.Context, req HybridSearchReque
 					"semantic": 0.7,
 					"keyword":  0.3,
 				}
-				
+
 				// Try MCP hybrid search first
 				if s.mcpClient != nil {
 					mcpResult, mcpErr := s.mcpClient.HybridSearch(ctx, req.SemanticQuery, req.SemanticTable, req.SemanticColumn, "content", req.Limit, weights)
@@ -848,7 +875,7 @@ func (s *Service) ExecuteHybridSearch(ctx context.Context, req HybridSearchReque
 						}
 					}
 				}
-				
+
 				// Fallback to NeuronDB if MCP didn't work
 				if len(semanticResults) == 0 {
 					hybridResults, err := s.neurondbClient.HybridSearch(ctx, queryEmbedding, req.Query, req.SemanticTable, req.SemanticColumn, "content", req.Limit, weights)

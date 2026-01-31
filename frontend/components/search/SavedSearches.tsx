@@ -1,13 +1,15 @@
 'use client'
 
-import { useState, useEffect } from 'react'
-import { motion } from 'framer-motion'
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/Card'
-import Button from '@/components/ui/Button'
-import CreateSavedSearchDialog from './CreateSavedSearchDialog'
 import { BookmarkIcon, PlayIcon, PencilIcon, TrashIcon } from '@heroicons/react/24/outline'
+import { motion } from 'framer-motion'
+import { useState, useEffect } from 'react'
+
+import Button from '@/components/ui/Button'
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/Card'
 import { slideUp } from '@/lib/animations/variants'
 import { listSavedSearches } from '@/lib/api/saved-searches'
+
+import CreateSavedSearchDialog from './CreateSavedSearchDialog'
 
 interface SavedSearch {
   id: string

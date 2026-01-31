@@ -1,23 +1,28 @@
 'use client'
 
 import { useState, useEffect } from 'react'
+
 import Modal from '@/components/ui/Modal'
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/Table'
 import { KEYBOARD_SHORTCUTS, getShortcutKey } from '@/lib/constants/shortcuts'
 import { useKeyboardShortcuts } from '@/lib/hooks/useKeyboardShortcuts'
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/Table'
 
 export default function ShortcutsModal() {
   const [isOpen, setIsOpen] = useState(false)
 
-  useKeyboardShortcuts({
-    onShortcut: (shortcut) => {
-      if (shortcut.key === '?' && (shortcut.modifier === 'cmd' || shortcut.modifier === 'ctrl')) {
-        setIsOpen(true)
-      }
+  useKeyboardShortcuts([
+    {
+      key: '?',
+      metaKey: true,
+      action: () => setIsOpen(true),
     },
-  })
+    {
+      key: '?',
+      ctrlKey: true,
+      action: () => setIsOpen(true),
+    },
+  ])
 
-  // Prevent opening if user is typing in an input
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === '?' && (e.metaKey || e.ctrlKey)) {
@@ -29,9 +34,13 @@ export default function ShortcutsModal() {
         setIsOpen(true)
       }
     }
-
+    const onOpen = () => setIsOpen(true)
     document.addEventListener('keydown', handleKeyDown)
-    return () => document.removeEventListener('keydown', handleKeyDown)
+    window.addEventListener('open-shortcuts-modal', onOpen)
+    return () => {
+      document.removeEventListener('keydown', handleKeyDown)
+      window.removeEventListener('open-shortcuts-modal', onOpen)
+    }
   }, [])
 
   const categories = Array.from(new Set(KEYBOARD_SHORTCUTS.map((s) => s.category)))

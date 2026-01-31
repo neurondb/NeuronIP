@@ -1,28 +1,34 @@
 'use client'
 
-import { useSearchAnalytics, useWarehouseAnalytics, useWorkflowAnalytics, useComplianceAnalytics } from '@/lib/api/queries'
-import MetricCard from '@/components/dashboard/MetricCard'
-import ActivityFeed from '@/components/dashboard/ActivityFeed'
-import QuickActions from '@/components/dashboard/QuickActions'
-import ChartContainer from '@/components/charts/ChartContainer'
-import LineChart from '@/components/charts/LineChart'
-import { motion } from 'framer-motion'
 import {
   MagnifyingGlassIcon,
   CubeIcon,
   CommandLineIcon,
   ShieldCheckIcon,
 } from '@heroicons/react/24/outline'
+import { motion } from 'framer-motion'
+
+import ChartContainer from '@/components/charts/ChartContainer'
+import { LazyLineChart } from '@/components/charts/LazyChart'
+import ActivityFeed from '@/components/dashboard/ActivityFeed'
+import MetricCard from '@/components/dashboard/MetricCard'
+import QuickActions from '@/components/dashboard/QuickActions'
+import QuickStart from '@/components/dashboard/QuickStart'
+import PageTemplate from '@/components/layout/PageTemplate'
 import { staggerContainer, slideUp, transition } from '@/lib/animations/variants'
+import { useSearchAnalytics, useWarehouseAnalytics, useWorkflowAnalytics, useComplianceAnalytics } from '@/lib/api/queries'
+import { microcopy } from '@/lib/copy/microcopy'
+import { useOnboarding } from '@/lib/hooks/useOnboarding'
 
 export default function DashboardPage() {
-  // Fetch analytics data
-  const { data: searchAnalytics, isLoading: searchLoading } = useSearchAnalytics()
-  const { data: warehouseAnalytics, isLoading: warehouseLoading } = useWarehouseAnalytics()
-  const { data: workflowAnalytics, isLoading: workflowLoading } = useWorkflowAnalytics()
-  const { data: complianceAnalytics, isLoading: complianceLoading } = useComplianceAnalytics()
+  const { isCompleted, skipped } = useOnboarding()
+  const showQuickStart = !isCompleted || skipped
 
-  // Mock data for metrics (replace with real analytics)
+  const { data: searchAnalytics } = useSearchAnalytics()
+  const { data: warehouseAnalytics } = useWarehouseAnalytics()
+  const { data: workflowAnalytics } = useWorkflowAnalytics()
+  const { data: complianceAnalytics } = useComplianceAnalytics()
+
   const metrics = [
     {
       title: 'Total Searches',
@@ -54,7 +60,6 @@ export default function DashboardPage() {
     },
   ]
 
-  // Mock chart data
   const chartData = [
     { date: 'Mon', searches: 45, queries: 32 },
     { date: 'Tue', searches: 52, queries: 38 },
@@ -66,24 +71,20 @@ export default function DashboardPage() {
   ]
 
   return (
-    <motion.div
-      variants={staggerContainer}
-      initial="hidden"
-      animate="visible"
-      className="space-y-3 sm:space-y-4 flex flex-col h-full"
+    <PageTemplate
+      title={microcopy.dashboard.title}
+      description={microcopy.dashboard.subtitle}
+      archetype="dashboard"
     >
-      {/* Page Header */}
-      <div className="flex-shrink-0 pb-2">
-        <h1 className="text-2xl sm:text-3xl font-bold text-foreground">Dashboard</h1>
-        <p className="text-sm text-muted-foreground mt-1">
-          Overview of your NeuronIP platform activity
-        </p>
-      </div>
+      {showQuickStart && (
+        <motion.div variants={slideUp} className="flex-shrink-0">
+          <QuickStart />
+        </motion.div>
+      )}
 
-      {/* Metrics Grid */}
       <motion.div
         variants={staggerContainer}
-        className="grid grid-cols-2 lg:grid-cols-4 gap-2 sm:gap-3 flex-shrink-0"
+        className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4 flex-shrink-0"
       >
         {metrics.map((metric, index) => (
           <motion.div key={metric.title} variants={slideUp} transition={{ ...transition, delay: index * 0.05 }}>
@@ -92,9 +93,7 @@ export default function DashboardPage() {
         ))}
       </motion.div>
 
-      {/* Charts and Activity - Fill remaining space */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-3 sm:gap-4 flex-1 min-h-0">
-        {/* Activity Chart - Takes 2 columns on large screens */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 sm:gap-6 flex-1 min-h-0">
         <motion.div variants={slideUp} className="lg:col-span-2 flex flex-col min-h-0">
           <ChartContainer
             title="Activity Overview"
@@ -102,7 +101,7 @@ export default function DashboardPage() {
             className="flex-1 flex flex-col min-h-0"
           >
             <div className="flex-1 min-h-0" style={{ minHeight: '350px' }}>
-              <LineChart
+              <LazyLineChart
                 data={chartData}
                 dataKeys={['searches', 'queries']}
                 xAxisKey="date"
@@ -111,17 +110,14 @@ export default function DashboardPage() {
             </div>
           </ChartContainer>
         </motion.div>
-
-        {/* Activity Feed - Takes 1 column */}
         <motion.div variants={slideUp} className="flex flex-col min-h-0">
           <ActivityFeed />
         </motion.div>
       </div>
 
-      {/* Quick Actions - Compact at bottom */}
       <motion.div variants={slideUp} className="flex-shrink-0">
         <QuickActions />
       </motion.div>
-    </motion.div>
+    </PageTemplate>
   )
 }

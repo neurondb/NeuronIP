@@ -6,16 +6,18 @@ import (
 	"net/http"
 	"sync"
 	"time"
+
+	"github.com/neurondb/NeuronIP/api/internal/auth"
 )
 
 /* ResourceType represents a type of resource */
 type ResourceType string
 
 const (
-	ResourceTypeCPU    ResourceType = "cpu"
-	ResourceTypeMemory ResourceType = "memory"
-	ResourceTypeDisk   ResourceType = "disk"
-	ResourceTypeNetwork ResourceType = "network"
+	ResourceTypeCPU         ResourceType = "cpu"
+	ResourceTypeMemory      ResourceType = "memory"
+	ResourceTypeDisk        ResourceType = "disk"
+	ResourceTypeNetwork     ResourceType = "network"
 	ResourceTypeConnections ResourceType = "connections"
 )
 
@@ -174,10 +176,9 @@ func ResourceLimitMiddleware(rm *ResourceManager, resourceType ResourceType, lim
 }
 
 func getUserIDFromContext(ctx context.Context) string {
-	// Try to extract user ID from context
-	// This is a placeholder - actual implementation depends on auth system
-	if userID, ok := ctx.Value("user_id").(string); ok {
-		return userID
+	userID, ok := auth.GetUserIDFromContext(ctx)
+	if !ok {
+		return ""
 	}
-	return ""
+	return userID
 }

@@ -18,18 +18,18 @@ import (
 
 /* Service provides customer support memory functionality */
 type Service struct {
-	queries      *db.Queries
-	pool         *pgxpool.Pool
-	agentClient  *agent.Client
+	queries        *db.Queries
+	pool           *pgxpool.Pool
+	agentClient    *agent.Client
 	neurondbClient *neurondb.Client
 }
 
 /* NewService creates a new support service */
 func NewService(queries *db.Queries, pool *pgxpool.Pool, agentClient *agent.Client, neurondbClient *neurondb.Client) *Service {
 	return &Service{
-		queries:       queries,
-		pool:          pool,
-		agentClient:   agentClient,
+		queries:        queries,
+		pool:           pool,
+		agentClient:    agentClient,
 		neurondbClient: neurondbClient,
 	}
 }
@@ -46,40 +46,40 @@ type TicketRequest struct {
 
 /* ConversationMessage represents a conversation message */
 type ConversationMessage struct {
-	ID         uuid.UUID              `json:"id"`
-	TicketID   uuid.UUID              `json:"ticket_id"`
-	MessageText string                `json:"message_text"`
-	SenderType string                 `json:"sender_type"`
-	SenderID   *string                `json:"sender_id,omitempty"`
-	Metadata   map[string]interface{} `json:"metadata,omitempty"`
-	CreatedAt  time.Time              `json:"created_at"`
+	ID          uuid.UUID              `json:"id"`
+	TicketID    uuid.UUID              `json:"ticket_id"`
+	MessageText string                 `json:"message_text"`
+	SenderType  string                 `json:"sender_type"`
+	SenderID    *string                `json:"sender_id,omitempty"`
+	Metadata    map[string]interface{} `json:"metadata,omitempty"`
+	CreatedAt   time.Time              `json:"created_at"`
 }
 
 /* SimilarCase represents a similar resolved case */
 type SimilarCase struct {
-	TicketID     uuid.UUID              `json:"ticket_id"`
-	TicketNumber string                 `json:"ticket_number"`
-	Subject      string                 `json:"subject"`
-	Similarity   float64                `json:"similarity"`
+	TicketID      uuid.UUID             `json:"ticket_id"`
+	TicketNumber  string                `json:"ticket_number"`
+	Subject       string                `json:"subject"`
+	Similarity    float64               `json:"similarity"`
 	Conversations []ConversationMessage `json:"conversations,omitempty"`
 }
 
 /* MemoryEntry represents a support memory entry */
 type MemoryEntry struct {
-	ID           uuid.UUID              `json:"id"`
-	CustomerID   string                 `json:"customer_id"`
-	MemoryType   string                 `json:"memory_type"`
-	MemoryContent string                `json:"memory_content"`
-	ImportanceScore float64             `json:"importance_score"`
-	LastAccessedAt *time.Time           `json:"last_accessed_at,omitempty"`
-	CreatedAt    time.Time              `json:"created_at"`
-	UpdatedAt    time.Time              `json:"updated_at"`
+	ID              uuid.UUID  `json:"id"`
+	CustomerID      string     `json:"customer_id"`
+	MemoryType      string     `json:"memory_type"`
+	MemoryContent   string     `json:"memory_content"`
+	ImportanceScore float64    `json:"importance_score"`
+	LastAccessedAt  *time.Time `json:"last_accessed_at,omitempty"`
+	CreatedAt       time.Time  `json:"created_at"`
+	UpdatedAt       time.Time  `json:"updated_at"`
 }
 
 /* CreateTicket creates a new support ticket */
 func (s *Service) CreateTicket(ctx context.Context, req TicketRequest) (*db.SupportTicket, error) {
 	ticketNumber := fmt.Sprintf("TKT-%d", time.Now().Unix())
-	
+
 	// Create ticket
 	ticketID := uuid.New()
 	now := time.Now()
@@ -122,7 +122,7 @@ func (s *Service) CreateTicket(ctx context.Context, req TicketRequest) (*db.Supp
 	if messageText == "" {
 		messageText = req.Subject
 	}
-	
+
 	err = s.AddConversation(ctx, ticket.ID, messageText, "customer", &req.CustomerID, nil)
 	if err != nil {
 		// Log error but don't fail ticket creation
@@ -180,7 +180,7 @@ func (s *Service) ListTickets(ctx context.Context, status string, customerID str
 		%s
 		ORDER BY created_at DESC
 		LIMIT $%d`, whereClause, argIndex)
-	
+
 	args = append(args, limit)
 
 	rows, err := s.pool.Query(ctx, query, args...)
@@ -458,7 +458,7 @@ func (s *Service) CompareConversations(ctx context.Context, convID1, convID2 uui
 	// Get embeddings for both conversations
 	var embedding1, embedding2 string
 	query := `SELECT embedding::text FROM neuronip.support_conversations WHERE id = $1`
-	
+
 	err := s.pool.QueryRow(ctx, query, convID1).Scan(&embedding1)
 	if err != nil {
 		return 0, fmt.Errorf("failed to get embedding for conversation 1: %w", err)
@@ -496,7 +496,7 @@ func (s *Service) GetSimilarCasesHybrid(ctx context.Context, ticketID uuid.UUID,
 	}
 
 	// Get ticket conversations for context
-	ticket, conversations, err := s.GetTicket(ctx, ticketID)
+	_, conversations, err := s.GetTicket(ctx, ticketID)
 	if err != nil {
 		return []SimilarCase{}, nil
 	}
@@ -513,18 +513,8 @@ func (s *Service) GetSimilarCasesHybrid(ctx context.Context, ticketID uuid.UUID,
 		return nil, fmt.Errorf("failed to generate embedding: %w", err)
 	}
 
-	// Use NeuronDB HybridSearch for better results
-	tableName := "neuronip.support_tickets st JOIN neuronip.support_conversations sc ON sc.ticket_id = st.id"
-	embeddingColumn := "sc.embedding"
-	textColumn := "st.subject || ' ' || COALESCE(sc.message_text, '')"
-	weights := map[string]float64{
-		"semantic": 0.7,
-		"keyword":  0.3,
-	}
-
-	// Build WHERE clause for filtering
-	// Note: HybridSearch in client may not support complex WHERE clauses directly
-	// So we'll use the direct SQL approach with hybrid search logic
+	// Hybrid search is implemented via SQL below (semantic + keyword with weights 0.7/0.3).
+	// A client-based hybrid search API could be added later if NeuronDB exposes one.
 	searchQuery := `
 		WITH semantic_results AS (
 			SELECT DISTINCT
@@ -671,11 +661,11 @@ func (s *Service) CreateSupportSession(ctx context.Context, ticketID uuid.UUID, 
 
 	// Create session configuration
 	config := map[string]interface{}{
-		"ticket_id":   ticketID.String(),
+		"ticket_id":     ticketID.String(),
 		"ticket_number": ticket.TicketNumber,
-		"subject":     ticket.Subject,
-		"customer_id": ticket.CustomerID,
-		"priority":    ticket.Priority,
+		"subject":       ticket.Subject,
+		"customer_id":   ticket.CustomerID,
+		"priority":      ticket.Priority,
 	}
 
 	// Create session via NeuronAgent
@@ -769,10 +759,10 @@ func (s *Service) CreateSupportSnapshot(ctx context.Context, sessionID string, t
 
 	// Build execution state
 	executionState := map[string]interface{}{
-		"ticket_id":    ticketID.String(),
+		"ticket_id":     ticketID.String(),
 		"ticket_number": ticket.TicketNumber,
-		"subject":      ticket.Subject,
-		"customer_id":  ticket.CustomerID,
+		"subject":       ticket.Subject,
+		"customer_id":   ticket.CustomerID,
 		"conversations": len(conversations),
 	}
 

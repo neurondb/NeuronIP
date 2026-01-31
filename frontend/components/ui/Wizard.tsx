@@ -1,16 +1,20 @@
 'use client'
 
-import { useState, ReactNode, useCallback } from 'react'
-import { motion, AnimatePresence } from 'framer-motion'
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from './Card'
-import Button from './Button'
 import {
   ChevronLeftIcon,
   ChevronRightIcon,
   XMarkIcon,
   CheckCircleIcon,
 } from '@heroicons/react/24/outline'
+import { motion, AnimatePresence } from 'framer-motion'
+import { useState, ReactNode, useCallback } from 'react'
+
 import { cn } from '@/lib/utils/cn'
+
+import Button from './Button'
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from './Card'
+
+
 
 export interface WizardStep {
   id: string

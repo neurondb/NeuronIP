@@ -1,9 +1,10 @@
 'use client'
 
 import { motion } from 'framer-motion'
+
+import BarChart from '@/components/charts/BarChart'
 import ChartContainer from '@/components/charts/ChartContainer'
 import LineChart from '@/components/charts/LineChart'
-import BarChart from '@/components/charts/BarChart'
 
 interface AnomalyChartProps {
   data: unknown[]

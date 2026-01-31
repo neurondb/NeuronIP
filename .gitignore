@@ -63,3 +63,54 @@ next-env.d.ts
 .Trashes
 ehthumbs.db
 Thumbs.db
+
+# Go binaries and tools
+api/migrate
+api/server
+api/seed
+*.sum.bak
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+.venv/
+venv/
+env/
+.env/
+*.egg-info/
+.eggs/
+*.egg
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Logs and temp
+*.log
+logs/
+tmp/
+temp/
+*.tmp
+*.temp
+*.swp
+*.swo
+
+# Local / generated DB and secrets
+*.sqlite
+*.sqlite3
+*.db
+*.pem
+*.key
+!*.key.example
+
+# Next.js / Vite
+.vercel/
+.turbo/
+
+# Docker
+.docker/
+
+# IDE / Cursor (optional; remove if you want to commit project rules)
+# .cursor/

@@ -1,18 +1,12 @@
 'use client'
 
-import { useState } from 'react'
 import { motion } from 'framer-motion'
-import GraphVisualization from '@/components/knowledge-graph/GraphVisualization'
-import EntityList from '@/components/knowledge-graph/EntityList'
-import EntityExtractor from '@/components/knowledge-graph/EntityExtractor'
-import { staggerContainer, slideUp } from '@/lib/animations/variants'
+import { useState } from 'react'
 
-interface Entity {
-  id: string
-  name: string
-  type: string
-  description?: string
-}
+import EntityExtractor from '@/components/knowledge-graph/EntityExtractor'
+import EntityList from '@/components/knowledge-graph/EntityList'
+import GraphVisualization from '@/components/knowledge-graph/GraphVisualization'
+import { staggerContainer, slideUp } from '@/lib/animations/variants'
 
 export default function KnowledgeGraphPage() {
   const [selectedEntityId, setSelectedEntityId] = useState<string | null>(null)

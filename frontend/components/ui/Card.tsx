@@ -1,26 +1,44 @@
 'use client'
 
-import { HTMLAttributes, forwardRef } from 'react'
+import { cva, type VariantProps } from 'class-variance-authority'
 import { motion, HTMLMotionProps } from 'framer-motion'
+import { HTMLAttributes, forwardRef } from 'react'
+
 import { cn } from '@/lib/utils/cn'
 
-interface CardProps extends HTMLMotionProps<'div'> {
-  hover?: boolean
+const cardVariants = cva(
+  'rounded-lg border bg-card text-card-foreground transition-shadow duration-200',
+  {
+    variants: {
+      variant: {
+        default: 'border-border shadow-sm',
+        elevated: 'border-border shadow-md hover:shadow-lg',
+        outline: 'border-divider shadow-none',
+      },
+      hover: {
+        true: 'cursor-pointer hover:shadow-md',
+        false: '',
+      },
+    },
+    defaultVariants: {
+      variant: 'default',
+      hover: false,
+    },
+  }
+)
+
+interface CardProps extends HTMLMotionProps<'div'>, VariantProps<typeof cardVariants> {
   children: React.ReactNode
 }
 
 const Card = forwardRef<HTMLDivElement, CardProps>(
-  ({ hover = false, className, children, ...props }, ref) => {
+  ({ variant = 'default', hover = false, className, children, ...props }, ref) => {
     return (
       <motion.div
         ref={ref}
-        className={cn(
-          'rounded-lg border border-border bg-card text-card-foreground shadow-sm',
-          hover && 'transition-shadow duration-200 hover:shadow-md cursor-pointer',
-          className
-        )}
+        className={cn(cardVariants({ variant, hover }), className)}
         whileHover={hover ? { y: -2, transition: { duration: 0.2 } } : undefined}
-        {...(props as any)}
+        {...(props as HTMLMotionProps<'div'>)}
       >
         {children}
       </motion.div>

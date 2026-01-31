@@ -1,13 +1,14 @@
 'use client'
 
-import { useState } from 'react'
 import { motion } from 'framer-motion'
-import { staggerContainer, slideUp } from '@/lib/animations/variants'
-import QueryPerformance from '@/components/observability/QueryPerformance'
-import LogViewer from '@/components/observability/LogViewer'
+import { useState } from 'react'
+
 import CostDashboard from '@/components/observability/CostDashboard'
+import LogViewer from '@/components/observability/LogViewer'
 import MetricsDashboard from '@/components/observability/MetricsDashboard'
+import QueryPerformance from '@/components/observability/QueryPerformance'
 import Button from '@/components/ui/Button'
+import { staggerContainer, slideUp } from '@/lib/animations/variants'
 
 export default function ObservabilityPage() {
   const [activeTab, setActiveTab] = useState<'metrics' | 'performance' | 'logs' | 'cost'>('metrics')

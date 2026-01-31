@@ -1,11 +1,12 @@
 'use client'
 
-import { useState } from 'react'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card'
-import Button from '@/components/ui/Button'
-import { useMetrics, useDeleteMetric, useSearchMetrics } from '@/lib/api/queries'
-import { showToast } from '@/components/ui/Toast'
 import { MagnifyingGlassIcon, PlusIcon, TrashIcon } from '@heroicons/react/24/outline'
+import { useState } from 'react'
+
+import Button from '@/components/ui/Button'
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card'
+import { showToast } from '@/components/ui/Toast'
+import { useMetrics, useDeleteMetric, useSearchMetrics } from '@/lib/api/queries'
 
 interface MetricCatalogProps {
   onSelectMetric?: (metricId: string) => void

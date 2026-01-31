@@ -6,24 +6,25 @@ import (
 	"fmt"
 	"time"
 
-	_ "github.com/snowflakedb/gosnowflake"
 	"github.com/neurondb/NeuronIP/api/internal/ingestion"
+	_ "github.com/snowflakedb/gosnowflake" // Optional dependency
 )
 
 /* SnowflakeConnector implements the Connector interface for Snowflake */
 type SnowflakeConnector struct {
 	*ingestion.BaseConnector
-	db *sql.DB
+	db     *sql.DB
+	config map[string]interface{}
 }
 
 /* NewSnowflakeConnector creates a new Snowflake connector */
 func NewSnowflakeConnector() *SnowflakeConnector {
 	metadata := ingestion.ConnectorMetadata{
-		Type:        "snowflake",
-		Name:        "Snowflake",
-		Description: "Snowflake data warehouse connector for schema discovery and data sync",
-		Version:     "1.0.0",
-		Capabilities: []string{"incremental", "schema_discovery", "full_sync", "query_log_analysis"},
+		Type:         "snowflake",
+		Name:         "Snowflake",
+		Description:  "Snowflake data warehouse connector",
+		Version:      "1.0.0",
+		Capabilities: []string{"incremental", "schema_discovery", "query", "bulk_load"},
 	}
 
 	base := ingestion.NewBaseConnector("snowflake", metadata)
@@ -35,31 +36,29 @@ func NewSnowflakeConnector() *SnowflakeConnector {
 
 /* Connect establishes connection to Snowflake */
 func (s *SnowflakeConnector) Connect(ctx context.Context, config map[string]interface{}) error {
+	s.config = config
+
 	account, _ := config["account"].(string)
 	user, _ := config["user"].(string)
 	password, _ := config["password"].(string)
 	database, _ := config["database"].(string)
-	warehouse, _ := config["warehouse"].(string)
 	schema, _ := config["schema"].(string)
+	warehouse, _ := config["warehouse"].(string)
 	role, _ := config["role"].(string)
 
-	if account == "" || user == "" || password == "" || database == "" {
-		return fmt.Errorf("account, user, password, and database are required")
+	if account == "" || user == "" || password == "" {
+		return fmt.Errorf("account, user, and password are required for Snowflake")
 	}
 
 	dsn := fmt.Sprintf("%s:%s@%s/%s", user, password, account, database)
+	if schema != "" {
+		dsn += fmt.Sprintf("/%s", schema)
+	}
 	if warehouse != "" {
 		dsn += fmt.Sprintf("?warehouse=%s", warehouse)
 	}
-	if schema != "" {
-		if warehouse != "" {
-			dsn += fmt.Sprintf("&schema=%s", schema)
-		} else {
-			dsn += fmt.Sprintf("?schema=%s", schema)
-		}
-	}
 	if role != "" {
-		if warehouse != "" || schema != "" {
+		if warehouse != "" {
 			dsn += fmt.Sprintf("&role=%s", role)
 		} else {
 			dsn += fmt.Sprintf("?role=%s", role)
@@ -68,24 +67,29 @@ func (s *SnowflakeConnector) Connect(ctx context.Context, config map[string]inte
 
 	db, err := sql.Open("snowflake", dsn)
 	if err != nil {
-		return fmt.Errorf("failed to open Snowflake connection: %w", err)
-	}
-
-	if err := db.PingContext(ctx); err != nil {
-		return fmt.Errorf("failed to ping Snowflake: %w", err)
+		return fmt.Errorf("failed to connect to Snowflake: %w", err)
 	}
 
 	s.db = db
 	s.BaseConnector.SetConnected(true)
+
+	// Test connection
+	if err := s.TestConnection(ctx); err != nil {
+		s.db.Close()
+		return fmt.Errorf("connection test failed: %w", err)
+	}
+
 	return nil
 }
 
 /* Disconnect closes the connection */
 func (s *SnowflakeConnector) Disconnect(ctx context.Context) error {
 	if s.db != nil {
-		s.db.Close()
+		err := s.db.Close()
+		s.db = nil
+		s.BaseConnector.SetConnected(false)
+		return err
 	}
-	s.BaseConnector.SetConnected(false)
 	return nil
 }
 
@@ -94,21 +98,31 @@ func (s *SnowflakeConnector) TestConnection(ctx context.Context) error {
 	if s.db == nil {
 		return fmt.Errorf("not connected")
 	}
-	return s.db.PingContext(ctx)
+
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+
+	_, err := s.db.ExecContext(ctx, "SELECT 1")
+	return err
 }
 
-/* DiscoverSchema discovers Snowflake schema */
+/* DiscoverSchema discovers the schema of the Snowflake database */
 func (s *SnowflakeConnector) DiscoverSchema(ctx context.Context) (*ingestion.Schema, error) {
 	if s.db == nil {
 		return nil, fmt.Errorf("not connected")
 	}
 
-	// Get all tables and views
+	schema := &ingestion.Schema{
+		Tables:      []ingestion.TableSchema{},
+		LastUpdated: time.Now(),
+	}
+
+	// Query information schema for tables
 	query := `
-		SELECT TABLE_SCHEMA, TABLE_NAME, TABLE_TYPE
-		FROM INFORMATION_SCHEMA.TABLES
-		WHERE TABLE_TYPE IN ('BASE TABLE', 'VIEW')
-		ORDER BY TABLE_SCHEMA, TABLE_NAME`
+		SELECT table_schema, table_name, table_type
+		FROM information_schema.tables
+		WHERE table_schema NOT IN ('INFORMATION_SCHEMA')
+		ORDER BY table_schema, table_name`
 
 	rows, err := s.db.QueryContext(ctx, query)
 	if err != nil {
@@ -116,88 +130,70 @@ func (s *SnowflakeConnector) DiscoverSchema(ctx context.Context) (*ingestion.Sch
 	}
 	defer rows.Close()
 
-	tables := []ingestion.TableSchema{}
-	views := []ingestion.ViewSchema{}
-
 	for rows.Next() {
-		var schemaName, tableName, tableType string
-		if err := rows.Scan(&schemaName, &tableName, &tableType); err != nil {
+		var tableSchema, tableName, tableType string
+		if err := rows.Scan(&tableSchema, &tableName, &tableType); err != nil {
 			continue
 		}
 
 		// Get columns for this table
-		columns, err := s.getColumns(ctx, schemaName, tableName)
+		columns, err := s.getColumns(ctx, tableSchema, tableName)
 		if err != nil {
 			continue
 		}
 
-		if tableType == "VIEW" {
-			views = append(views, ingestion.ViewSchema{
-				Name:    tableName,
-				Columns: columns,
-			})
-		} else {
-			tables = append(tables, ingestion.TableSchema{
-				Name:    tableName,
-				Columns: columns,
-			})
+		table := ingestion.TableSchema{
+			Name:    fmt.Sprintf("%s.%s", tableSchema, tableName),
+			Columns: columns,
+			Metadata: map[string]interface{}{
+				"schema": tableSchema,
+				"table":  tableName,
+				"type":   tableType,
+			},
 		}
+
+		schema.Tables = append(schema.Tables, table)
 	}
 
-	return &ingestion.Schema{
-		Tables:      tables,
-		Views:       views,
-		LastUpdated: time.Now(),
-	}, nil
+	return schema, nil
 }
 
 /* getColumns gets columns for a table */
-func (s *SnowflakeConnector) getColumns(ctx context.Context, schemaName, tableName string) ([]ingestion.ColumnSchema, error) {
+func (s *SnowflakeConnector) getColumns(ctx context.Context, schema, table string) ([]ingestion.ColumnSchema, error) {
 	query := `
-		SELECT COLUMN_NAME, DATA_TYPE, IS_NULLABLE, COLUMN_DEFAULT, CHARACTER_MAXIMUM_LENGTH
-		FROM INFORMATION_SCHEMA.COLUMNS
-		WHERE TABLE_SCHEMA = ? AND TABLE_NAME = ?
-		ORDER BY ORDINAL_POSITION`
+		SELECT column_name, data_type, is_nullable, column_default, character_maximum_length
+		FROM information_schema.columns
+		WHERE table_schema = $1 AND table_name = $2
+		ORDER BY ordinal_position`
 
-	rows, err := s.db.QueryContext(ctx, query, schemaName, tableName)
+	rows, err := s.db.QueryContext(ctx, query, schema, table)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
 
-	columns := []ingestion.ColumnSchema{}
+	var columns []ingestion.ColumnSchema
 	for rows.Next() {
-		var colName, dataType, isNullable, defaultValue sql.NullString
-		var maxLength sql.NullInt64
+		var col ingestion.ColumnSchema
+		var nullable, maxLength sql.NullString
+		var defaultVal sql.NullString
 
-		if err := rows.Scan(&colName, &dataType, &isNullable, &defaultValue, &maxLength); err != nil {
+		if err := rows.Scan(&col.Name, &col.DataType, &nullable, &defaultVal, &maxLength); err != nil {
 			continue
 		}
 
-		var maxLen *int
-		if maxLength.Valid {
-			ml := int(maxLength.Int64)
-			maxLen = &ml
+		col.Nullable = nullable.String == "YES"
+		if defaultVal.Valid {
+			col.DefaultValue = &defaultVal.String
 		}
 
-		var defVal *string
-		if defaultValue.Valid {
-			defVal = &defaultValue.String
-		}
-
-		columns = append(columns, ingestion.ColumnSchema{
-			Name:         colName.String,
-			DataType:     dataType.String,
-			Nullable:     isNullable.String == "YES",
-			DefaultValue: defVal,
-			MaxLength:    maxLen,
-		})
+		columns = append(columns, col)
 	}
 
 	return columns, nil
 }
 
-/* Sync performs a sync operation */
+/* Sync performs a full or incremental sync, counting rows for each table */
 func (s *SnowflakeConnector) Sync(ctx context.Context, options ingestion.SyncOptions) (*ingestion.SyncResult, error) {
 	if s.db == nil {
 		return nil, fmt.Errorf("not connected")
@@ -209,7 +205,6 @@ func (s *SnowflakeConnector) Sync(ctx context.Context, options ingestion.SyncOpt
 		Errors:       []ingestion.SyncError{},
 	}
 
-	// Get schema to determine tables
 	schema, err := s.DiscoverSchema(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("failed to discover schema: %w", err)
@@ -225,21 +220,21 @@ func (s *SnowflakeConnector) Sync(ctx context.Context, options ingestion.SyncOpt
 	for _, tableName := range tables {
 		countQuery := fmt.Sprintf("SELECT COUNT(*) FROM %s", tableName)
 		if options.Since != nil {
-			// Try to find a timestamp column for incremental sync
 			countQuery = fmt.Sprintf("SELECT COUNT(*) FROM %s WHERE updated_at >= ?", tableName)
 		}
 
 		var count int64
+		var scanErr error
 		if options.Since != nil {
-			err = s.db.QueryRowContext(ctx, countQuery, options.Since).Scan(&count)
+			scanErr = s.db.QueryRowContext(ctx, countQuery, options.Since).Scan(&count)
 		} else {
-			err = s.db.QueryRowContext(ctx, countQuery).Scan(&count)
+			scanErr = s.db.QueryRowContext(ctx, countQuery).Scan(&count)
 		}
 
-		if err != nil {
+		if scanErr != nil {
 			result.Errors = append(result.Errors, ingestion.SyncError{
 				Table:   tableName,
-				Message: err.Error(),
+				Message: scanErr.Error(),
 			})
 			continue
 		}
@@ -250,4 +245,14 @@ func (s *SnowflakeConnector) Sync(ctx context.Context, options ingestion.SyncOpt
 
 	result.Duration = time.Since(startTime)
 	return result, nil
+}
+
+/* GetConnectorType returns the type identifier */
+func (s *SnowflakeConnector) GetConnectorType() string {
+	return "snowflake"
+}
+
+/* GetMetadata returns connector-specific metadata */
+func (s *SnowflakeConnector) GetMetadata() ingestion.ConnectorMetadata {
+	return s.BaseConnector.GetMetadata()
 }

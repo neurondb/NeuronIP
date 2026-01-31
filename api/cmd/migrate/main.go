@@ -1,11 +1,13 @@
 package main
 
 import (
+	"context"
 	"flag"
 	"fmt"
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -14,16 +16,17 @@ import (
 )
 
 var (
-	command    = flag.String("command", "up", "Migration command: up, down, status, create")
+	command       = flag.String("command", "up", "Migration command: up, down, status, create")
 	migrationName = flag.String("name", "", "Migration name (for create command)")
-	steps      = flag.Int("steps", 0, "Number of steps (for down command, 0 = all)")
+	steps         = flag.Int("steps", 0, "Number of steps (for down command, 0 = all)")
 )
 
 func main() {
 	flag.Parse()
 
 	cfg := config.Load()
-	pool, err := db.NewPool(nil, cfg.Database)
+	ctx := context.Background()
+	pool, err := db.NewPool(ctx, cfg.Database)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Failed to connect to database: %v\n", err)
 		os.Exit(1)
@@ -79,7 +82,7 @@ func NewMigrator(pool *pgxpool.Pool) *Migrator {
 
 /* MigrateUp applies all pending migrations */
 func (m *Migrator) MigrateUp() error {
-	// Ensure migrations table exists
+	// Ensure schema and migrations table exist
 	if err := m.ensureMigrationsTable(); err != nil {
 		return err
 	}
@@ -97,8 +100,13 @@ func (m *Migrator) MigrateUp() error {
 		return err
 	}
 
-	// Sort files
+	// Sort files for deterministic order
 	sort.Strings(files)
+
+	// Validate: duplicate numeric prefixes and baseline presence
+	if err := m.validateMigrations(files); err != nil {
+		return err
+	}
 
 	// Apply pending migrations
 	for _, file := range files {
@@ -177,9 +185,20 @@ func (m *Migrator) Status() error {
 
 /* CreateMigration creates a new migration file */
 func (m *Migrator) CreateMigration(name string) error {
-	timestamp := fmt.Sprintf("%03d", len(m.getMigrationFiles())+1)
+	files := m.getMigrationFiles()
+	sort.Strings(files)
+	nextNum := 0
+	for _, f := range files {
+		base := filepath.Base(f)
+		if len(base) >= 4 && base[3] == '_' {
+			if n, err := strconv.Atoi(base[:3]); err == nil && n >= nextNum {
+				nextNum = n + 1
+			}
+		}
+	}
+	timestamp := fmt.Sprintf("%03d", nextNum)
 	filename := fmt.Sprintf("%s_%s.sql", timestamp, strings.ToLower(strings.ReplaceAll(name, " ", "_")))
-	filepath := filepath.Join("migrations", filename)
+	path := filepath.Join("migrations", filename)
 
 	content := fmt.Sprintf(`-- Migration: %s
 -- Description: %s
@@ -188,11 +207,15 @@ func (m *Migrator) CreateMigration(name string) error {
 
 `, name, name)
 
-	return os.WriteFile(filepath, []byte(content), 0644)
+	return os.WriteFile(path, []byte(content), 0644)
 }
 
 /* Helper functions */
 func (m *Migrator) ensureMigrationsTable() error {
+	_, err := m.pool.Exec(context.Background(), `CREATE SCHEMA IF NOT EXISTS neuronip`)
+	if err != nil {
+		return err
+	}
 	query := `
 		CREATE TABLE IF NOT EXISTS neuronip.migrations (
 			id SERIAL PRIMARY KEY,
@@ -200,13 +223,13 @@ func (m *Migrator) ensureMigrationsTable() error {
 			applied_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 		)
 	`
-	_, err := m.pool.Exec(nil, query)
+	_, err = m.pool.Exec(context.Background(), query)
 	return err
 }
 
 func (m *Migrator) getAppliedMigrations() ([]string, error) {
 	query := `SELECT name FROM neuronip.migrations ORDER BY applied_at`
-	rows, err := m.pool.Query(nil, query)
+	rows, err := m.pool.Query(context.Background(), query)
 	if err != nil {
 		return nil, err
 	}
@@ -230,13 +253,13 @@ func (m *Migrator) applyMigration(filepath, name string) error {
 	}
 
 	// Execute migration
-	if _, err := m.pool.Exec(nil, string(content)); err != nil {
+	if _, err := m.pool.Exec(context.Background(), string(content)); err != nil {
 		return err
 	}
 
 	// Record migration
 	query := `INSERT INTO neuronip.migrations (name) VALUES ($1)`
-	_, err = m.pool.Exec(nil, query, name)
+	_, err = m.pool.Exec(context.Background(), query, name)
 	return err
 }
 
@@ -244,13 +267,39 @@ func (m *Migrator) rollbackMigration(name string) error {
 	// In production, you'd have rollback SQL files
 	// For now, just remove from migrations table
 	query := `DELETE FROM neuronip.migrations WHERE name = $1`
-	_, err := m.pool.Exec(nil, query, name)
+	_, err := m.pool.Exec(context.Background(), query, name)
 	return err
 }
 
 func (m *Migrator) getMigrationFiles() []string {
 	files, _ := filepath.Glob("migrations/*.sql")
 	return files
+}
+
+/* validateMigrations checks for duplicate numeric prefixes and ensures baseline is first */
+func (m *Migrator) validateMigrations(files []string) error {
+	prefixToFiles := make(map[string][]string)
+	for _, file := range files {
+		base := filepath.Base(file)
+		prefix := ""
+		if len(base) >= 4 && base[3] == '_' {
+			prefix = base[:3]
+		}
+		prefixToFiles[prefix] = append(prefixToFiles[prefix], base)
+	}
+	for prefix, list := range prefixToFiles {
+		if prefix == "" {
+			continue
+		}
+		if len(list) > 1 {
+			fmt.Fprintf(os.Stderr, "warning: duplicate migration prefix %s: %v (order is deterministic by filename)\n", prefix, list)
+		}
+	}
+	// Require 000_baseline.sql to be present and first so baseline is applied before incremental migrations
+	if len(files) > 0 && filepath.Base(files[0]) != "000_baseline.sql" {
+		return fmt.Errorf("first migration must be 000_baseline.sql (baseline schema), got %s", filepath.Base(files[0]))
+	}
+	return nil
 }
 
 func contains(slice []string, item string) bool {

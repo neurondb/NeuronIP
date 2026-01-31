@@ -5,8 +5,6 @@ import (
 	"net/http"
 
 	"github.com/google/uuid"
-	"github.com/gorilla/mux"
-	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/neurondb/NeuronIP/api/internal/auth"
 	"github.com/neurondb/NeuronIP/api/internal/db"
 	"github.com/neurondb/NeuronIP/api/internal/errors"
@@ -63,9 +61,7 @@ func (h *RLSHandler) CreateRLSPolicy(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusCreated)
-	json.NewEncoder(w).Encode(created)
+	WriteJSON(w, http.StatusCreated, created)
 }
 
 /* GetRLSPolicies handles GET /api/v1/governance/rls/policies */
@@ -91,6 +87,5 @@ func (h *RLSHandler) GetRLSPolicies(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(policies)
+	WriteJSON(w, http.StatusOK, policies)
 }

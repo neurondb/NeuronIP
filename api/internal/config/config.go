@@ -19,6 +19,13 @@ type Config struct {
 	NeuronMCP     NeuronMCPConfig
 	Observability ObservabilityConfig
 	RateLimit     RateLimitConfig
+	Execution     ExecutionConfig
+}
+
+/* ExecutionConfig holds distributed execution configuration */
+type ExecutionConfig struct {
+	NodeID        string
+	MaxConcurrent int
 }
 
 /* DatabaseConfig holds database configuration */
@@ -31,6 +38,7 @@ type DatabaseConfig struct {
 	MaxOpenConns    int
 	MaxIdleConns    int
 	ConnMaxLifetime time.Duration
+	ConnMaxIdleTime time.Duration
 	TenancyMode     string
 }
 
@@ -58,11 +66,11 @@ type CORSConfig struct {
 
 /* AuthConfig holds authentication configuration */
 type AuthConfig struct {
-	JWTSecret       string
-	EnableAPIKeys   bool
-	SCIMSecret      string
-	Session         SessionConfig
-	NeuronAIDemo    DatabaseConfig
+	JWTSecret     string
+	EnableAPIKeys bool
+	SCIMSecret    string
+	Session       SessionConfig
+	NeuronAIDemo  DatabaseConfig
 }
 
 /* SessionConfig holds session configuration */
@@ -76,52 +84,52 @@ type SessionConfig struct {
 
 /* NeuronDBConfig holds NeuronDB connection configuration */
 type NeuronDBConfig struct {
-	Host              string
-	Port              string
-	Database          string
-	User              string
-	Password          string
-	EnableVectorOps   bool
-	EnableMLOps       bool
-	EnableRAGOps      bool
-	EnableMultimodal  bool
+	Host                  string
+	Port                  string
+	Database              string
+	User                  string
+	Password              string
+	EnableVectorOps       bool
+	EnableMLOps           bool
+	EnableRAGOps          bool
+	EnableMultimodal      bool
 	EnableImageEmbeddings bool
-	EnableBatchOps    bool
-	EnableVectorIndexing bool
-	AutoCreateIndexes bool
-	DefaultIndexType  string // "hnsw" or "ivf"
+	EnableBatchOps        bool
+	EnableVectorIndexing  bool
+	AutoCreateIndexes     bool
+	DefaultIndexType      string // "hnsw" or "ivf"
 }
 
 /* NeuronAgentConfig holds NeuronAgent connection configuration */
 type NeuronAgentConfig struct {
-	Endpoint         string
-	APIKey           string
-	EnableSessions   bool
-	EnableWorkflows  bool
-	EnableEvaluation bool
-	EnableReplay     bool
+	Endpoint              string
+	APIKey                string
+	EnableSessions        bool
+	EnableWorkflows       bool
+	EnableEvaluation      bool
+	EnableReplay          bool
 	EnableSpecializations bool
-	SessionTimeout   time.Duration
-	WorkflowTimeout  time.Duration
+	SessionTimeout        time.Duration
+	WorkflowTimeout       time.Duration
 }
 
 /* NeuronMCPConfig holds NeuronMCP configuration */
 type NeuronMCPConfig struct {
-	BinaryPath          string
-	ToolCategories      []string
-	EnableVectorOps     bool
-	EnableMLTools       bool
-	EnableRAGTools      bool
-	EnablePostgresTools bool
-	EnableAnalytics     bool
-	EnableReranking     bool
-	EnableIndexMgmt     bool
-	EnableAutoML        bool
-	EnableDataDrift     bool
+	BinaryPath              string
+	ToolCategories          []string
+	EnableVectorOps         bool
+	EnableMLTools           bool
+	EnableRAGTools          bool
+	EnablePostgresTools     bool
+	EnableAnalytics         bool
+	EnableReranking         bool
+	EnableIndexMgmt         bool
+	EnableAutoML            bool
+	EnableDataDrift         bool
 	EnableQueryOptimization bool
-	Timeout             time.Duration
-	MaxConcurrentTools  int
-	CacheResults        bool
+	Timeout                 time.Duration
+	MaxConcurrentTools      int
+	CacheResults            bool
 }
 
 /* ObservabilityConfig holds observability configuration */
@@ -131,9 +139,9 @@ type ObservabilityConfig struct {
 
 /* RateLimitConfig holds rate limiting configuration */
 type RateLimitConfig struct {
-	Enabled      bool
-	MaxRequests  int
-	Window       time.Duration
+	Enabled     bool
+	MaxRequests int
+	Window      time.Duration
 }
 
 /* Load loads configuration from environment variables */
@@ -148,6 +156,7 @@ func Load() *Config {
 			MaxOpenConns:    getEnvInt("DB_MAX_OPEN_CONNS", 25),
 			MaxIdleConns:    getEnvInt("DB_MAX_IDLE_CONNS", 5),
 			ConnMaxLifetime: getEnvDuration("DB_CONN_MAX_LIFETIME", 5*time.Minute),
+			ConnMaxIdleTime: getEnvDuration("DB_CONN_MAX_IDLE_TIME", 30*time.Minute),
 		},
 		Server: ServerConfig{
 			Host:         getEnv("SERVER_HOST", "0.0.0.0"),
@@ -171,10 +180,10 @@ func Load() *Config {
 			SCIMSecret:    getEnv("SCIM_SECRET", ""),
 			Session: SessionConfig{
 				AccessTokenTTL:  getEnvDuration("SESSION_ACCESS_TTL", 15*time.Minute),
-				RefreshTokenTTL:  getEnvDuration("SESSION_REFRESH_TTL", 7*24*time.Hour),
-				CookieDomain:     getEnv("SESSION_COOKIE_DOMAIN", ""),
-				CookieSecure:     getEnv("SESSION_COOKIE_SECURE", "false") == "true",
-				CookieSameSite:   getEnv("SESSION_COOKIE_SAME_SITE", "Lax"),
+				RefreshTokenTTL: getEnvDuration("SESSION_REFRESH_TTL", 7*24*time.Hour),
+				CookieDomain:    getEnv("SESSION_COOKIE_DOMAIN", ""),
+				CookieSecure:    getEnv("SESSION_COOKIE_SECURE", "false") == "true",
+				CookieSameSite:  getEnv("SESSION_COOKIE_SAME_SITE", "Lax"),
 			},
 			NeuronAIDemo: DatabaseConfig{
 				Host:     getEnv("NEURONAI_DEMO_HOST", "localhost"),
@@ -192,49 +201,53 @@ func Load() *Config {
 			MaxRequests: getEnvInt("RATE_LIMIT_MAX_REQUESTS", 1000),
 			Window:      getEnvDuration("RATE_LIMIT_WINDOW", 1*time.Hour),
 		},
+		Execution: ExecutionConfig{
+			NodeID:        getEnv("EXECUTION_NODE_ID", "node-1"),
+			MaxConcurrent: getEnvInt("EXECUTION_MAX_CONCURRENT", 10),
+		},
 		NeuronDB: NeuronDBConfig{
-			Host:              getEnv("NEURONDB_HOST", "localhost"),
-			Port:              getEnv("NEURONDB_PORT", "5433"),
-			Database:          getEnv("NEURONDB_DATABASE", "neurondb"),
-			User:              getEnv("NEURONDB_USER", "neurondb"),
-			Password:          getEnv("NEURONDB_PASSWORD", "neurondb"),
-			EnableVectorOps:   getEnv("NEURONDB_ENABLE_VECTOR_OPS", "true") == "true",
-			EnableMLOps:       getEnv("NEURONDB_ENABLE_ML_OPS", "true") == "true",
-			EnableRAGOps:       getEnv("NEURONDB_ENABLE_RAG_OPS", "true") == "true",
-			EnableMultimodal:  getEnv("NEURONDB_ENABLE_MULTIMODAL", "true") == "true",
+			Host:                  getEnv("NEURONDB_HOST", getEnv("DB_HOST", "localhost")),
+			Port:                  getEnv("NEURONDB_PORT", getEnv("DB_PORT", "5432")),
+			Database:              getEnv("NEURONDB_DATABASE", getEnv("DB_NAME", "neuronip")),
+			User:                  getEnv("NEURONDB_USER", getEnv("DB_USER", "neuronip")),
+			Password:              getEnv("NEURONDB_PASSWORD", getEnv("DB_PASSWORD", "neuronip")),
+			EnableVectorOps:       getEnv("NEURONDB_ENABLE_VECTOR_OPS", "true") == "true",
+			EnableMLOps:           getEnv("NEURONDB_ENABLE_ML_OPS", "true") == "true",
+			EnableRAGOps:          getEnv("NEURONDB_ENABLE_RAG_OPS", "true") == "true",
+			EnableMultimodal:      getEnv("NEURONDB_ENABLE_MULTIMODAL", "true") == "true",
 			EnableImageEmbeddings: getEnv("NEURONDB_ENABLE_IMAGE_EMBEDDINGS", "true") == "true",
-			EnableBatchOps:    getEnv("NEURONDB_ENABLE_BATCH_OPS", "true") == "true",
-			EnableVectorIndexing: getEnv("NEURONDB_ENABLE_VECTOR_INDEXING", "true") == "true",
-			AutoCreateIndexes: getEnv("NEURONDB_AUTO_CREATE_INDEXES", "true") == "true",
-			DefaultIndexType:  getEnv("NEURONDB_DEFAULT_INDEX_TYPE", "hnsw"),
+			EnableBatchOps:        getEnv("NEURONDB_ENABLE_BATCH_OPS", "true") == "true",
+			EnableVectorIndexing:  getEnv("NEURONDB_ENABLE_VECTOR_INDEXING", "true") == "true",
+			AutoCreateIndexes:     getEnv("NEURONDB_AUTO_CREATE_INDEXES", "true") == "true",
+			DefaultIndexType:      getEnv("NEURONDB_DEFAULT_INDEX_TYPE", "hnsw"),
 		},
 		NeuronAgent: NeuronAgentConfig{
-			Endpoint:         getEnv("NEURONAGENT_ENDPOINT", "http://localhost:8080"),
-			APIKey:           getEnv("NEURONAGENT_API_KEY", ""),
-			EnableSessions:   getEnv("NEURONAGENT_ENABLE_SESSIONS", "true") == "true",
-			EnableWorkflows:  getEnv("NEURONAGENT_ENABLE_WORKFLOWS", "true") == "true",
-			EnableEvaluation: getEnv("NEURONAGENT_ENABLE_EVALUATION", "true") == "true",
-			EnableReplay:     getEnv("NEURONAGENT_ENABLE_REPLAY", "true") == "true",
+			Endpoint:              getEnv("NEURONAGENT_ENDPOINT", "http://localhost:8080"),
+			APIKey:                getEnv("NEURONAGENT_API_KEY", ""),
+			EnableSessions:        getEnv("NEURONAGENT_ENABLE_SESSIONS", "true") == "true",
+			EnableWorkflows:       getEnv("NEURONAGENT_ENABLE_WORKFLOWS", "true") == "true",
+			EnableEvaluation:      getEnv("NEURONAGENT_ENABLE_EVALUATION", "true") == "true",
+			EnableReplay:          getEnv("NEURONAGENT_ENABLE_REPLAY", "true") == "true",
 			EnableSpecializations: getEnv("NEURONAGENT_ENABLE_SPECIALIZATIONS", "true") == "true",
-			SessionTimeout:   getEnvDuration("NEURONAGENT_SESSION_TIMEOUT", 30*time.Minute),
-			WorkflowTimeout:  getEnvDuration("NEURONAGENT_WORKFLOW_TIMEOUT", 1*time.Hour),
+			SessionTimeout:        getEnvDuration("NEURONAGENT_SESSION_TIMEOUT", 30*time.Minute),
+			WorkflowTimeout:       getEnvDuration("NEURONAGENT_WORKFLOW_TIMEOUT", 1*time.Hour),
 		},
 		NeuronMCP: NeuronMCPConfig{
-			BinaryPath:          getEnv("NEURONMCP_BINARY_PATH", "/usr/local/bin/neurondb-mcp"),
-			ToolCategories:      getEnvSlice("NEURONMCP_TOOL_CATEGORIES", []string{"vector", "embedding", "rag", "ml", "analytics", "postgresql"}),
-			EnableVectorOps:     getEnv("NEURONMCP_ENABLE_VECTOR_OPS", "true") == "true",
-			EnableMLTools:       getEnv("NEURONMCP_ENABLE_ML_TOOLS", "true") == "true",
-			EnableRAGTools:      getEnv("NEURONMCP_ENABLE_RAG_TOOLS", "true") == "true",
-			EnablePostgresTools: getEnv("NEURONMCP_ENABLE_POSTGRES_TOOLS", "true") == "true",
-			EnableAnalytics:     getEnv("NEURONMCP_ENABLE_ANALYTICS", "true") == "true",
-			EnableReranking:     getEnv("NEURONMCP_ENABLE_RERANKING", "true") == "true",
-			EnableIndexMgmt:     getEnv("NEURONMCP_ENABLE_INDEX_MGMT", "true") == "true",
-			EnableAutoML:       getEnv("NEURONMCP_ENABLE_AUTOML", "true") == "true",
-			EnableDataDrift:     getEnv("NEURONMCP_ENABLE_DATA_DRIFT", "true") == "true",
+			BinaryPath:              getEnv("NEURONMCP_BINARY_PATH", "/usr/local/bin/neurondb-mcp"),
+			ToolCategories:          getEnvSlice("NEURONMCP_TOOL_CATEGORIES", []string{"vector", "embedding", "rag", "ml", "analytics", "postgresql"}),
+			EnableVectorOps:         getEnv("NEURONMCP_ENABLE_VECTOR_OPS", "true") == "true",
+			EnableMLTools:           getEnv("NEURONMCP_ENABLE_ML_TOOLS", "true") == "true",
+			EnableRAGTools:          getEnv("NEURONMCP_ENABLE_RAG_TOOLS", "true") == "true",
+			EnablePostgresTools:     getEnv("NEURONMCP_ENABLE_POSTGRES_TOOLS", "true") == "true",
+			EnableAnalytics:         getEnv("NEURONMCP_ENABLE_ANALYTICS", "true") == "true",
+			EnableReranking:         getEnv("NEURONMCP_ENABLE_RERANKING", "true") == "true",
+			EnableIndexMgmt:         getEnv("NEURONMCP_ENABLE_INDEX_MGMT", "true") == "true",
+			EnableAutoML:            getEnv("NEURONMCP_ENABLE_AUTOML", "true") == "true",
+			EnableDataDrift:         getEnv("NEURONMCP_ENABLE_DATA_DRIFT", "true") == "true",
 			EnableQueryOptimization: getEnv("NEURONMCP_ENABLE_QUERY_OPTIMIZATION", "true") == "true",
-			Timeout:             getEnvDuration("NEURONMCP_TIMEOUT", 30*time.Second),
-			MaxConcurrentTools:  getEnvInt("NEURONMCP_MAX_CONCURRENT_TOOLS", 10),
-			CacheResults:        getEnv("NEURONMCP_CACHE_RESULTS", "true") == "true",
+			Timeout:                 getEnvDuration("NEURONMCP_TIMEOUT", 30*time.Second),
+			MaxConcurrentTools:      getEnvInt("NEURONMCP_MAX_CONCURRENT_TOOLS", 10),
+			CacheResults:            getEnv("NEURONMCP_CACHE_RESULTS", "true") == "true",
 		},
 	}
 }
@@ -312,4 +325,19 @@ func trimSpace(s string) string {
 func (c *DatabaseConfig) DSN() string {
 	return fmt.Sprintf("host=%s port=%s user=%s password=%s dbname=%s sslmode=disable",
 		c.Host, c.Port, c.User, c.Password, c.Name)
+}
+
+/* ToDatabaseConfig returns a DatabaseConfig for pool creation (NeuronDB uses same conn params) */
+func (c *NeuronDBConfig) ToDatabaseConfig() DatabaseConfig {
+	return DatabaseConfig{
+		Host:            c.Host,
+		Port:            c.Port,
+		User:            c.User,
+		Password:        c.Password,
+		Name:            c.Database,
+		MaxOpenConns:    25,
+		MaxIdleConns:    5,
+		ConnMaxLifetime: 5 * time.Minute,
+		ConnMaxIdleTime: 30 * time.Minute,
+	}
 }

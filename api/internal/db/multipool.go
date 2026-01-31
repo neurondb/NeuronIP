@@ -42,6 +42,17 @@ func NewMultiPool(ctx context.Context, cfg config.Config) (*MultiPool, error) {
 		}
 	}
 
+	// Optional separate NeuronDB pool: only when NEURONDB_* differs from DB_*
+	ndbCfg := cfg.NeuronDB.ToDatabaseConfig()
+	if ndbCfg.Host != cfg.Database.Host || ndbCfg.Port != cfg.Database.Port || ndbCfg.Name != cfg.Database.Name {
+		neurondbPool, err := createPool(ctx, ndbCfg)
+		if err != nil {
+			fmt.Printf("Warning: Failed to create NeuronDB pool: %v (NeuronDB ops will use neuronip pool)\n", err)
+		} else {
+			mp.pools["neurondb"] = neurondbPool
+		}
+	}
+
 	return mp, nil
 }
 
@@ -67,7 +78,7 @@ func (mp *MultiPool) GetPool(database string) (*pgxpool.Pool, error) {
 func (mp *MultiPool) GetPoolFromContext(ctx context.Context) (*pgxpool.Pool, error) {
 	// Try to get database from context (set by session middleware)
 	database := "neuronip" // default
-	
+
 	// Check if database is in context (from session)
 	if dbVal := ctx.Value("database"); dbVal != nil {
 		if dbStr, ok := dbVal.(string); ok && dbStr != "" {
@@ -100,6 +111,8 @@ func (mp *MultiPool) EnsurePool(ctx context.Context, database string) (*pgxpool.
 		}
 	case "neuronip":
 		dbCfg = mp.cfg.Database
+	case "neurondb":
+		dbCfg = mp.cfg.NeuronDB.ToDatabaseConfig()
 	default:
 		return nil, fmt.Errorf("unknown database: %s", database)
 	}

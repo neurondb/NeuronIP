@@ -1,14 +1,15 @@
 'use client'
 
+import { InformationCircleIcon } from '@heroicons/react/24/outline'
 import { useState } from 'react'
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/Card'
+
 import Button from '@/components/ui/Button'
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/Card'
+import HelpText from '@/components/ui/HelpText'
 import Input from '@/components/ui/Input'
 import Select from '@/components/ui/Select'
 import Tooltip from '@/components/ui/Tooltip'
 import Warning from '@/components/ui/Warning'
-import HelpText from '@/components/ui/HelpText'
-import { InformationCircleIcon } from '@heroicons/react/24/outline'
 
 interface ConnectorFormProps {
   onSubmit: (data: any) => void

@@ -1,18 +1,22 @@
 'use client'
 
-import { useState, useEffect, useRef } from 'react'
+import { MagnifyingGlassIcon, ClockIcon, XMarkIcon, DocumentTextIcon } from '@heroicons/react/24/outline'
 import { motion, AnimatePresence } from 'framer-motion'
-import { MagnifyingGlassIcon, ClockIcon, XMarkIcon } from '@heroicons/react/24/outline'
+import { useRouter } from 'next/navigation'
+import { useState, useEffect, useRef, useMemo } from 'react'
+
+import { ROUTE_ARCHETYPE_MAP } from '@/lib/pageArchetypes'
+import { slideUp, transition } from '@/lib/animations/variants'
 import { useDebounce } from '@/lib/hooks/useDebounce'
 import { useSearchHistory } from '@/lib/hooks/useSearchHistory'
 import { cn } from '@/lib/utils/cn'
-import { slideUp, transition } from '@/lib/animations/variants'
 
 interface SearchSuggestion {
   id: string
   text: string
-  type: 'history' | 'suggestion' | 'module'
+  type: 'history' | 'suggestion' | 'module' | 'page'
   module?: string
+  href?: string
 }
 
 interface GlobalSearchProps {
@@ -34,6 +38,18 @@ export default function GlobalSearch({
   const containerRef = useRef<HTMLDivElement>(null)
   const debouncedQuery = useDebounce(query, 300)
   const { history, addToHistory } = useSearchHistory()
+  const router = useRouter()
+
+  const pageSuggestions = useMemo(
+    () =>
+      Object.values(ROUTE_ARCHETYPE_MAP).map((meta) => ({
+        id: `page-${meta.path}`,
+        text: meta.title,
+        type: 'page' as const,
+        href: meta.path,
+      })),
+    []
+  )
 
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
@@ -47,22 +63,21 @@ export default function GlobalSearch({
   }, [])
 
   useEffect(() => {
-    if (!debouncedQuery.trim()) {
-      // Show recent history
-      setSuggestions(
-        history.slice(0, 5).map((item) => ({
-          id: item.id,
-          text: item.query,
-          type: 'history' as const,
-          module: item.module,
-        }))
-      )
+    const q = debouncedQuery.trim().toLowerCase()
+    if (!q) {
+      const historyItems = history.slice(0, 4).map((item) => ({
+        id: item.id,
+        text: item.query,
+        type: 'history' as const,
+        module: item.module,
+      }))
+      const pages = pageSuggestions.slice(0, 6)
+      setSuggestions([...historyItems, ...pages])
       return
     }
 
-    // Generate suggestions based on query
     const filteredHistory = history
-      .filter((item) => item.query.toLowerCase().includes(debouncedQuery.toLowerCase()))
+      .filter((item) => item.query.toLowerCase().includes(q))
       .slice(0, 3)
       .map((item) => ({
         id: item.id,
@@ -71,14 +86,14 @@ export default function GlobalSearch({
         module: item.module,
       }))
 
-    const mockSuggestions: SearchSuggestion[] = [
-      { id: '1', text: `${debouncedQuery} in Semantic Search`, type: 'module', module: 'semantic' },
-      { id: '2', text: `${debouncedQuery} in Warehouse`, type: 'module', module: 'warehouse' },
-      { id: '3', text: `${debouncedQuery} in Workflows`, type: 'module', module: 'workflows' },
+    const filteredPages = pageSuggestions.filter((p) => p.text.toLowerCase().includes(q)).slice(0, 5)
+    const mockModule: SearchSuggestion[] = [
+      { id: 'm1', text: `${debouncedQuery} in Semantic Search`, type: 'module', module: 'semantic' },
+      { id: 'm2', text: `${debouncedQuery} in Warehouse`, type: 'module', module: 'warehouse' },
+      { id: 'm3', text: `${debouncedQuery} in Workflows`, type: 'module', module: 'workflows' },
     ]
-
-    setSuggestions([...filteredHistory, ...mockSuggestions])
-  }, [debouncedQuery, history])
+    setSuggestions([...filteredHistory, ...filteredPages, ...mockModule])
+  }, [debouncedQuery, history, pageSuggestions])
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'ArrowDown') {
@@ -90,7 +105,15 @@ export default function GlobalSearch({
     } else if (e.key === 'Enter') {
       e.preventDefault()
       if (selectedIndex >= 0 && suggestions[selectedIndex]) {
-        handleSelect(suggestions[selectedIndex].text)
+        const s = suggestions[selectedIndex]
+        if (s.type === 'page' && s.href) {
+          setIsOpen(false)
+          router.push(s.href)
+          setQuery('')
+          inputRef.current?.blur()
+        } else {
+          handleSelect(s.text)
+        }
       } else if (query.trim()) {
         handleSelect(query)
       }
@@ -160,7 +183,16 @@ export default function GlobalSearch({
               {suggestions.map((suggestion, index) => (
                 <button
                   key={suggestion.id}
-                  onClick={() => handleSelect(suggestion.text)}
+                  onClick={() => {
+                    if (suggestion.type === 'page' && suggestion.href) {
+                      setIsOpen(false)
+                      router.push(suggestion.href)
+                      setQuery('')
+                      inputRef.current?.blur()
+                    } else {
+                      handleSelect(suggestion.text)
+                    }
+                  }}
                   onMouseEnter={() => setSelectedIndex(index)}
                   className={cn(
                     'flex w-full items-center gap-3 rounded-lg px-3 py-2 text-left text-sm transition-colors',
@@ -169,10 +201,14 @@ export default function GlobalSearch({
                       : 'hover:bg-accent hover:text-accent-foreground'
                   )}
                 >
-                  {suggestion.type === 'history' && <ClockIcon className="h-4 w-4" />}
-                  <span className="flex-1">{suggestion.text}</span>
+                  {suggestion.type === 'history' && <ClockIcon className="h-4 w-4 shrink-0" />}
+                  {suggestion.type === 'page' && <DocumentTextIcon className="h-4 w-4 shrink-0" />}
+                  <span className="flex-1 truncate">{suggestion.text}</span>
                   {suggestion.module && (
-                    <span className="text-xs text-muted-foreground capitalize">{suggestion.module}</span>
+                    <span className="text-xs text-muted-foreground capitalize shrink-0">{suggestion.module}</span>
+                  )}
+                  {suggestion.type === 'page' && (
+                    <span className="text-xs text-muted-foreground shrink-0">Page</span>
                   )}
                 </button>
               ))}

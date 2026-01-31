@@ -1,9 +1,11 @@
 'use client'
 
+import { CloudArrowUpIcon, XMarkIcon } from '@heroicons/react/24/outline'
 import * as React from 'react'
 import { useDropzone } from 'react-dropzone'
-import { CloudArrowUpIcon, XMarkIcon } from '@heroicons/react/24/outline'
+
 import { cn } from '@/lib/utils/cn'
+
 import { Progress } from './Progress'
 
 interface FileUploadProps {

@@ -4,7 +4,6 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
-	"strings"
 	"time"
 
 	// Optional drivers - uncomment when available:
@@ -100,8 +99,9 @@ func (h *HiveConnector) Connect(ctx context.Context, config map[string]interface
 			h.db = db
 			h.BaseConnector.SetConnected(true)
 			return nil
+		} else {
+			lastErr = fmt.Errorf("odbc driver ping failed: %w", pingErr)
 		}
-		lastErr = fmt.Errorf("odbc driver ping failed: %w", pingErr)
 		db.Close()
 	} else {
 		lastErr = err

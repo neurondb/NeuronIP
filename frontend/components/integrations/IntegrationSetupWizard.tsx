@@ -1,13 +1,14 @@
 'use client'
 
-import { useState } from 'react'
-import Wizard, { WizardStep, WizardStepProps } from '@/components/ui/Wizard'
-import { Card, CardContent } from '@/components/ui/Card'
-import Button from '@/components/ui/Button'
-import Input from '@/components/ui/Input'
-import { useCreateIntegration, useTestIntegration } from '@/lib/api/queries'
-import { showToast } from '@/components/ui/Toast'
 import { CheckCircleIcon, XCircleIcon } from '@heroicons/react/24/outline'
+import { useState } from 'react'
+
+import Button from '@/components/ui/Button'
+import { Card, CardContent } from '@/components/ui/Card'
+import Input from '@/components/ui/Input'
+import { showToast } from '@/components/ui/Toast'
+import Wizard, { WizardStep, WizardStepProps } from '@/components/ui/Wizard'
+import { useCreateIntegration, useTestIntegration } from '@/lib/api/queries'
 
 interface IntegrationWizardData {
   type: string

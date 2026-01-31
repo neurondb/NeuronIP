@@ -1,8 +1,9 @@
 'use client'
 
 import { motion } from 'framer-motion'
-import { staggerContainer, slideUp } from '@/lib/animations/variants'
+
 import WhyNeuronIP from '@/components/marketing/WhyNeuronIP'
+import { staggerContainer, slideUp } from '@/lib/animations/variants'
 
 export default function WhyNeuronIPPage() {
   return (

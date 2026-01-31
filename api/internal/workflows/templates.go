@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -22,19 +23,19 @@ func NewTemplateService(pool *pgxpool.Pool) *TemplateService {
 
 /* WorkflowTemplate represents a reusable workflow template */
 type WorkflowTemplate struct {
-	ID            uuid.UUID              `json:"id"`
-	Name          string                 `json:"name"`
-	Description   string                 `json:"description"`
-	Category      string                 `json:"category"` // "data_ingestion", "data_transformation", "compliance", "analytics"
-	Definition    WorkflowDefinition     `json:"definition"`
-	Parameters    []TemplateParameter    `json:"parameters,omitempty"`
-	Tags          []string               `json:"tags,omitempty"`
-	UsageCount    int                    `json:"usage_count"`
-	IsPublic      bool                   `json:"is_public"`
-	CreatedBy     uuid.UUID              `json:"created_by,omitempty"`
-	CreatedAt     time.Time              `json:"created_at"`
-	UpdatedAt     time.Time              `json:"updated_at"`
-	Metadata      map[string]interface{} `json:"metadata,omitempty"`
+	ID          uuid.UUID              `json:"id"`
+	Name        string                 `json:"name"`
+	Description string                 `json:"description"`
+	Category    string                 `json:"category"` // "data_ingestion", "data_transformation", "compliance", "analytics"
+	Definition  WorkflowDefinition     `json:"definition"`
+	Parameters  []TemplateParameter    `json:"parameters,omitempty"`
+	Tags        []string               `json:"tags,omitempty"`
+	UsageCount  int                    `json:"usage_count"`
+	IsPublic    bool                   `json:"is_public"`
+	CreatedBy   uuid.UUID              `json:"created_by,omitempty"`
+	CreatedAt   time.Time              `json:"created_at"`
+	UpdatedAt   time.Time              `json:"updated_at"`
+	Metadata    map[string]interface{} `json:"metadata,omitempty"`
 }
 
 /* TemplateParameter represents a parameter in a template */
@@ -176,12 +177,23 @@ func (s *TemplateService) InstantiateTemplate(ctx context.Context,
 		return nil, fmt.Errorf("failed to get template: %w", err)
 	}
 
-	// Substitute parameters in workflow definition
+	// Substitute parameters in workflow definition ({{key}} -> value)
 	definition := template.Definition
-
-	// Replace parameter placeholders in workflow definition
-	// This is a simplified version - in production, would do full template substitution
-	// For now, just increment usage count
+	if len(parameters) > 0 {
+		defJSON, err := json.Marshal(definition)
+		if err != nil {
+			return nil, fmt.Errorf("failed to marshal definition: %w", err)
+		}
+		result := string(defJSON)
+		for key, value := range parameters {
+			placeholder := fmt.Sprintf("{{%s}}", key)
+			valueStr := fmt.Sprintf("%v", value)
+			result = strings.ReplaceAll(result, placeholder, valueStr)
+		}
+		if err := json.Unmarshal([]byte(result), &definition); err != nil {
+			return nil, fmt.Errorf("failed to unmarshal definition after substitution: %w", err)
+		}
+	}
 
 	_, err = s.pool.Exec(ctx, `
 		UPDATE neuronip.workflow_templates

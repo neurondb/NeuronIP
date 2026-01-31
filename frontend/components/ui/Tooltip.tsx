@@ -1,9 +1,11 @@
 'use client'
 
-import { ReactNode } from 'react'
-import * as TooltipPrimitive from '@radix-ui/react-tooltip'
-import { cn } from '@/lib/utils/cn'
 import { InformationCircleIcon, ExclamationCircleIcon, LightBulbIcon } from '@heroicons/react/24/outline'
+import * as TooltipPrimitive from '@radix-ui/react-tooltip'
+import { ReactNode } from 'react'
+
+import { cn } from '@/lib/utils/cn'
+
 
 export type TooltipVariant = 'info' | 'warning' | 'help'
 
@@ -25,9 +27,9 @@ const variantIcons = {
 }
 
 const variantColors = {
-  info: 'bg-blue-50 text-blue-900 border-blue-200 dark:bg-blue-900/30 dark:text-blue-100 dark:border-blue-800',
-  warning: 'bg-yellow-50 text-yellow-900 border-yellow-200 dark:bg-yellow-900/30 dark:text-yellow-100 dark:border-yellow-800',
-  help: 'bg-cyan-50 text-cyan-900 border-cyan-200 dark:bg-cyan-900/30 dark:text-cyan-100 dark:border-cyan-800',
+  info: 'bg-info/10 text-info border-info/30 dark:bg-info/20 dark:border-info/40',
+  warning: 'bg-warning/10 text-warning border-warning/30 dark:bg-warning/20 dark:border-warning/40',
+  help: 'bg-muted text-muted-foreground border-border',
 }
 
 export default function Tooltip({

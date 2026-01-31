@@ -1,8 +1,9 @@
 'use client'
 
+import { XMarkIcon } from '@heroicons/react/24/outline'
 import * as Dialog from '@radix-ui/react-dialog'
 import { motion, AnimatePresence } from 'framer-motion'
-import { XMarkIcon } from '@heroicons/react/24/outline'
+
 import { cn } from '@/lib/utils/cn'
 
 interface ModalProps {

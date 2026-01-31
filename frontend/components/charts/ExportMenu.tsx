@@ -1,7 +1,9 @@
 'use client'
 
-import * as React from 'react'
+import { ArrowDownTrayIcon } from '@heroicons/react/24/outline'
 import { saveAs } from 'file-saver'
+import * as React from 'react'
+
 import { Button } from '@/components/ui/Button'
 import {
   DropdownMenu,
@@ -9,15 +11,26 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@/components/ui/DropdownMenu'
-import { ArrowDownTrayIcon } from '@heroicons/react/24/outline'
+
+
+export interface ChartDataSeries {
+  name: string
+  values: (string | number)[]
+}
+
+export interface ChartExportData {
+  labels: string[]
+  series?: ChartDataSeries[]
+}
 
 interface ExportMenuProps {
   chartId?: string
   chartTitle?: string
+  data?: ChartExportData
   onExport?: (format: 'png' | 'svg' | 'csv') => void
 }
 
-export function ExportMenu({ chartId, chartTitle = 'chart', onExport }: ExportMenuProps) {
+export function ExportMenu({ chartId, chartTitle = 'chart', data, onExport }: ExportMenuProps) {
   const handleExport = (format: 'png' | 'svg' | 'csv') => {
     if (onExport) {
       onExport(format)
@@ -56,9 +69,22 @@ export function ExportMenu({ chartId, chartTitle = 'chart', onExport }: ExportMe
         img.src = url
       }
     } else if (format === 'csv') {
-      // CSV export would need chart data
-      // This is a placeholder
-      const csv = 'data,value\n1,10\n2,20\n3,30'
+      let csv: string
+      if (data?.labels?.length) {
+        const headers = ['label', ...(data.series?.map((s) => s.name) ?? ['value'])]
+        const rows: string[] = [headers.map((h) => `"${String(h).replace(/"/g, '""')}"`).join(',')]
+        const len = data.labels.length
+        for (let i = 0; i < len; i++) {
+          const label = String(data.labels[i] ?? '').replace(/"/g, '""')
+          const cells = data.series?.length
+            ? data.series.map((s) => `"${String(s.values[i] ?? '').replace(/"/g, '""')}"`)
+            : ['']
+          rows.push(`"${label}",${cells.join(',')}`)
+        }
+        csv = rows.join('\n')
+      } else {
+        csv = 'label,value\n'
+      }
       const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' })
       saveAs(blob, `${chartTitle}.csv`)
     }

@@ -1,12 +1,13 @@
 'use client'
 
-import { useState } from 'react'
-import { motion } from 'framer-motion'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card'
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/Table'
-import Button from '@/components/ui/Button'
-import Loading from '@/components/ui/Loading'
 import { ArrowDownTrayIcon } from '@heroicons/react/24/outline'
+import { motion } from 'framer-motion'
+import { useState } from 'react'
+
+import Button from '@/components/ui/Button'
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card'
+import Loading from '@/components/ui/Loading'
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/Table'
 import { cn } from '@/lib/utils/cn'
 
 interface ResultsTableProps {

@@ -1,7 +1,5 @@
 'use client'
 
-import { useEffect, useState } from 'react'
-import { motion } from 'framer-motion'
 import {
   MagnifyingGlassIcon,
   ChartBarIcon,
@@ -9,6 +7,9 @@ import {
   ShieldCheckIcon,
   DocumentTextIcon,
 } from '@heroicons/react/24/outline'
+import { motion } from 'framer-motion'
+import { useEffect, useState } from 'react'
+
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/Card'
 import { slideUp, transition } from '@/lib/animations/variants'
 import { cn } from '@/lib/utils/cn'

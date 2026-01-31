@@ -46,11 +46,19 @@ jobs:
         working-directory: ./api
         run: go mod download
       
+      - name: Install test dependencies
+        working-directory: ./api
+        run: go get github.com/stretchr/testify/assert github.com/stretchr/testify/mock || true
+      
       - name: Run linter
         working-directory: ./api
         run: |
           go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest
           golangci-lint run --timeout=5m || true
+      
+      - name: Install test dependencies
+        working-directory: ./api
+        run: go get github.com/stretchr/testify/assert github.com/stretchr/testify/mock
       
       - name: Run tests
         working-directory: ./api
@@ -92,9 +100,29 @@ jobs:
         working-directory: ./frontend
         run: npm run lint || true
       
-      - name: Run tests
+      - name: Run unit tests
         working-directory: ./frontend
-        run: npm test -- --coverage --watchAll=false || true
+        run: npm run test:coverage || true
+      
+      - name: Install Playwright browsers
+        working-directory: ./frontend
+        run: npx playwright install --with-deps
+      
+      - name: Run E2E tests
+        working-directory: ./frontend
+        run: npm run test:e2e || true
+        env:
+          CI: true
+      
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: frontend-test-results
+          path: |
+            frontend/coverage/
+            frontend/playwright-report/
+          retention-days: 30
       
       - name: Build
         working-directory: ./frontend

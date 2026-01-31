@@ -53,22 +53,21 @@ func (h *UnifiedAIHandler) GenerateEmbedding(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(GenerateEmbeddingResponse{
+	WriteJSON(w, http.StatusOK, GenerateEmbeddingResponse{
 		Embedding: embedding,
 		Model:     req.Model,
 	})
 }
 
-/* ExecuteWorkflowRequest represents a workflow execution request */
-type ExecuteWorkflowRequest struct {
+/* UnifiedAIExecuteWorkflowRequest represents a workflow execution request for unified AI */
+type UnifiedAIExecuteWorkflowRequest struct {
 	WorkflowID string                 `json:"workflow_id"`
 	Input      map[string]interface{} `json:"input"`
 }
 
 /* ExecuteWorkflow handles POST /api/v1/ai/workflow */
 func (h *UnifiedAIHandler) ExecuteWorkflow(w http.ResponseWriter, r *http.Request) {
-	var req ExecuteWorkflowRequest
+	var req UnifiedAIExecuteWorkflowRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		WriteErrorResponse(w, errors.BadRequest("Invalid request body"))
 		return
@@ -85,8 +84,7 @@ func (h *UnifiedAIHandler) ExecuteWorkflow(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(result)
+	WriteJSON(w, http.StatusOK, result)
 }
 
 /* RegisterToolsRequest represents a tool registration request */

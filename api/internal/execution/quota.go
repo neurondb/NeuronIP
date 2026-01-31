@@ -42,7 +42,7 @@ func (s *QuotaService) SetQuota(ctx context.Context, workspaceID *uuid.UUID, use
 	resetAt := s.calculateResetTime(period)
 
 	query := `
-		INSERT INTO neuronip.resource_quotas 
+		INSERT INTO neuronip.execution_resource_quotas 
 		(id, workspace_id, user_id, resource_type, max_limit, current_usage, period, reset_at, enabled, created_at, updated_at)
 		VALUES ($1, $2, $3, $4, $5, 0, $6, $7, true, $8, $9)
 		ON CONFLICT (workspace_id, user_id, resource_type, period) 
@@ -88,7 +88,7 @@ func (s *QuotaService) SetQuota(ctx context.Context, workspaceID *uuid.UUID, use
 func (s *QuotaService) CheckQuota(ctx context.Context, workspaceID *uuid.UUID, userID *string, resourceType string, requestedUsage int64) (bool, *ResourceQuota, error) {
 	query := `
 		SELECT id, workspace_id, user_id, resource_type, max_limit, current_usage, period, reset_at, enabled, created_at, updated_at
-		FROM neuronip.resource_quotas
+		FROM neuronip.execution_resource_quotas
 		WHERE resource_type = $1 AND enabled = true`
 
 	args := []interface{}{resourceType}
@@ -132,7 +132,7 @@ func (s *QuotaService) CheckQuota(ctx context.Context, workspaceID *uuid.UUID, u
 		// Reset usage
 		newResetAt := s.calculateResetTime(quota.Period)
 		s.pool.Exec(ctx, `
-			UPDATE neuronip.resource_quotas 
+			UPDATE neuronip.execution_resource_quotas 
 			SET current_usage = 0, reset_at = $1, updated_at = NOW()
 			WHERE id = $2`, newResetAt, quota.ID)
 		quota.CurrentUsage = 0
@@ -155,7 +155,7 @@ func (s *QuotaService) CheckQuota(ctx context.Context, workspaceID *uuid.UUID, u
 /* RecordUsage records resource usage */
 func (s *QuotaService) RecordUsage(ctx context.Context, workspaceID *uuid.UUID, userID *string, resourceType string, usage int64) error {
 	query := `
-		UPDATE neuronip.resource_quotas 
+		UPDATE neuronip.execution_resource_quotas 
 		SET current_usage = current_usage + $1, updated_at = NOW()
 		WHERE resource_type = $2 AND enabled = true`
 
@@ -190,7 +190,7 @@ func (s *QuotaService) RecordUsage(ctx context.Context, workspaceID *uuid.UUID, 
 func (s *QuotaService) GetQuotaUsage(ctx context.Context, workspaceID *uuid.UUID, userID *string, resourceType *string) ([]ResourceQuota, error) {
 	query := `
 		SELECT id, workspace_id, user_id, resource_type, max_limit, current_usage, period, reset_at, enabled, created_at, updated_at
-		FROM neuronip.resource_quotas
+		FROM neuronip.execution_resource_quotas
 		WHERE 1=1`
 
 	args := []interface{}{}

@@ -1,13 +1,14 @@
 'use client'
 
 import { useState } from 'react'
-import Modal from '@/components/ui/Modal'
+
+import Button from '@/components/ui/Button'
 import Input from '@/components/ui/Input'
+import Modal from '@/components/ui/Modal'
 import Select from '@/components/ui/Select'
 import { Textarea } from '@/components/ui/Textarea'
-import Button from '@/components/ui/Button'
-import { useCreateSupportTicket } from '@/lib/api/queries'
 import { showToast } from '@/components/ui/Toast'
+import { useCreateSupportTicket } from '@/lib/api/queries'
 
 interface CreateTicketDialogProps {
   open: boolean

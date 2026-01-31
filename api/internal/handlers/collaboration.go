@@ -15,12 +15,14 @@ import (
 /* CollaborationHandler handles collaboration requests */
 type CollaborationHandler struct {
 	service *collaboration.CollaborationService
+	pool    *pgxpool.Pool
 }
 
 /* NewCollaborationHandler creates a new collaboration handler */
 func NewCollaborationHandler(pool *pgxpool.Pool) *CollaborationHandler {
 	return &CollaborationHandler{
 		service: collaboration.NewCollaborationService(pool),
+		pool:    pool,
 	}
 }
 
@@ -55,9 +57,7 @@ func (h *CollaborationHandler) CreateSharedDashboard(w http.ResponseWriter, r *h
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusCreated)
-	json.NewEncoder(w).Encode(dashboard)
+	WriteJSON(w, http.StatusCreated, dashboard)
 }
 
 /* GetSharedDashboards handles GET /api/v1/collaboration/dashboards */
@@ -88,8 +88,7 @@ func (h *CollaborationHandler) GetSharedDashboards(w http.ResponseWriter, r *htt
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(dashboards)
+	WriteJSON(w, http.StatusOK, dashboards)
 }
 
 /* AddDashboardComment handles POST /api/v1/collaboration/dashboards/{id}/comments */
@@ -122,9 +121,7 @@ func (h *CollaborationHandler) AddDashboardComment(w http.ResponseWriter, r *htt
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusCreated)
-	json.NewEncoder(w).Encode(comment)
+	WriteJSON(w, http.StatusCreated, comment)
 }
 
 /* GetDashboardComments handles GET /api/v1/collaboration/dashboards/{id}/comments */
@@ -142,8 +139,7 @@ func (h *CollaborationHandler) GetDashboardComments(w http.ResponseWriter, r *ht
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(comments)
+	WriteJSON(w, http.StatusOK, comments)
 }
 
 /* CreateAnswerCard handles POST /api/v1/collaboration/answer-cards */
@@ -178,9 +174,288 @@ func (h *CollaborationHandler) CreateAnswerCard(w http.ResponseWriter, r *http.R
 		return
 	}
 
+	WriteJSON(w, http.StatusCreated, card)
+}
+
+/* CreateAnnotation handles POST /api/v1/collaboration/annotations */
+func (h *CollaborationHandler) CreateAnnotation(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		ResourceType   string    `json:"resource_type"`
+		ResourceID     string    `json:"resource_id"`
+		TargetType     string    `json:"target_type"`
+		TargetPath     string    `json:"target_path"`
+		AnnotationText string    `json:"annotation_text"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		WriteErrorResponse(w, errors.BadRequest("Invalid request body"))
+		return
+	}
+
+	userID := r.Header.Get("X-User-ID")
+	if userID == "" {
+		WriteErrorResponse(w, errors.Unauthorized("User ID required"))
+		return
+	}
+
+	resourceID, err := uuid.Parse(req.ResourceID)
+	if err != nil {
+		WriteErrorResponse(w, errors.BadRequest("Invalid resource ID"))
+		return
+	}
+
+	annotationService := collaboration.NewAnnotationService(h.pool)
+	annotation, err := annotationService.CreateAnnotation(r.Context(), collaboration.Annotation{
+		ResourceType:   req.ResourceType,
+		ResourceID:     resourceID,
+		TargetType:     req.TargetType,
+		TargetPath:     req.TargetPath,
+		AnnotationText: req.AnnotationText,
+		AuthorID:       userID,
+	})
+	if err != nil {
+		WriteError(w, err)
+		return
+	}
+
+	WriteJSON(w, http.StatusCreated, annotation)
+}
+
+/* GetAnnotations handles GET /api/v1/collaboration/annotations */
+func (h *CollaborationHandler) GetAnnotations(w http.ResponseWriter, r *http.Request) {
+	resourceType := r.URL.Query().Get("resource_type")
+	resourceIDStr := r.URL.Query().Get("resource_id")
+	
+	if resourceType == "" || resourceIDStr == "" {
+		WriteErrorResponse(w, errors.ValidationFailed("resource_type and resource_id are required", nil))
+		return
+	}
+
+	resourceID, err := uuid.Parse(resourceIDStr)
+	if err != nil {
+		WriteErrorResponse(w, errors.BadRequest("Invalid resource ID"))
+		return
+	}
+
+	annotationService := collaboration.NewAnnotationService(h.pool)
+	annotations, err := annotationService.GetAnnotations(r.Context(), resourceType, resourceID)
+	if err != nil {
+		WriteError(w, err)
+		return
+	}
+
 	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(annotations)
+}
+
+/* CreateThread handles POST /api/v1/collaboration/threads */
+func (h *CollaborationHandler) CreateThread(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		ResourceType string                 `json:"resource_type"`
+		ResourceID   string                 `json:"resource_id"`
+		Title        string                 `json:"title"`
+		InitialPost  map[string]interface{} `json:"initial_post"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		WriteErrorResponse(w, errors.BadRequest("Invalid request body"))
+		return
+	}
+
+	userID := r.Header.Get("X-User-ID")
+	if userID == "" {
+		WriteErrorResponse(w, errors.Unauthorized("User ID required"))
+		return
+	}
+
+	resourceID, err := uuid.Parse(req.ResourceID)
+	if err != nil {
+		WriteErrorResponse(w, errors.BadRequest("Invalid resource ID"))
+		return
+	}
+
+	if req.InitialPost == nil {
+		WriteErrorResponse(w, errors.ValidationFailed("initial_post is required", nil))
+		return
+	}
+	contentVal, ok := req.InitialPost["content"]
+	if !ok || contentVal == nil {
+		WriteErrorResponse(w, errors.ValidationFailed("initial_post.content is required", nil))
+		return
+	}
+	content, ok := contentVal.(string)
+	if !ok {
+		WriteErrorResponse(w, errors.ValidationFailed("initial_post.content must be a string", nil))
+		return
+	}
+
+	threadService := collaboration.NewThreadService(h.pool)
+	thread, err := threadService.CreateThread(r.Context(), collaboration.Thread{
+		ResourceType: req.ResourceType,
+		ResourceID:   resourceID,
+		Title:        req.Title,
+		InitialPost: collaboration.ThreadPost{
+			AuthorID: userID,
+			Content:  content,
+		},
+	})
+	if err != nil {
+		WriteError(w, err)
+		return
+	}
+
+	WriteJSON(w, http.StatusCreated, thread)
+}
+
+/* GetThreads handles GET /api/v1/collaboration/threads */
+func (h *CollaborationHandler) GetThreads(w http.ResponseWriter, r *http.Request) {
+	resourceType := r.URL.Query().Get("resource_type")
+	resourceIDStr := r.URL.Query().Get("resource_id")
+	
+	if resourceType == "" || resourceIDStr == "" {
+		WriteErrorResponse(w, errors.ValidationFailed("resource_type and resource_id are required", nil))
+		return
+	}
+
+	resourceID, err := uuid.Parse(resourceIDStr)
+	if err != nil {
+		WriteErrorResponse(w, errors.BadRequest("Invalid resource ID"))
+		return
+	}
+
+	threadService := collaboration.NewThreadService(h.pool)
+	threads, err := threadService.GetThreadsForResource(r.Context(), resourceType, resourceID, 50)
+	if err != nil {
+		WriteError(w, err)
+		return
+	}
+
+	WriteJSON(w, http.StatusOK, threads)
+}
+
+/* GetThread handles GET /api/v1/collaboration/threads/{id} */
+func (h *CollaborationHandler) GetThread(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	threadID, err := uuid.Parse(vars["id"])
+	if err != nil {
+		WriteErrorResponse(w, errors.BadRequest("Invalid thread ID"))
+		return
+	}
+
+	threadService := collaboration.NewThreadService(h.pool)
+	thread, err := threadService.GetThread(r.Context(), threadID)
+	if err != nil {
+		WriteError(w, err)
+		return
+	}
+
+	WriteJSON(w, http.StatusOK, thread)
+}
+
+/* AddPost handles POST /api/v1/collaboration/threads/{id}/posts */
+func (h *CollaborationHandler) AddPost(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	threadID, err := uuid.Parse(vars["id"])
+	if err != nil {
+		WriteErrorResponse(w, errors.BadRequest("Invalid thread ID"))
+		return
+	}
+
+	var req struct {
+		Content string `json:"content"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		WriteErrorResponse(w, errors.BadRequest("Invalid request body"))
+		return
+	}
+
+	userID := r.Header.Get("X-User-ID")
+	if userID == "" {
+		WriteErrorResponse(w, errors.Unauthorized("User ID required"))
+		return
+	}
+
+	threadService := collaboration.NewThreadService(h.pool)
+	err = threadService.AddPost(r.Context(), collaboration.ThreadPost{
+		ThreadID: threadID,
+		AuthorID: userID,
+		Content:  req.Content,
+	})
+	if err != nil {
+		WriteError(w, err)
+		return
+	}
+
 	w.WriteHeader(http.StatusCreated)
-	json.NewEncoder(w).Encode(card)
+}
+
+/* RecordDecision handles POST /api/v1/collaboration/decisions */
+func (h *CollaborationHandler) RecordDecision(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		ResourceType string                 `json:"resource_type"`
+		ResourceID   string                 `json:"resource_id"`
+		DecisionType string                 `json:"decision_type"`
+		Decision     string                 `json:"decision"`
+		Reasoning    string                 `json:"reasoning"`
+		Context      map[string]interface{} `json:"context"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		WriteErrorResponse(w, errors.BadRequest("Invalid request body"))
+		return
+	}
+
+	userID := r.Header.Get("X-User-ID")
+	if userID == "" {
+		WriteErrorResponse(w, errors.Unauthorized("User ID required"))
+		return
+	}
+
+	resourceID, err := uuid.Parse(req.ResourceID)
+	if err != nil {
+		WriteErrorResponse(w, errors.BadRequest("Invalid resource ID"))
+		return
+	}
+
+	decisionService := collaboration.NewDecisionHistoryService(h.pool)
+	err = decisionService.RecordDecision(r.Context(), collaboration.Decision{
+		ResourceType: req.ResourceType,
+		ResourceID:   resourceID,
+		DecisionType: req.DecisionType,
+		Decision:     req.Decision,
+		Reasoning:    req.Reasoning,
+		MadeBy:       userID,
+		Context:      req.Context,
+	})
+	if err != nil {
+		WriteError(w, err)
+		return
+	}
+
+	w.WriteHeader(http.StatusCreated)
+}
+
+/* GetDecisionHistory handles GET /api/v1/collaboration/decisions */
+func (h *CollaborationHandler) GetDecisionHistory(w http.ResponseWriter, r *http.Request) {
+	resourceType := r.URL.Query().Get("resource_type")
+	resourceIDStr := r.URL.Query().Get("resource_id")
+	
+	if resourceType == "" || resourceIDStr == "" {
+		WriteErrorResponse(w, errors.ValidationFailed("resource_type and resource_id are required", nil))
+		return
+	}
+
+	resourceID, err := uuid.Parse(resourceIDStr)
+	if err != nil {
+		WriteErrorResponse(w, errors.BadRequest("Invalid resource ID"))
+		return
+	}
+
+	decisionService := collaboration.NewDecisionHistoryService(h.pool)
+	decisions, err := decisionService.GetDecisionHistory(r.Context(), resourceType, resourceID, 100)
+	if err != nil {
+		WriteError(w, err)
+		return
+	}
+
+	WriteJSON(w, http.StatusOK, decisions)
 }
 
 /* SaveQuestion handles POST /api/v1/collaboration/saved-questions */
@@ -215,7 +490,5 @@ func (h *CollaborationHandler) SaveQuestion(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusCreated)
-	json.NewEncoder(w).Encode(saved)
+	WriteJSON(w, http.StatusCreated, saved)
 }

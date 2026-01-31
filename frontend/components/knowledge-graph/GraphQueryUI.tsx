@@ -1,13 +1,15 @@
 'use client'
 
-import { useState } from 'react'
 import { useQuery, useMutation } from '@tanstack/react-query'
-import apiClient from '@/lib/api/client'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card'
-import Button from '@/components/ui/Button'
-import { Textarea } from '@/components/ui/Textarea'
+import { useState } from 'react'
+
 import { Badge } from '@/components/ui/Badge'
+import Button from '@/components/ui/Button'
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card'
+import { Textarea } from '@/components/ui/Textarea'
 import { showToast } from '@/components/ui/Toast'
+import apiClient from '@/lib/api/client'
+
 import GraphVisualization from './GraphVisualization'
 
 interface GraphQueryResult {
@@ -55,7 +57,7 @@ export default function GraphQueryUI() {
     queryKey: ['graph-query', query],
     queryFn: async () => {
       const response = await apiClient.post('/api/v1/knowledge-graph/query', {
-        query: query,
+        query,
       })
       return response.data as GraphQueryResult
     },
@@ -70,7 +72,7 @@ export default function GraphQueryUI() {
     refetch()
   }
 
-  const useExample = (exampleQuery: string) => {
+  const applyExample = (exampleQuery: string) => {
     setQuery(exampleQuery)
     setSelectedExample(exampleQuery)
   }
@@ -89,7 +91,7 @@ export default function GraphQueryUI() {
               {exampleQueries.map((example, idx) => (
                 <Button
                   key={idx}
-                  onClick={() => useExample(example.query)}
+                  onClick={() => applyExample(example.query)}
                   variant={selectedExample === example.query ? 'primary' : 'outline'}
                   size="sm"
                 >

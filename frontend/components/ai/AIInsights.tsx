@@ -1,7 +1,8 @@
 'use client'
 
-import { motion } from 'framer-motion'
 import { SparklesIcon, LightBulbIcon, ChartBarIcon } from '@heroicons/react/24/outline'
+import { motion } from 'framer-motion'
+
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/Card'
 import { slideUp, transition } from '@/lib/animations/variants'
 

@@ -1,12 +1,13 @@
 'use client'
 
-import { useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/Card'
+import { useState } from 'react'
+
+import { Badge } from '@/components/ui/Badge'
 import Button from '@/components/ui/Button'
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/Card'
 import Input from '@/components/ui/Input'
 import { showToast } from '@/components/ui/Toast'
-import { Badge } from '@/components/ui/Badge'
 
 interface ConnectorType {
   type_name: string

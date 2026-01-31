@@ -51,6 +51,31 @@ export const KEYBOARD_SHORTCUTS: KeyboardShortcut[] = [
     description: 'Go to dashboard',
     category: 'Navigation',
   },
+  // Block-based editor shortcuts
+  {
+    key: '/',
+    modifier: 'cmd',
+    description: 'Open slash commands (in editor)',
+    category: 'Editor',
+  },
+  {
+    key: 'B',
+    modifier: 'cmd',
+    description: 'Bold text (in editor)',
+    category: 'Editor',
+  },
+  {
+    key: 'I',
+    modifier: 'cmd',
+    description: 'Italic text (in editor)',
+    category: 'Editor',
+  },
+  {
+    key: 'M',
+    modifier: 'cmd',
+    description: 'Toggle comments (in editor)',
+    category: 'Editor',
+  },
 ]
 
 export function getShortcutKey(shortcut: KeyboardShortcut): string {

@@ -1,10 +1,11 @@
 'use client'
 
-import { useState } from 'react'
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/Card'
-import Button from '@/components/ui/Button'
-import Input from '@/components/ui/Input'
 import { LockClosedIcon, EyeIcon, EyeSlashIcon } from '@heroicons/react/24/outline'
+import { useState } from 'react'
+
+import Button from '@/components/ui/Button'
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/Card'
+import Input from '@/components/ui/Input'
 
 interface CredentialsVaultProps {
   connectorId: string

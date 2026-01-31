@@ -1,9 +1,11 @@
 'use client'
 
-import { ReactNode } from 'react'
-import { motion } from 'framer-motion'
 import { ExclamationTriangleIcon } from '@heroicons/react/24/outline'
+import { motion } from 'framer-motion'
+import { ReactNode } from 'react'
+
 import { cn } from '@/lib/utils/cn'
+
 import Callout from './Callout'
 
 interface WarningProps {

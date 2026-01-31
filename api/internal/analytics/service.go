@@ -29,11 +29,11 @@ func NewService(pool *pgxpool.Pool, neurondbClient *neurondb.Client, mcpClient *
 
 /* AnalyticsQuery represents an analytics query */
 type AnalyticsQuery struct {
-	StartDate   *time.Time
-	EndDate     *time.Time
-	EntityType  string
-	UserID      *string
-	GroupBy     []string
+	StartDate  *time.Time
+	EndDate    *time.Time
+	EntityType string
+	UserID     *string
+	GroupBy    []string
 }
 
 /* TimeSeriesData represents time-series data point */
@@ -45,9 +45,9 @@ type TimeSeriesData struct {
 
 /* AnalyticsResult represents aggregated analytics data */
 type AnalyticsResult struct {
-	TimeSeries   []TimeSeriesData       `json:"time_series,omitempty"`
-	Aggregates   map[string]interface{} `json:"aggregates,omitempty"`
-	Breakdowns   []map[string]interface{} `json:"breakdowns,omitempty"`
+	TimeSeries []TimeSeriesData         `json:"time_series,omitempty"`
+	Aggregates map[string]interface{}   `json:"aggregates,omitempty"`
+	Breakdowns []map[string]interface{} `json:"breakdowns,omitempty"`
 }
 
 /* GetSearchAnalytics returns analytics for semantic search */
@@ -146,10 +146,10 @@ func (s *Service) GetWarehouseAnalytics(ctx context.Context, query AnalyticsQuer
 	s.pool.QueryRow(ctx, statsQuery, startDate, endDate).Scan(&total, &completed, &failed, &avgDuration)
 
 	aggregates := map[string]interface{}{
-		"total_queries":   total,
-		"completed":       completed,
-		"failed":          failed,
-		"success_rate":    0.0,
+		"total_queries": total,
+		"completed":     completed,
+		"failed":        failed,
+		"success_rate":  0.0,
 	}
 	if total > 0 {
 		aggregates["success_rate"] = float64(completed) / float64(total)
@@ -379,6 +379,27 @@ func (s *Service) AnalyzeTimeSeries(ctx context.Context, tableName string, timeC
 	return s.neurondbClient.TimeSeriesAnalysis(ctx, tableName, timeColumn, valueColumn, method, options)
 }
 
+/* CheckDrift runs NeuronDB centroid drift and distribution divergence when available (for monitoring/observability) */
+func (s *Service) CheckDrift(ctx context.Context, baselineTable, baselineCol, currentTable, currentCol string) (map[string]interface{}, error) {
+	result := make(map[string]interface{})
+	if s.neurondbClient == nil {
+		return result, nil
+	}
+	centroid, err := s.neurondbClient.DetectCentroidDrift(ctx, baselineTable, baselineCol, currentTable, currentCol)
+	if err == nil && centroid != nil {
+		result["centroid_drift"] = map[string]interface{}{
+			"distance":    centroid.Distance,
+			"normalized":  centroid.Normalized,
+			"significant": centroid.Significant,
+		}
+	}
+	divergence, err := s.neurondbClient.ComputeDistributionDivergence(ctx, baselineTable, baselineCol, currentTable, currentCol)
+	if err == nil {
+		result["distribution_divergence"] = divergence
+	}
+	return result, nil
+}
+
 /* DiscoverTopics performs topic discovery on text data using MCP */
 func (s *Service) DiscoverTopics(ctx context.Context, tableName string, textColumn string, numTopics int, options map[string]interface{}) (map[string]interface{}, error) {
 	if s.mcpClient == nil {
@@ -425,7 +446,7 @@ func (s *Service) DetectDataDrift(ctx context.Context, tableName string, referen
 	// MCP DetectDrift tool (assuming it exists in the client)
 	// Note: This may need to be added to the MCP client if not already present
 	result, err := s.mcpClient.ExecuteTool(ctx, "detect_drift", map[string]interface{}{
-		"table":            tableName,
+		"table":           tableName,
 		"reference_table": referenceTable,
 		"feature_columns": featureColumns,
 	})

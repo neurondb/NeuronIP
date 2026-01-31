@@ -1,7 +1,9 @@
 package handlers
 
 import (
+	"encoding/csv"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"strconv"
 	"time"
@@ -30,9 +32,9 @@ func NewComplianceHandler(service *compliance.Service, anomalyService *complianc
 
 /* CheckComplianceRequest represents compliance check request */
 type CheckComplianceRequest struct {
-	EntityType    string                 `json:"entity_type"`
-	EntityID      string                 `json:"entity_id"`
-	EntityContent string                 `json:"entity_content"`
+	EntityType    string `json:"entity_type"`
+	EntityID      string `json:"entity_id"`
+	EntityContent string `json:"entity_content"`
 }
 
 /* CheckCompliance handles compliance checking requests */
@@ -238,4 +240,67 @@ func (h *ComplianceHandler) GetComplianceReport(w http.ResponseWriter, r *http.R
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(report)
+}
+
+/* ExportComplianceReport handles GET /api/v1/compliance/report/export - returns compliance report as CSV or JSON download */
+func (h *ComplianceHandler) ExportComplianceReport(w http.ResponseWriter, r *http.Request) {
+	startTimeStr := r.URL.Query().Get("start_time")
+	endTimeStr := r.URL.Query().Get("end_time")
+	entityType := r.URL.Query().Get("entity_type")
+	format := r.URL.Query().Get("format")
+	if format == "" {
+		format = "json"
+	}
+
+	var startTime, endTime time.Time
+	var err error
+	if startTimeStr != "" {
+		startTime, err = time.Parse(time.RFC3339, startTimeStr)
+		if err != nil {
+			WriteErrorResponse(w, errors.BadRequest("Invalid start_time format"))
+			return
+		}
+	} else {
+		startTime = time.Now().Add(-30 * 24 * time.Hour)
+	}
+	if endTimeStr != "" {
+		endTime, err = time.Parse(time.RFC3339, endTimeStr)
+		if err != nil {
+			WriteErrorResponse(w, errors.BadRequest("Invalid end_time format"))
+			return
+		}
+	} else {
+		endTime = time.Now()
+	}
+
+	var entityTypePtr *string
+	if entityType != "" {
+		entityTypePtr = &entityType
+	}
+
+	report, err := h.policyService.GetComplianceReport(r.Context(), startTime, endTime, entityTypePtr)
+	if err != nil {
+		WriteError(w, err)
+		return
+	}
+
+	filename := "compliance_report_" + time.Now().Format("2006-01-02") + "." + format
+	w.Header().Set("Content-Disposition", "attachment; filename=\""+filename+"\"")
+
+	switch format {
+	case "csv":
+		w.Header().Set("Content-Type", "text/csv")
+		cw := csv.NewWriter(w)
+		_ = cw.Write([]string{"policy_id", "policy_name", "policy_type", "count", "avg_match_score", "max_match_score"})
+		for _, v := range report.Violations {
+			_ = cw.Write([]string{
+				v.PolicyID.String(), v.PolicyName, v.PolicyType,
+				fmt.Sprint(v.Count), fmt.Sprint(v.AvgMatchScore), fmt.Sprint(v.MaxMatchScore),
+			})
+		}
+		cw.Flush()
+	default:
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(report)
+	}
 }

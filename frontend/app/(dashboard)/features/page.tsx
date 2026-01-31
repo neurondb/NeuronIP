@@ -1,6 +1,7 @@
 'use client'
 
 import { motion } from 'framer-motion'
+
 import FeatureGrid from '@/components/features/FeatureGrid'
 import { staggerContainer, slideUp } from '@/lib/animations/variants'
 

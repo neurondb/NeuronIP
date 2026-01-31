@@ -1,6 +1,7 @@
 'use client'
 
 import { ReactNode, useEffect, useRef, useCallback } from 'react'
+
 import { useIntersectionObserver } from '@/lib/hooks/useIntersectionObserver'
 
 interface InfiniteScrollProps {

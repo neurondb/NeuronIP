@@ -1,8 +1,16 @@
 import '@testing-library/jest-dom'
 import { cleanup } from '@testing-library/react'
+import React from 'react'
 import { afterEach, vi, beforeAll, afterAll } from 'vitest'
-import { setupServer } from 'msw/node'
-import { handlers } from './mocks/handlers'
+
+import { server } from './utils/api-mock'
+
+// Mock ResizeObserver for Recharts
+global.ResizeObserver = class ResizeObserver {
+  observe() {}
+  unobserve() {}
+  disconnect() {}
+} as any
 
 // Cleanup after each test
 afterEach(() => {
@@ -28,17 +36,19 @@ vi.mock('next/navigation', () => ({
 vi.mock('next/image', () => ({
   default: (props: any) => {
     // eslint-disable-next-line @next/next/no-img-element, jsx-a11y/alt-text
-    return <img {...props} />
+    return React.createElement('img', props)
   },
 }))
 
-// Setup MSW
-export const server = setupServer(...handlers)
-
-beforeAll(() => server.listen({ onUnhandledRequest: 'error' }))
+// Setup MSW server
+beforeAll(() => {
+  server.listen({ onUnhandledRequest: 'error' })
+})
 
 afterEach(() => {
   server.resetHandlers()
 })
 
-afterAll(() => server.close())
+afterAll(() => {
+  server.close()
+})

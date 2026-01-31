@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -9,6 +10,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/neurondb/NeuronIP/api/internal/config"
 	"github.com/neurondb/NeuronIP/api/internal/db"
+	"golang.org/x/crypto/bcrypt"
 )
 
 var (
@@ -18,9 +20,10 @@ var (
 
 func main() {
 	flag.Parse()
+	ctx := context.Background()
 
 	cfg := config.Load()
-	pool, err := db.NewPool(nil, cfg.Database)
+	pool, err := db.NewPool(ctx, cfg.Database)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Failed to connect to database: %v\n", err)
 		os.Exit(1)
@@ -31,7 +34,7 @@ func main() {
 
 	if *clear {
 		fmt.Println("Clearing existing data...")
-		if err := seeder.ClearData(); err != nil {
+		if err := seeder.ClearData(ctx); err != nil {
 			fmt.Fprintf(os.Stderr, "Failed to clear data: %v\n", err)
 			os.Exit(1)
 		}
@@ -40,19 +43,19 @@ func main() {
 	switch *seedType {
 	case "demo":
 		fmt.Println("Seeding demo data...")
-		if err := seeder.SeedDemo(); err != nil {
+		if err := seeder.SeedDemo(ctx); err != nil {
 			fmt.Fprintf(os.Stderr, "Failed to seed demo data: %v\n", err)
 			os.Exit(1)
 		}
 	case "test":
 		fmt.Println("Seeding test data...")
-		if err := seeder.SeedTest(); err != nil {
+		if err := seeder.SeedTest(ctx); err != nil {
 			fmt.Fprintf(os.Stderr, "Failed to seed test data: %v\n", err)
 			os.Exit(1)
 		}
 	case "minimal":
 		fmt.Println("Seeding minimal data...")
-		if err := seeder.SeedMinimal(); err != nil {
+		if err := seeder.SeedMinimal(ctx); err != nil {
 			fmt.Fprintf(os.Stderr, "Failed to seed minimal data: %v\n", err)
 			os.Exit(1)
 		}
@@ -75,7 +78,7 @@ func NewSeeder(pool *pgxpool.Pool) *Seeder {
 }
 
 /* ClearData clears existing seed data */
-func (s *Seeder) ClearData() error {
+func (s *Seeder) ClearData(ctx context.Context) error {
 	// Clear seed data tables (be careful not to delete production data)
 	tables := []string{
 		"knowledge_documents",
@@ -86,7 +89,7 @@ func (s *Seeder) ClearData() error {
 
 	for _, table := range tables {
 		query := fmt.Sprintf(`DELETE FROM neuronip.%s WHERE metadata->>'seeded' = 'true'`, table)
-		_, err := s.pool.Exec(nil, query)
+		_, err := s.pool.Exec(ctx, query)
 		if err != nil {
 			// Log but continue
 			fmt.Printf("Warning: Failed to clear %s: %v\n", table, err)
@@ -97,55 +100,55 @@ func (s *Seeder) ClearData() error {
 }
 
 /* SeedDemo seeds demo data */
-func (s *Seeder) SeedDemo() error {
+func (s *Seeder) SeedDemo(ctx context.Context) error {
 	fmt.Println("Creating demo users...")
-	if err := s.seedUsers(); err != nil {
+	if err := s.seedUsers(ctx); err != nil {
 		return fmt.Errorf("failed to seed users: %w", err)
 	}
 
 	fmt.Println("Creating demo API keys...")
-	if err := s.seedAPIKeys(); err != nil {
+	if err := s.seedAPIKeys(ctx); err != nil {
 		return fmt.Errorf("failed to seed API keys: %w", err)
 	}
 
 	fmt.Println("Creating demo support tickets...")
-	if err := s.seedSupportTickets(); err != nil {
+	if err := s.seedSupportTickets(ctx); err != nil {
 		return fmt.Errorf("failed to seed support tickets: %w", err)
 	}
 
 	fmt.Println("Creating demo knowledge base...")
-	if err := s.seedKnowledgeBase(); err != nil {
+	if err := s.seedKnowledgeBase(ctx); err != nil {
 		return fmt.Errorf("failed to seed knowledge base: %w", err)
 	}
 
 	fmt.Println("Creating demo warehouse schemas...")
-	if err := s.seedWarehouseSchemas(); err != nil {
+	if err := s.seedWarehouseSchemas(ctx); err != nil {
 		return fmt.Errorf("failed to seed warehouse schemas: %w", err)
 	}
 
 	fmt.Println("Creating demo saved searches...")
-	if err := s.seedSavedSearches(); err != nil {
+	if err := s.seedSavedSearches(ctx); err != nil {
 		return fmt.Errorf("failed to seed saved searches: %w", err)
 	}
 
 	fmt.Println("Creating demo workflows...")
-	if err := s.seedWorkflows(); err != nil {
+	if err := s.seedWorkflows(ctx); err != nil {
 		return fmt.Errorf("failed to seed workflows: %w", err)
 	}
 
 	fmt.Println("Creating demo metrics...")
-	if err := s.seedMetrics(); err != nil {
+	if err := s.seedMetrics(ctx); err != nil {
 		return fmt.Errorf("failed to seed metrics: %w", err)
 	}
 
 	return nil
 }
 
-func (s *Seeder) seedUsers() error {
+func (s *Seeder) seedUsers(ctx context.Context) error {
 	// Default password for all seeded users: "demo123" (change in production!)
 	// This password hash corresponds to "demo123" using bcrypt with cost 10
 	defaultPasswordHash := "$2a$10$N9qo8uLOickgx2ZMRZoMyeIjZAgcfl7p92ldGxad68LJZdL17lhWy"
-	
+
 	users := []struct {
 		email    string
 		name     string
@@ -164,7 +167,7 @@ func (s *Seeder) seedUsers() error {
 			VALUES ($1, $2, $3, $4, '{"seeded": true}'::jsonb)
 			ON CONFLICT (email) DO UPDATE SET name = EXCLUDED.name, role = EXCLUDED.role
 		`
-		_, err := s.pool.Exec(nil, query, u.email, u.password, u.name, u.role)
+		_, err := s.pool.Exec(ctx, query, u.email, u.password, u.name, u.role)
 		if err != nil {
 			fmt.Printf("Warning: Failed to insert user %s: %v\n", u.email, err)
 		}
@@ -172,7 +175,7 @@ func (s *Seeder) seedUsers() error {
 	return nil
 }
 
-func (s *Seeder) seedAPIKeys() error {
+func (s *Seeder) seedAPIKeys(ctx context.Context) error {
 	query := `
 		INSERT INTO neuronip.api_keys (name, key_hash, rate_limit_per_hour, metadata)
 		VALUES 
@@ -180,14 +183,14 @@ func (s *Seeder) seedAPIKeys() error {
 			('Development Key', '$2a$10$dev', 500, '{"seeded": true}'::jsonb)
 		ON CONFLICT DO NOTHING
 	`
-	_, err := s.pool.Exec(nil, query)
+	_, err := s.pool.Exec(ctx, query)
 	if err != nil {
 		fmt.Printf("Warning: Failed to insert API keys: %v\n", err)
 	}
 	return nil
 }
 
-func (s *Seeder) seedSupportTickets() error {
+func (s *Seeder) seedSupportTickets(ctx context.Context) error {
 	// Load support tickets from JSON file
 	supportTicketsFile := "../../../examples/demos/support-tickets-demo.json"
 	data, err := os.ReadFile(supportTicketsFile)
@@ -229,13 +232,13 @@ func (s *Seeder) seedSupportTickets() error {
 		}
 
 		metadata := map[string]interface{}{
-			"seeded": true,
+			"seeded":         true,
 			"customer_email": ticket["customer_email"],
 			"customer_name":  ticket["customer_name"],
 		}
 		metadataJSON, _ := json.Marshal(metadata)
 
-		_, err := s.pool.Exec(nil, query, id, customerID, subject, description, priority, status, string(metadataJSON))
+		_, err := s.pool.Exec(ctx, query, id, customerID, subject, description, priority, status, string(metadataJSON))
 		if err != nil {
 			fmt.Printf("Warning: Failed to insert ticket %s: %v\n", id, err)
 		}
@@ -243,7 +246,7 @@ func (s *Seeder) seedSupportTickets() error {
 	return nil
 }
 
-func (s *Seeder) seedKnowledgeBase() error {
+func (s *Seeder) seedKnowledgeBase(ctx context.Context) error {
 	knowledgeBaseFile := "../../../examples/demos/knowledge-base-demo.json"
 	data, err := os.ReadFile(knowledgeBaseFile)
 	if err != nil {
@@ -276,7 +279,7 @@ func (s *Seeder) seedKnowledgeBase() error {
 			VALUES ($1, $2, '{"seeded": true}'::jsonb)
 			ON CONFLICT (id) DO NOTHING
 		`
-		_, err := s.pool.Exec(nil, collectionQuery, collectionID, collectionName)
+		_, err := s.pool.Exec(ctx, collectionQuery, collectionID, collectionName)
 		if err != nil {
 			fmt.Printf("Warning: Failed to insert collection %s: %v\n", collectionID, err)
 			continue
@@ -315,7 +318,7 @@ func (s *Seeder) seedKnowledgeBase() error {
 			}
 			metadataJSON, _ := json.Marshal(metadata)
 
-			_, err := s.pool.Exec(nil, docQuery, docID, collectionID, title, content, contentType, string(metadataJSON))
+			_, err := s.pool.Exec(ctx, docQuery, docID, collectionID, title, content, contentType, string(metadataJSON))
 			if err != nil {
 				fmt.Printf("Warning: Failed to insert document %s: %v\n", docID, err)
 			}
@@ -324,7 +327,7 @@ func (s *Seeder) seedKnowledgeBase() error {
 	return nil
 }
 
-func (s *Seeder) seedWarehouseSchemas() error {
+func (s *Seeder) seedWarehouseSchemas(ctx context.Context) error {
 	warehouseSalesFile := "../../../examples/demos/warehouse-sales-demo.json"
 	data, err := os.ReadFile(warehouseSalesFile)
 	if err != nil {
@@ -353,7 +356,7 @@ func (s *Seeder) seedWarehouseSchemas() error {
 		VALUES ($1, $2, $3, $4::jsonb, '{"seeded": true}'::jsonb)
 		ON CONFLICT (id) DO NOTHING
 	`
-	_, err = s.pool.Exec(nil, query, schemaID, schemaName, schemaDesc, string(schemaJSON))
+	_, err = s.pool.Exec(ctx, query, schemaID, schemaName, schemaDesc, string(schemaJSON))
 	if err != nil {
 		fmt.Printf("Warning: Failed to insert warehouse schema: %v\n", err)
 	}
@@ -361,7 +364,7 @@ func (s *Seeder) seedWarehouseSchemas() error {
 	return nil
 }
 
-func (s *Seeder) seedSavedSearches() error {
+func (s *Seeder) seedSavedSearches(ctx context.Context) error {
 	searches := []struct {
 		id          string
 		name        string
@@ -381,7 +384,7 @@ func (s *Seeder) seedSavedSearches() error {
 			) VALUES ($1, $2, $3, $4, $5, '{"seeded": true}'::jsonb)
 			ON CONFLICT (id) DO NOTHING
 		`
-		_, err := s.pool.Exec(nil, query, search.id, search.name, search.description, search.query, search.isPublic)
+		_, err := s.pool.Exec(ctx, query, search.id, search.name, search.description, search.query, search.isPublic)
 		if err != nil {
 			fmt.Printf("Warning: Failed to insert saved search %s: %v\n", search.id, err)
 		}
@@ -389,7 +392,7 @@ func (s *Seeder) seedSavedSearches() error {
 	return nil
 }
 
-func (s *Seeder) seedWorkflows() error {
+func (s *Seeder) seedWorkflows(ctx context.Context) error {
 	query := `
 		INSERT INTO neuronip.workflows (id, name, description, definition, metadata)
 		VALUES (
@@ -401,14 +404,14 @@ func (s *Seeder) seedWorkflows() error {
 		)
 		ON CONFLICT (id) DO NOTHING
 	`
-	_, err := s.pool.Exec(nil, query)
+	_, err := s.pool.Exec(ctx, query)
 	if err != nil {
 		fmt.Printf("Warning: Failed to insert workflow: %v\n", err)
 	}
 	return nil
 }
 
-func (s *Seeder) seedMetrics() error {
+func (s *Seeder) seedMetrics(ctx context.Context) error {
 	metrics := []struct {
 		id          string
 		name        string
@@ -426,7 +429,7 @@ func (s *Seeder) seedMetrics() error {
 			VALUES ($1, $2, $3, $4::jsonb, '{"seeded": true}'::jsonb)
 			ON CONFLICT (id) DO NOTHING
 		`
-		_, err := s.pool.Exec(nil, query, metric.id, metric.name, metric.description, metric.definition)
+		_, err := s.pool.Exec(ctx, query, metric.id, metric.name, metric.description, metric.definition)
 		if err != nil {
 			fmt.Printf("Warning: Failed to insert metric %s: %v\n", metric.id, err)
 		}
@@ -435,19 +438,23 @@ func (s *Seeder) seedMetrics() error {
 }
 
 /* SeedTest seeds test data */
-func (s *Seeder) SeedTest() error {
+func (s *Seeder) SeedTest(ctx context.Context) error {
 	// Seed minimal test data
-	return s.SeedMinimal()
+	return s.SeedMinimal(ctx)
 }
 
 /* SeedMinimal seeds minimal data */
-func (s *Seeder) SeedMinimal() error {
-	// Create a test user
+func (s *Seeder) SeedMinimal(ctx context.Context) error {
+	// Demo password: "demo123" (documented in demo/QUICK-START.md)
+	hash, err := bcrypt.GenerateFromPassword([]byte("demo123"), bcrypt.DefaultCost)
+	if err != nil {
+		return fmt.Errorf("failed to hash demo password: %w", err)
+	}
 	query := `
 		INSERT INTO neuronip.users (email, password_hash, name, role)
-		VALUES ('demo@example.com', '$2a$10$dummy', 'Demo User', 'admin')
+		VALUES ('demo@example.com', $1, 'Demo User', 'admin')
 		ON CONFLICT (email) DO NOTHING
 	`
-	_, err := s.pool.Exec(nil, query)
+	_, err = s.pool.Exec(ctx, query, string(hash))
 	return err
 }

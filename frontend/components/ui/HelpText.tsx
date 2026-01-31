@@ -1,9 +1,11 @@
 'use client'
 
-import { ReactNode, useState } from 'react'
-import { motion, AnimatePresence } from 'framer-motion'
 import { InformationCircleIcon, XMarkIcon, DocumentTextIcon } from '@heroicons/react/24/outline'
+import { motion, AnimatePresence } from 'framer-motion'
+import { ReactNode, useState } from 'react'
+
 import { cn } from '@/lib/utils/cn'
+
 import Tooltip from './Tooltip'
 
 interface HelpTextProps {

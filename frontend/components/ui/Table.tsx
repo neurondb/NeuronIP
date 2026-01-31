@@ -1,6 +1,7 @@
 'use client'
 
 import { HTMLAttributes, forwardRef } from 'react'
+
 import { cn } from '@/lib/utils/cn'
 
 const Table = forwardRef<HTMLTableElement, HTMLAttributes<HTMLTableElement>>(
@@ -35,7 +36,7 @@ const TableRow = forwardRef<HTMLTableRowElement, HTMLAttributes<HTMLTableRowElem
     <tr
       ref={ref}
       className={cn(
-        'border-b transition-colors hover:bg-muted/50 data-[state=selected]:bg-muted',
+        'border-b border-border transition-colors duration-fast hover:bg-muted/50 data-[state=selected]:bg-muted',
         className
       )}
       {...props}

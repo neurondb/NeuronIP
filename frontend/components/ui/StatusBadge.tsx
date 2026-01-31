@@ -1,14 +1,16 @@
 'use client'
 
-import { ReactNode } from 'react'
-import { motion } from 'framer-motion'
 import {
   CheckCircleIcon,
   XCircleIcon,
   ClockIcon,
   ExclamationCircleIcon,
 } from '@heroicons/react/24/outline'
+import { motion } from 'framer-motion'
+import { ReactNode } from 'react'
+
 import { cn } from '@/lib/utils/cn'
+
 import Tooltip from './Tooltip'
 
 export type StatusType = 'connected' | 'disconnected' | 'connecting' | 'error' | 'warning'

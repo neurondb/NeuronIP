@@ -102,14 +102,7 @@ type SyncError struct {
 	Count   int    `json:"count"`
 }
 
-/* ConnectorMetadata provides information about a connector */
-type ConnectorMetadata struct {
-	Type        string   `json:"type"`
-	Name        string   `json:"name"`
-	Description string   `json:"description"`
-	Version     string   `json:"version"`
-	Capabilities []string `json:"capabilities"` // e.g., "incremental", "schema_discovery", "cdc"
-}
+// ConnectorMetadata is defined in connector_framework.go
 
 /* BaseConnector provides common functionality for connectors */
 type BaseConnector struct {
@@ -218,8 +211,7 @@ func (p *ConnectorPool) ReleaseConnector(ctx context.Context, conn Connector) er
 	return nil
 }
 
-/* ConnectorFactory creates a new connector instance */
-type ConnectorFactory func(connectorType string) Connector
+// ConnectorFactory is defined in connector_framework.go
 
 /* RetryConfig configures retry behavior */
 type RetryConfig struct {

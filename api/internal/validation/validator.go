@@ -158,7 +158,7 @@ func (r *PatternRule) Validate(value interface{}) error {
 	if val.Kind() == reflect.String {
 		if !r.Pattern.MatchString(val.String()) {
 			if r.Message != "" {
-				return fmt.Errorf(r.Message)
+				return fmt.Errorf("%s", r.Message)
 			}
 			return fmt.Errorf("field does not match required pattern")
 		}

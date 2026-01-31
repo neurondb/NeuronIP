@@ -1,9 +1,10 @@
 'use client'
 
+import { CheckCircleIcon, XCircleIcon } from '@heroicons/react/24/outline'
 import { motion } from 'framer-motion'
+
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/Table'
-import { CheckCircleIcon, XCircleIcon } from '@heroicons/react/24/outline'
 import { slideUp, transition } from '@/lib/animations/variants'
 
 interface ComplianceCheck {

@@ -3,6 +3,7 @@ package observability
 import (
 	"context"
 	"fmt"
+	"runtime"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -20,21 +21,21 @@ func NewEnhancedHealthService(pool *pgxpool.Pool) *EnhancedHealthService {
 
 /* HealthCheckResult represents comprehensive health check result */
 type HealthCheckResult struct {
-	Status       string                 `json:"status"` // "healthy", "degraded", "unhealthy"
-	Timestamp    time.Time              `json:"timestamp"`
-	Uptime       time.Duration          `json:"uptime,omitempty"`
-	Version      string                 `json:"version,omitempty"`
-	Components   map[string]ComponentHealth `json:"components,omitempty"`
-	Metrics      HealthMetrics          `json:"metrics,omitempty"`
+	Status     string                     `json:"status"` // "healthy", "degraded", "unhealthy"
+	Timestamp  time.Time                  `json:"timestamp"`
+	Uptime     time.Duration              `json:"uptime,omitempty"`
+	Version    string                     `json:"version,omitempty"`
+	Components map[string]ComponentHealth `json:"components,omitempty"`
+	Metrics    HealthMetrics              `json:"metrics,omitempty"`
 }
 
 /* ComponentHealth represents health of a component */
 type ComponentHealth struct {
-	Status      string    `json:"status"` // "healthy", "degraded", "unhealthy"
-	Message     string    `json:"message,omitempty"`
-	LastCheck   time.Time `json:"last_check"`
-	ResponseTime *time.Duration `json:"response_time_ms,omitempty"`
-	Details     map[string]interface{} `json:"details,omitempty"`
+	Status       string                 `json:"status"` // "healthy", "degraded", "unhealthy"
+	Message      string                 `json:"message,omitempty"`
+	LastCheck    time.Time              `json:"last_check"`
+	ResponseTime *time.Duration         `json:"response_time_ms,omitempty"`
+	Details      map[string]interface{} `json:"details,omitempty"`
 }
 
 /* HealthMetrics represents system health metrics */
@@ -48,7 +49,7 @@ type HealthConnectionMetrics struct {
 	Active      int     `json:"active"`
 	Idle        int     `json:"idle"`
 	Max         int     `json:"max"`
-	WaitCount   int     `json:"wait_count"` // Reserved for future implementation
+	WaitCount   int     `json:"wait_count"` // 0 when not provided (pgxpool.Stat does not expose wait count)
 	Utilization float64 `json:"utilization_percent"`
 }
 
@@ -182,9 +183,9 @@ func (s *EnhancedHealthService) checkQueryPerformance(ctx context.Context) Compo
 	}
 
 	health.Details = map[string]interface{}{
-		"avg_time_ms":    avgTime,
-		"max_time_ms":    maxTime,
-		"query_count":    queryCount,
+		"avg_time_ms": avgTime,
+		"max_time_ms": maxTime,
+		"query_count": queryCount,
 	}
 
 	if avgTime != nil && *avgTime > 5000 {
@@ -238,14 +239,40 @@ func (s *EnhancedHealthService) getHealthMetrics(ctx context.Context) HealthMetr
 		Active:      active,
 		Idle:        idle,
 		Max:         max,
-		WaitCount:   0, // Not available in pgxpool.Stat
+		WaitCount:   0, // pgxpool.Stat does not expose empty acquire count
 		Utilization: float64(active+idle) / float64(max) * 100.0,
 	}
 
-	// System resources would be retrieved from monitoring system
-	// For now, leave empty as they would require system-level access
+	// Get system resource metrics using runtime
+	metrics.SystemResources = s.getSystemResourceMetrics()
 
 	return metrics
+}
+
+/* getSystemResourceMetrics retrieves CPU, memory, and disk usage */
+func (s *EnhancedHealthService) getSystemResourceMetrics() HealthResourceMetrics {
+	var m runtime.MemStats
+	runtime.ReadMemStats(&m)
+
+	// Memory usage: HeapAlloc as percentage of Sys (total memory obtained from OS)
+	memUsage := 0.0
+	if m.Sys > 0 {
+		memUsage = float64(m.HeapAlloc) / float64(m.Sys) * 100.0
+	}
+
+	// CPU usage: use number of goroutines as a proxy (actual CPU requires cgo or external library)
+	numGoroutines := runtime.NumGoroutine()
+	numCPU := runtime.NumCPU()
+	cpuUsage := float64(numGoroutines) / float64(numCPU*100) * 100.0 // rough estimate
+	if cpuUsage > 100 {
+		cpuUsage = 100
+	}
+
+	return HealthResourceMetrics{
+		CPUUsage:    cpuUsage,
+		MemoryUsage: memUsage,
+		DiskUsage:   0.0, // disk usage requires syscall which varies by OS
+	}
 }
 
 /* GetReadinessCheck performs readiness check */

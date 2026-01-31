@@ -1,13 +1,14 @@
 'use client'
 
 import { motion } from 'framer-motion'
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/Card'
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/Table'
+
 import Button from '@/components/ui/Button'
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/Card'
 import Loading from '@/components/ui/Loading'
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/Table'
+import { slideUp, transition } from '@/lib/animations/variants'
 import { useAlertRules } from '@/lib/api/queries'
 import { cn } from '@/lib/utils/cn'
-import { slideUp, transition } from '@/lib/animations/variants'
 
 interface AlertRule {
   id: string

@@ -25,7 +25,7 @@ func (q *Queries) GetKnowledgeCollectionByID(ctx context.Context, id uuid.UUID) 
 	var collection KnowledgeCollection
 	query := `SELECT id, name, description, created_by, created_at, updated_at, metadata 
 	          FROM neuronip.knowledge_collections WHERE id = $1`
-	
+
 	err := q.DB.QueryRow(ctx, query, id).Scan(
 		&collection.ID, &collection.Name, &collection.Description,
 		&collection.CreatedBy, &collection.CreatedAt, &collection.UpdatedAt, &collection.Metadata,
@@ -41,10 +41,22 @@ func (q *Queries) GetKnowledgeCollectionByID(ctx context.Context, id uuid.UUID) 
 
 /* ListKnowledgeCollections retrieves all knowledge collections */
 func (q *Queries) ListKnowledgeCollections(ctx context.Context) ([]KnowledgeCollection, error) {
+	return q.ListKnowledgeCollectionsWithLimit(ctx, 100, 0)
+}
+
+/* ListKnowledgeCollectionsWithLimit retrieves knowledge collections with pagination */
+func (q *Queries) ListKnowledgeCollectionsWithLimit(ctx context.Context, limit, offset int) ([]KnowledgeCollection, error) {
+	if limit <= 0 {
+		limit = 100
+	}
+	if limit > 1000 {
+		limit = 1000 // Maximum limit to prevent excessive memory usage
+	}
+
 	query := `SELECT id, name, description, created_by, created_at, updated_at, metadata 
-	          FROM neuronip.knowledge_collections ORDER BY created_at DESC`
-	
-	rows, err := q.DB.Query(ctx, query)
+	          FROM neuronip.knowledge_collections ORDER BY created_at DESC LIMIT $1 OFFSET $2`
+
+	rows, err := q.DB.Query(ctx, query, limit, offset)
 	if err != nil {
 		return nil, fmt.Errorf("failed to list knowledge collections: %w", err)
 	}
@@ -71,7 +83,7 @@ func (q *Queries) GetKnowledgeDocumentByID(ctx context.Context, id uuid.UUID) (*
 	query := `SELECT id, collection_id, title, content, content_type, source, source_url, 
 	          metadata, created_at, updated_at 
 	          FROM neuronip.knowledge_documents WHERE id = $1`
-	
+
 	err := q.DB.QueryRow(ctx, query, id).Scan(
 		&doc.ID, &doc.CollectionID, &doc.Title, &doc.Content, &doc.ContentType,
 		&doc.Source, &doc.SourceURL, &doc.Metadata, &doc.CreatedAt, &doc.UpdatedAt,
@@ -91,7 +103,7 @@ func (q *Queries) GetSupportTicketByID(ctx context.Context, id uuid.UUID) (*Supp
 	query := `SELECT id, ticket_number, customer_id, customer_email, subject, status, 
 	          priority, assigned_agent_id, metadata, created_at, updated_at, resolved_at 
 	          FROM neuronip.support_tickets WHERE id = $1`
-	
+
 	err := q.DB.QueryRow(ctx, query, id).Scan(
 		&ticket.ID, &ticket.TicketNumber, &ticket.CustomerID, &ticket.CustomerEmail,
 		&ticket.Subject, &ticket.Status, &ticket.Priority, &ticket.AssignedAgentID,
@@ -111,7 +123,7 @@ func (q *Queries) GetAPIKeyByPrefix(ctx context.Context, prefix string) (*APIKey
 	var key APIKey
 	query := `SELECT id, key_hash, key_prefix, user_id, name, rate_limit, last_used_at, expires_at, created_at 
 	          FROM neuronip.api_keys WHERE key_prefix = $1`
-	
+
 	err := q.DB.QueryRow(ctx, query, prefix).Scan(
 		&key.ID, &key.KeyHash, &key.KeyPrefix, &key.UserID, &key.Name,
 		&key.RateLimit, &key.LastUsedAt, &key.ExpiresAt, &key.CreatedAt,
@@ -141,7 +153,7 @@ func (q *Queries) GetUserByID(ctx context.Context, id uuid.UUID) (*User, error) 
 	query := `SELECT id, email, email_verified, password_hash, name, avatar_url, role, 
 	          two_factor_enabled, two_factor_secret, preferences, last_login_at, created_at, updated_at 
 	          FROM neuronip.users WHERE id = $1`
-	
+
 	err := q.DB.QueryRow(ctx, query, id).Scan(
 		&user.ID, &user.Email, &user.EmailVerified, &user.PasswordHash,
 		&user.Name, &user.AvatarURL, &user.Role, &user.TwoFactorEnabled,
@@ -163,7 +175,7 @@ func (q *Queries) GetUserByEmail(ctx context.Context, email string) (*User, erro
 	query := `SELECT id, email, email_verified, password_hash, name, avatar_url, role, 
 	          two_factor_enabled, two_factor_secret, preferences, last_login_at, created_at, updated_at 
 	          FROM neuronip.users WHERE email = $1`
-	
+
 	err := q.DB.QueryRow(ctx, query, email).Scan(
 		&user.ID, &user.Email, &user.EmailVerified, &user.PasswordHash,
 		&user.Name, &user.AvatarURL, &user.Role, &user.TwoFactorEnabled,
@@ -186,7 +198,7 @@ func (q *Queries) CreateUser(ctx context.Context, email string, passwordHash *st
 	          VALUES ($1, $2, $3, $4) 
 	          RETURNING id, email, email_verified, password_hash, name, avatar_url, role, 
 	          two_factor_enabled, two_factor_secret, preferences, last_login_at, created_at, updated_at`
-	
+
 	err := q.DB.QueryRow(ctx, query, email, passwordHash, name, role).Scan(
 		&user.ID, &user.Email, &user.EmailVerified, &user.PasswordHash,
 		&user.Name, &user.AvatarURL, &user.Role, &user.TwoFactorEnabled,
@@ -237,7 +249,7 @@ func (q *Queries) GetUserProfile(ctx context.Context, userID uuid.UUID) (*UserPr
 	var profile UserProfile
 	query := `SELECT user_id, bio, company, job_title, location, website, metadata, created_at, updated_at 
 	          FROM neuronip.user_profiles WHERE user_id = $1`
-	
+
 	err := q.DB.QueryRow(ctx, query, userID).Scan(
 		&profile.UserID, &profile.Bio, &profile.Company, &profile.JobTitle,
 		&profile.Location, &profile.Website, &profile.Metadata,
@@ -259,7 +271,7 @@ func (q *Queries) CreateUserProfile(ctx context.Context, profile *UserProfile) e
 	          ON CONFLICT (user_id) DO UPDATE SET 
 	          bio = EXCLUDED.bio, company = EXCLUDED.company, job_title = EXCLUDED.job_title, 
 	          location = EXCLUDED.location, website = EXCLUDED.website, metadata = EXCLUDED.metadata`
-	
+
 	_, err := q.DB.Exec(ctx, query, profile.UserID, profile.Bio, profile.Company,
 		profile.JobTitle, profile.Location, profile.Website, profile.Metadata)
 	if err != nil {
@@ -273,7 +285,7 @@ func (q *Queries) GetUserSessionByToken(ctx context.Context, token string) (*Use
 	var session UserSession
 	query := `SELECT id, user_id, session_token, refresh_token, ip_address, user_agent, expires_at, created_at 
 	          FROM neuronip.user_sessions WHERE session_token = $1 AND expires_at > NOW()`
-	
+
 	err := q.DB.QueryRow(ctx, query, token).Scan(
 		&session.ID, &session.UserID, &session.SessionToken, &session.RefreshToken,
 		&session.IPAddress, &session.UserAgent, &session.ExpiresAt, &session.CreatedAt,
@@ -292,7 +304,7 @@ func (q *Queries) GetUserSessionByRefreshToken(ctx context.Context, refreshToken
 	var session UserSession
 	query := `SELECT id, user_id, session_token, refresh_token, ip_address, user_agent, expires_at, created_at 
 	          FROM neuronip.user_sessions WHERE refresh_token = $1 AND expires_at > NOW()`
-	
+
 	err := q.DB.QueryRow(ctx, query, refreshToken).Scan(
 		&session.ID, &session.UserID, &session.SessionToken, &session.RefreshToken,
 		&session.IPAddress, &session.UserAgent, &session.ExpiresAt, &session.CreatedAt,
@@ -310,7 +322,7 @@ func (q *Queries) GetUserSessionByRefreshToken(ctx context.Context, refreshToken
 func (q *Queries) CreateUserSession(ctx context.Context, session *UserSession) error {
 	query := `INSERT INTO neuronip.user_sessions (user_id, session_token, refresh_token, ip_address, user_agent, expires_at) 
 	          VALUES ($1, $2, $3, $4, $5, $6) RETURNING id, created_at`
-	
+
 	err := q.DB.QueryRow(ctx, query, session.UserID, session.SessionToken, session.RefreshToken,
 		session.IPAddress, session.UserAgent, session.ExpiresAt).Scan(&session.ID, &session.CreatedAt)
 	if err != nil {
@@ -344,7 +356,7 @@ func (q *Queries) ListUserSessions(ctx context.Context, userID uuid.UUID) ([]Use
 	query := `SELECT id, user_id, session_token, refresh_token, ip_address, user_agent, expires_at, created_at 
 	          FROM neuronip.user_sessions WHERE user_id = $1 AND expires_at > NOW() 
 	          ORDER BY created_at DESC`
-	
+
 	rows, err := q.DB.Query(ctx, query, userID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to list sessions: %w", err)

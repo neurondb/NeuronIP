@@ -1,8 +1,5 @@
 'use client'
 
-import { usePathname } from 'next/navigation'
-import Link from 'next/link'
-import { motion, AnimatePresence } from 'framer-motion'
 import {
   HomeIcon,
   MagnifyingGlassIcon,
@@ -31,7 +28,14 @@ import {
   InformationCircleIcon,
   ChevronDownIcon,
   ChevronRightIcon,
+  StarIcon,
 } from '@heroicons/react/24/outline'
+import { StarIcon as StarIconSolid } from '@heroicons/react/24/solid'
+import { motion, AnimatePresence } from 'framer-motion'
+import Link from 'next/link'
+import { usePathname } from 'next/navigation'
+
+import { getRouteMeta } from '@/lib/pageArchetypes'
 import { useAppStore } from '@/lib/store/useAppStore'
 import { cn } from '@/lib/utils/cn'
 
@@ -48,81 +52,114 @@ interface NavGroup {
   items: NavItem[]
 }
 
+/** Fewer top-level groups, clearer naming (Notion-like flow). */
 const navigationGroups: NavGroup[] = [
   {
     id: 'overview',
     name: 'Overview',
     icon: HomeIcon,
     items: [
-      { name: 'Dashboard', href: '/dashboard', icon: HomeIcon },
-      { name: 'Why NeuronIP', href: '/dashboard/why-neuronip', icon: InformationCircleIcon },
+      { name: 'Dashboard', href: '/', icon: HomeIcon },
+      { name: 'Why NeuronIP', href: '/why-neuronip', icon: InformationCircleIcon },
     ],
   },
   {
-    id: 'data-analytics',
-    name: 'Data & Analytics',
+    id: 'data',
+    name: 'Data',
     icon: CubeIcon,
     items: [
-      { name: 'Semantic Search', href: '/dashboard/semantic', icon: MagnifyingGlassIcon },
-      { name: 'Warehouse', href: '/dashboard/warehouse', icon: CubeIcon },
-      { name: 'Data Sources', href: '/dashboard/data-sources', icon: ServerIcon },
-      { name: 'Metrics', href: '/dashboard/metrics', icon: ChartBarIcon },
-      { name: 'Data Catalog', href: '/dashboard/catalog', icon: FolderIcon },
-      { name: 'Knowledge Graph', href: '/dashboard/knowledge-graph', icon: CircleStackIcon },
+      { name: 'Semantic Search', href: '/semantic', icon: MagnifyingGlassIcon },
+      { name: 'Warehouse', href: '/warehouse', icon: CubeIcon },
+      { name: 'Data Sources', href: '/data-sources', icon: ServerIcon },
+      { name: 'Metrics', href: '/metrics', icon: ChartBarIcon },
+      { name: 'Catalog', href: '/catalog', icon: FolderIcon },
+      { name: 'Knowledge Graph', href: '/knowledge-graph', icon: CircleStackIcon },
     ],
   },
   {
-    id: 'ai-automation',
+    id: 'ai',
     name: 'AI & Automation',
     icon: CpuChipIcon,
     items: [
-      { name: 'Agent Hub', href: '/dashboard/agents', icon: UserCircleIcon },
-      { name: 'Models', href: '/dashboard/models', icon: CpuChipIcon },
-      { name: 'Workflows', href: '/dashboard/workflows', icon: CommandLineIcon },
+      { name: 'Agents', href: '/agents', icon: UserCircleIcon },
+      { name: 'Models', href: '/models', icon: CpuChipIcon },
+      { name: 'Workflows', href: '/workflows', icon: CommandLineIcon },
     ],
   },
   {
-    id: 'observability',
-    name: 'Observability & Monitoring',
+    id: 'ops',
+    name: 'Ops & Governance',
     icon: EyeIcon,
     items: [
-      { name: 'Observability', href: '/dashboard/observability', icon: EyeIcon },
-      { name: 'Alerts', href: '/dashboard/alerts', icon: BellAlertIcon },
-      { name: 'Data Lineage', href: '/dashboard/lineage', icon: ArrowsRightLeftIcon },
+      { name: 'Observability', href: '/observability', icon: EyeIcon },
+      { name: 'Alerts', href: '/alerts', icon: BellAlertIcon },
+      { name: 'Lineage', href: '/lineage', icon: ArrowsRightLeftIcon },
+      { name: 'Compliance', href: '/compliance', icon: Cog6ToothIcon },
+      { name: 'Audit', href: '/audit', icon: DocumentTextIcon },
+      { name: 'Versioning', href: '/versioning', icon: ClockIcon },
     ],
   },
   {
-    id: 'governance',
-    name: 'Governance & Compliance',
-    icon: DocumentTextIcon,
-    items: [
-      { name: 'Compliance', href: '/dashboard/compliance', icon: Cog6ToothIcon },
-      { name: 'Audit', href: '/dashboard/audit', icon: DocumentTextIcon },
-      { name: 'Versioning', href: '/dashboard/versioning', icon: ClockIcon },
-    ],
-  },
-  {
-    id: 'administration',
-    name: 'Administration',
+    id: 'admin',
+    name: 'Admin',
     icon: Cog6ToothIcon,
     items: [
-      { name: 'Users', href: '/dashboard/users', icon: UserGroupIcon },
-      { name: 'API Keys', href: '/dashboard/api-keys', icon: KeyIcon },
-      { name: 'Integrations', href: '/dashboard/integrations', icon: PuzzlePieceIcon },
-      { name: 'Settings', href: '/dashboard/settings', icon: Cog6ToothIcon },
-    ],
-  },
-  {
-    id: 'business',
-    name: 'Business',
-    icon: CreditCardIcon,
-    items: [
-      { name: 'Billing', href: '/dashboard/billing', icon: CreditCardIcon },
-      { name: 'Support', href: '/dashboard/support', icon: LifebuoyIcon },
-      { name: 'Features', href: '/dashboard/features', icon: SparklesIcon },
+      { name: 'Users', href: '/users', icon: UserGroupIcon },
+      { name: 'API Keys', href: '/api-keys', icon: KeyIcon },
+      { name: 'Integrations', href: '/integrations', icon: PuzzlePieceIcon },
+      { name: 'Settings', href: '/settings', icon: Cog6ToothIcon },
+      { name: 'Billing', href: '/billing', icon: CreditCardIcon },
+      { name: 'Support', href: '/support', icon: LifebuoyIcon },
+      { name: 'Features', href: '/features', icon: SparklesIcon },
     ],
   },
 ]
+
+function PinnedRecentLink({
+  href,
+  label,
+  isActive,
+  isPinned,
+  onTogglePin,
+}: {
+  href: string
+  label: string
+  isActive: boolean
+  isPinned: boolean
+  onTogglePin: () => void
+}) {
+  return (
+    <div className="group/link flex items-center gap-1 rounded-lg px-2 py-1.5">
+      <Link href={href} prefetch className="flex-1 min-w-0" onClick={(e) => e.stopPropagation()}>
+        <span
+          className={cn(
+            'block truncate text-sm font-medium transition-colors',
+            isActive
+              ? 'text-primary'
+              : 'text-muted-foreground hover:text-accent-foreground'
+          )}
+        >
+          {label}
+        </span>
+      </Link>
+      <button
+        type="button"
+        onClick={(e) => {
+          e.preventDefault()
+          onTogglePin()
+        }}
+        className="shrink-0 rounded p-1 opacity-0 group-hover/link:opacity-100 focus-visible:opacity-100 transition-opacity hover:bg-accent"
+        aria-label={isPinned ? 'Unpin' : 'Pin'}
+      >
+        {isPinned ? (
+          <StarIconSolid className="h-4 w-4 text-primary" />
+        ) : (
+          <StarIcon className="h-4 w-4 text-muted-foreground" />
+        )}
+      </button>
+    </div>
+  )
+}
 
 function NavGroupSection({ group }: { group: NavGroup }) {
   const pathname = usePathname()
@@ -141,7 +178,11 @@ function NavGroupSection({ group }: { group: NavGroup }) {
           const isActive = pathname === item.href
           const Icon = item.icon
           return (
-            <Link key={item.name} href={item.href}>
+            <Link 
+              key={item.name} 
+              href={item.href}
+              prefetch={true}
+            >
               <motion.div
                 className={cn(
                   'group flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors',
@@ -207,7 +248,11 @@ function NavGroupSection({ group }: { group: NavGroup }) {
                 const isActive = pathname === item.href
                 const Icon = item.icon
                 return (
-                  <Link key={item.name} href={item.href}>
+                  <Link 
+                    key={item.name} 
+                    href={item.href}
+                    prefetch={true}
+                  >
                     <motion.div
                       className={cn(
                         'group flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors',
@@ -235,7 +280,12 @@ function NavGroupSection({ group }: { group: NavGroup }) {
             const isActive = pathname === item.href
             const Icon = item.icon
             return (
-              <Link key={item.name} href={item.href} title={item.name}>
+              <Link 
+                key={item.name} 
+                href={item.href} 
+                title={item.name}
+                prefetch={true}
+              >
                 <motion.div
                   className={cn(
                     'flex items-center justify-center rounded-lg p-2 text-sm font-medium transition-colors',
@@ -259,7 +309,13 @@ function NavGroupSection({ group }: { group: NavGroup }) {
 
 export default function Sidebar() {
   const pathname = usePathname()
-  const { sidebarCollapsed, toggleSidebar } = useAppStore()
+  const {
+    sidebarCollapsed,
+    toggleSidebar,
+    recentPaths,
+    pinnedPaths,
+    togglePinnedPath,
+  } = useAppStore()
 
   return (
     <>
@@ -284,15 +340,24 @@ export default function Sidebar() {
         <div className="flex h-full flex-col">
           {/* Header */}
           <div className="flex h-16 items-center justify-between border-b border-border px-4 shrink-0">
-            {!sidebarCollapsed && (
-              <motion.h2
-                className="text-xl font-bold text-foreground"
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
-              >
-                NeuronIP
-              </motion.h2>
-            )}
+            <Link href="/" className="flex items-center gap-2 flex-shrink-0">
+              <div className="w-10 h-10 rounded-lg flex items-center justify-center overflow-hidden bg-white dark:bg-slate-800">
+                <img 
+                  src="/logo.png" 
+                  alt="NeuronIP" 
+                  className="w-full h-full object-contain p-1"
+                />
+              </div>
+              {!sidebarCollapsed && (
+                <motion.h2
+                  className="text-xl font-bold text-foreground"
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                >
+                  NeuronIP
+                </motion.h2>
+              )}
+            </Link>
             <button
               onClick={toggleSidebar}
               className="rounded-lg p-2 hover:bg-accent transition-colors"
@@ -305,6 +370,57 @@ export default function Sidebar() {
               )}
             </button>
           </div>
+
+          {/* Pinned & Recents (Notion-like) */}
+          {(pinnedPaths.length > 0 || recentPaths.length > 0) && !sidebarCollapsed && (
+            <div className="shrink-0 space-y-2 border-b border-border px-3 py-3">
+              {pinnedPaths.length > 0 && (
+                <div className="space-y-1">
+                  <p className="px-3 py-1 text-xs font-medium uppercase tracking-wider text-muted-foreground">
+                    Pinned
+                  </p>
+                  {pinnedPaths.map((path) => {
+                    const meta = getRouteMeta(path) ?? { title: path, path }
+                    const isActive = pathname === path
+                    return (
+                      <PinnedRecentLink
+                        key={path}
+                        href={path}
+                        label={meta.title}
+                        isActive={isActive}
+                        isPinned
+                        onTogglePin={() => togglePinnedPath(path)}
+                      />
+                    )
+                  })}
+                </div>
+              )}
+              {recentPaths.length > 0 && (
+                <div className="space-y-1">
+                  <p className="px-3 py-1 text-xs font-medium uppercase tracking-wider text-muted-foreground">
+                    Recents
+                  </p>
+                  {recentPaths
+                    .filter((path) => path !== pathname && !pinnedPaths.includes(path))
+                    .slice(0, 5)
+                    .map((path) => {
+                      const meta = getRouteMeta(path) ?? { title: path, path }
+                      const isActive = pathname === path
+                      return (
+                        <PinnedRecentLink
+                          key={path}
+                          href={path}
+                          label={meta.title}
+                          isActive={isActive}
+                          isPinned={pinnedPaths.includes(path)}
+                          onTogglePin={() => togglePinnedPath(path)}
+                        />
+                      )
+                    })}
+                </div>
+              )}
+            </div>
+          )}
 
           {/* Navigation */}
           <nav className="flex-1 space-y-2 px-3 py-4 overflow-y-auto">

@@ -1,8 +1,9 @@
 'use client'
 
 import { motion } from 'framer-motion'
-import { staggerContainer, slideUp } from '@/lib/animations/variants'
+
 import QualityDashboard from '@/components/quality/QualityDashboard'
+import { staggerContainer, slideUp } from '@/lib/animations/variants'
 
 export default function QualityPage() {
   return (

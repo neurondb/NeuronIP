@@ -1,7 +1,7 @@
 'use client'
 
-import { useState, useCallback, useEffect } from 'react'
 import { usePathname } from 'next/navigation'
+import { useState, useCallback, useEffect } from 'react'
 
 export interface HelpContext {
   page: string
@@ -107,7 +107,7 @@ export function useHelpContext(section?: string): HelpContext {
 
   // Extract page name from pathname
   const page = pathname.split('/').pop() || 'dashboard'
-  const normalizedPage = page === 'dashboard' && pathname === '/dashboard' ? 'dashboard' : page
+  const normalizedPage = page === 'dashboard' && pathname === '/' ? 'dashboard' : page
 
   const showHelp = useCallback(() => {
     setIsHelpVisible(true)
